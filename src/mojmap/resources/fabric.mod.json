@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "ui-utils-26x-cevapi",
+  "version": "${version}",
+  "name": "UI-Utils 26x CevAPI",
+  "description": "Mojmap rewrite of UI-Utils for modern Fabric versions, with advanced packet and command tools.",
+  "authors": [
+    "Coderx_Gamer",
+    "MrBreakNFix",
+    "CevAPI"
+  ],
+  "contact": {
+    "sources": "https://github.com/CevAPI/UI-Utils-26x-CevAPI"
+  },
+  "license": "GPL-3.0-or-later",
+  "icon": "assets/ui_utils/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.ui_utils.MainClient"
+    ]
+  },
+  "mixins": [
+    "ui_utils.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.0",
+    "fabric-api": "*",
+    "minecraft": "~26.1-pre.2",
+    "java": ">=25"
+  },
+  "custom": {
+    "modmenu:clientsideOnly": true,
+    "modmenu:api": false
+  }
+}

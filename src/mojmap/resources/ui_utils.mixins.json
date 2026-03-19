@@ -1,0 +1,26 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.ui_utils.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ChatScreenMixin",
+    "ClientCommonNetworkHandlerMixin",
+    "ClientPacketListenerMixin",
+    "MultiplayerScreenMixin",
+    "ui_utils.ChestSlotOverlayMixin",
+    "ui_utils.UiUtilsAbstractContainerScreenMixin",
+    "ui_utils.UiUtilsAbstractSignEditScreenMixin",
+    "ui_utils.UiUtilsBookEditScreenMixin",
+    "ui_utils.UiUtilsBookViewScreenMixin",
+    "ui_utils.UiUtilsConnectionMixin",
+    "ui_utils.UiUtilsConnectionReceiveMixin",
+    "ui_utils.UiUtilsIngameHudMixin",
+    "ui_utils.UiUtilsScreenHudMixin",
+    "ui_utils.UiUtilsInBedChatScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
+
