@@ -4,7 +4,7 @@
 
 ## Overview
 
-- This is a rewrite of the original **UI-Utils 2.4.0**, migrated to Mojang mappings (mojmap) which was ported out of [Wurst-7-CevAPI](https://github.com/cev-api/Wurst7-CevAPI) and then bumped to **Minecraft 26.1 PR2** and put into a standalone mod. 
+- This is a rewrite of the original **UI-Utils 2.4.0**, migrated to Mojang mappings (mojmap) which was ported out of [Wurst-7-CevAPI](https://github.com/cev-api/Wurst7-CevAPI) and then bumped to **Minecraft 26.1** and put into a standalone mod. 
 - On top of classic UI-Utils quality-of-life features, this build adds advanced packet tooling, command scanning and expanded UI controls. 
 - This application is designed and presented for people already familiar with UI-Utils. There will be no explanations or guide on how to use it in-game, you can instead find that [here](https://github.com/ui-utils/docs/blob/main/OverlayOverview.md).
 - If you are looking for a **1.21.11** version you can find that [here](https://github.com/cev-api/UI-Utils-CevAPI).
@@ -140,7 +140,7 @@ Main commands:
 ## Notes on the Mojmap Migration
 
 - Entire codebase uses Mojang mappings for clarity and forward‑compat.
-- Mixins target 26.1 RC client internals; packet types are discovered at runtime with a reflective catalog for resilience across dot‑releases.
+- Mixins target 26.1 client internals; packet types are discovered at runtime with a reflective catalog for resilience across dot‑releases.
 - APT’s UI is intentionally external for now to avoid churn in the in‑game widget APIs and keep the dual‑list UX snappy. May become internalised in the future.
 
 ## Credits
