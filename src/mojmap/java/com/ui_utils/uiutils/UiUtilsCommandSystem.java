@@ -210,17 +210,34 @@ public final class UiUtilsCommandSystem {
 	
 	private static String packetHud(String args) {
 		String mode = args == null ? "" : args.trim().toLowerCase(Locale.ROOT);
-		if(mode.isBlank() || mode.equals("toggle"))
-			UiUtilsSettings.get().packetHudEnabled = !UiUtilsSettings.get().packetHudEnabled;
+		if(mode.isBlank() || mode.equals("toggle") || mode.equals("cycle"))
+			UiUtilsSettings.get().packetHudPosition =
+				UiUtilsSettings.get().packetHudPosition.next();
 		else if(mode.equals("on"))
-			UiUtilsSettings.get().packetHudEnabled = true;
+			UiUtilsSettings.get().packetHudPosition =
+				UiUtilsSettings.PacketHudPosition.TOP_LEFT;
 		else if(mode.equals("off"))
-			UiUtilsSettings.get().packetHudEnabled = false;
+			UiUtilsSettings.get().packetHudPosition =
+				UiUtilsSettings.PacketHudPosition.OFF;
+		else if(mode.equals("topleft"))
+			UiUtilsSettings.get().packetHudPosition =
+				UiUtilsSettings.PacketHudPosition.TOP_LEFT;
+		else if(mode.equals("topright"))
+			UiUtilsSettings.get().packetHudPosition =
+				UiUtilsSettings.PacketHudPosition.TOP_RIGHT;
+		else if(mode.equals("bottomleft"))
+			UiUtilsSettings.get().packetHudPosition =
+				UiUtilsSettings.PacketHudPosition.BOTTOM_LEFT;
+		else if(mode.equals("bottomright"))
+			UiUtilsSettings.get().packetHudPosition =
+				UiUtilsSettings.PacketHudPosition.BOTTOM_RIGHT;
 		else
-			return PREFIX + "Usage: packethud <on|off|toggle>";
+			return PREFIX + "Usage: packethud <cycle|toggle|on|off|topleft|topright|bottomleft|bottomright>";
+		UiUtilsSettings.get().packetHudEnabled =
+			UiUtilsSettings.get().packetHudPosition.isEnabled();
 		UiUtilsSettings.save();
 		return PREFIX + "Packet HUD: "
-			+ (UiUtilsSettings.get().packetHudEnabled ? "ON" : "OFF");
+			+ UiUtilsSettings.get().packetHudPosition.label();
 	}
 	
 	private static String delay(String args) {

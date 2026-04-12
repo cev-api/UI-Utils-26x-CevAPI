@@ -21,6 +21,7 @@ public final class UiUtilsSettingsScreen extends Screen {
 	private EditBox selectedColorHexField;
 
 	private UiUtilsColoredButton overlayModeButton;
+	private UiUtilsColoredButton packetHudButton;
 	private UiUtilsColoredButton disconnectMethodButton;
 	private UiUtilsColoredButton timeoutSecondsButton;
 	private UiUtilsColoredButton timeoutLagMethodButton;
@@ -64,9 +65,9 @@ public final class UiUtilsSettingsScreen extends Screen {
 			b -> cycleOverlayMode(), left, y, 205, rowH));
 		refreshOverlayModeLabel();
 
-		addRenderableWidget(makeToggleButton(left + 215, y, 205, rowH,
-			"Packet HUD", () -> UiUtilsSettings.get().packetHudEnabled,
-			v -> UiUtilsSettings.get().packetHudEnabled = v));
+		packetHudButton = addRenderableWidget(UiUtils.styledButton("",
+			b -> cyclePacketHudPosition(), left + 215, y, 205, rowH));
+		refreshPacketHudLabel();
 		y += rowH + gap;
 
 		addRenderableWidget(makeToggleButton(left, y, panelWidth, rowH,
@@ -252,6 +253,22 @@ public final class UiUtilsSettingsScreen extends Screen {
 		OverlayMode mode = getOverlayMode();
 		overlayModeButton
 			.setMessage(Component.literal("Slot overlay: " + mode.name()));
+	}
+
+	private void cyclePacketHudPosition() {
+		UiUtilsSettings.get().packetHudPosition =
+			UiUtilsSettings.get().packetHudPosition.next();
+		UiUtilsSettings.get().packetHudEnabled =
+			UiUtilsSettings.get().packetHudPosition.isEnabled();
+		UiUtilsSettings.save();
+		refreshPacketHudLabel();
+	}
+
+	private void refreshPacketHudLabel() {
+		if(packetHudButton == null)
+			return;
+		packetHudButton.setMessage(Component.literal(
+			"Packet HUD: " + UiUtilsSettings.get().packetHudPosition.label()));
 	}
 
 	private void cycleColorTarget() {

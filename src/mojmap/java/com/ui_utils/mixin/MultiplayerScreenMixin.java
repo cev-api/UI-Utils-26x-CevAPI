@@ -3,6 +3,7 @@ package com.ui_utils.mixin;
 import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsSettings;
 import com.ui_utils.uiutils.UiUtilsState;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.network.chat.Component;
@@ -24,28 +25,29 @@ public abstract class MultiplayerScreenMixin extends Screen {
 		}
 
 		int x = 8;
-		int w = 170;
+		int w = 200;
 		int h = 20;
 		int y2 = this.height - h - 8;
 		int y1 = y2 - h - 4;
 
-
-		addRenderableWidget(UiUtils.styledButton(
-			"Bypass Resource Pack: " + (UiUtilsSettings.get().bypassResourcePack ? "ON" : "OFF"),
+		addRenderableWidget(Button.builder(
+			Component.literal("Bypass Resource Pack: "
+				+ (UiUtilsSettings.get().bypassResourcePack ? "ON" : "OFF")),
 			b -> {
 				UiUtilsSettings.get().bypassResourcePack = !UiUtilsSettings.get().bypassResourcePack;
 				UiUtilsSettings.save();
 				b.setMessage(Component.literal("Bypass Resource Pack: "
 					+ (UiUtilsSettings.get().bypassResourcePack ? "ON" : "OFF")));
-			}, x, y1, w, h));
+			}).bounds(x, y1, w, h).build());
 
-		addRenderableWidget(UiUtils.styledButton(
-			"Force Deny: " + (UiUtilsSettings.get().resourcePackForceDeny ? "ON" : "OFF"),
+		addRenderableWidget(Button.builder(
+			Component.literal("Force Deny: "
+				+ (UiUtilsSettings.get().resourcePackForceDeny ? "ON" : "OFF")),
 			b -> {
 				UiUtilsSettings.get().resourcePackForceDeny = !UiUtilsSettings.get().resourcePackForceDeny;
 				UiUtilsSettings.save();
 				b.setMessage(Component.literal("Force Deny: "
 					+ (UiUtilsSettings.get().resourcePackForceDeny ? "ON" : "OFF")));
-			}, x, y2, w, h));
+			}).bounds(x, y2, w, h).build());
 	}
 }

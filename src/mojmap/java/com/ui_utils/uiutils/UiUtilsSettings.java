@@ -33,6 +33,13 @@ public final class UiUtilsSettings {
 
 		try (Reader reader = Files.newBufferedReader(SETTINGS_PATH)) {
 			Data loaded = GSON.fromJson(reader, Data.class);
+			if (loaded != null && !loaded.packetHudEnabled
+				&& loaded.packetHudPosition == PacketHudPosition.TOP_LEFT) {
+				loaded.packetHudPosition = PacketHudPosition.OFF;
+			}
+			if (loaded != null) {
+				loaded.packetHudEnabled = loaded.packetHudPosition.isEnabled();
+			}
 			data = loaded != null ? loaded : new Data();
 		} catch (Exception e) {
 			LOGGER.warn("Failed to load UI Utils settings, using defaults.", e);
@@ -58,6 +65,7 @@ public final class UiUtilsSettings {
 		public String restoreKey = "key.keyboard.v";
 		public String packetToolsKey = "key.keyboard.p";
 		public boolean packetHudEnabled = true;
+		public PacketHudPosition packetHudPosition = PacketHudPosition.TOP_LEFT;
 		public int packetHudColor = 0xFFFFFF;
 		public String delayToggleKey = "key.keyboard.o";
 		public String disconnectMethod = "QUIT";
@@ -85,5 +93,37 @@ public final class UiUtilsSettings {
 		public boolean commandScannerRunFoundCommands = false;
 		public String commandScannerDontSendFilter = "";
 		public String commandScannerPacketCommands = "I Love Cevapcici!";
+	}
+
+	public enum PacketHudPosition {
+		TOP_LEFT("Top left"),
+		TOP_RIGHT("Top right"),
+		BOTTOM_LEFT("Bottom left"),
+		BOTTOM_RIGHT("Bottom right"),
+		OFF("Off");
+
+		private final String label;
+
+		PacketHudPosition(String label) {
+			this.label = label;
+		}
+
+		public String label() {
+			return label;
+		}
+
+		public PacketHudPosition next() {
+			return switch (this) {
+				case TOP_LEFT -> TOP_RIGHT;
+				case TOP_RIGHT -> BOTTOM_LEFT;
+				case BOTTOM_LEFT -> BOTTOM_RIGHT;
+				case BOTTOM_RIGHT -> OFF;
+				case OFF -> TOP_LEFT;
+			};
+		}
+
+		public boolean isEnabled() {
+			return this != OFF;
+		}
 	}
 }

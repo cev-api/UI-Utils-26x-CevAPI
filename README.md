@@ -4,7 +4,7 @@
 
 ## Overview
 
-- This is a rewrite of the original **UI-Utils 2.4.0**, migrated to Mojang mappings (mojmap) which was ported out of [Wurst-7-CevAPI](https://github.com/cev-api/Wurst7-CevAPI) and then bumped to **Minecraft 26.1** and put into a standalone mod. 
+- This is a rewrite of the original **UI-Utils 2.4.0**, migrated to Mojang mappings (mojmap) which was ported out of [Wurst-7-CevAPI](https://github.com/cev-api/Wurst7-CevAPI) and then bumped to **Minecraft 26.x** and put into a standalone mod. 
 - On top of classic UI-Utils quality-of-life features, this build adds advanced packet tooling, command scanning and expanded UI controls. 
 - This application is designed and presented for people already familiar with UI-Utils. There will be no explanations or guide on how to use it in-game, you can instead find that [here](https://github.com/ui-utils/docs/blob/main/OverlayOverview.md).
 - If you are looking for a **1.21.11** version you can find that [here](https://github.com/cev-api/UI-Utils-CevAPI).
@@ -21,7 +21,7 @@ Artifacts land in `build/libs/`.
 
 ## Getting Started
 
-1. Install Fabric Loader and Fabric API for your Minecraft 26.1 installation.
+1. Install Fabric Loader and Fabric API for your Minecraft 26.x installation.
 2. Drop the built jar from `build/libs/` into your `mods/` folder.
 3. Launch Minecraft. Open any container — the UI‑Utils toolbox appears on the left.
 
@@ -76,6 +76,7 @@ Artifacts land in `build/libs/`.
     - `888 IN / 999 OUT`
     - `    20 QUEUED` (only shown when queue > 0)
   - HUD color is configurable in Settings
+  - Positionable to all four corners
 - Themed UI‑Utils buttons
   - Colored button renderer is used across UI‑Utils screens and injected buttons
   - Removes mixed vanilla/colored button look
