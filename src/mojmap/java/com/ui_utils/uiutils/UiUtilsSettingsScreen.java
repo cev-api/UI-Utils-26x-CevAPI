@@ -1,5 +1,6 @@
 package com.ui_utils.uiutils;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -9,15 +10,14 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 
 public final class UiUtilsSettingsScreen extends Screen {
 	private final Screen parent;
+	private boolean settingsDirty;
 
-	private EditBox restoreKeyField;
-	private EditBox packetToolsKeyField;
-	private EditBox delayToggleKeyField;
 	private EditBox selectedColorHexField;
 
 	private UiUtilsColoredButton overlayModeButton;
@@ -26,8 +26,12 @@ public final class UiUtilsSettingsScreen extends Screen {
 	private UiUtilsColoredButton timeoutSecondsButton;
 	private UiUtilsColoredButton timeoutLagMethodButton;
 	private UiUtilsColoredButton colorTargetButton;
+	private UiUtilsColoredButton restoreKeyBindButton;
+	private UiUtilsColoredButton packetToolsKeyBindButton;
+	private UiUtilsColoredButton delayToggleKeyBindButton;
 	private HsvPickerWidget colorPickerWidget;
 	private ColorTarget selectedTarget = ColorTarget.BUTTON_COLOR;
+	private KeyCaptureMode keyCaptureMode = KeyCaptureMode.NONE;
 
 	public UiUtilsSettingsScreen(Screen parent) {
 		super(Component.literal("UI-Utils Settings"));
@@ -55,18 +59,23 @@ public final class UiUtilsSettingsScreen extends Screen {
 
 	@Override
 	protected void init() {
-		int panelWidth = 420;
+		int panelWidth = getPanelWidth();
 		int left = this.width / 2 - panelWidth / 2;
-		int y = this.height / 2 - 200;
 		int rowH = 20;
 		int gap = 4;
+		int pickerHeight = getPickerHeight(rowH, gap);
+		int y = getContentTop(rowH, gap, pickerHeight);
+		int half = (panelWidth - gap) / 2;
+		int third = (panelWidth - gap * 2) / 3;
+
+		y += rowH + gap;
 
 		overlayModeButton = addRenderableWidget(UiUtils.styledButton("",
-			b -> cycleOverlayMode(), left, y, 205, rowH));
+			b -> cycleOverlayMode(), left, y, half, rowH));
 		refreshOverlayModeLabel();
 
 		packetHudButton = addRenderableWidget(UiUtils.styledButton("",
-			b -> cyclePacketHudPosition(), left + 215, y, 205, rowH));
+			b -> cyclePacketHudPosition(), left + half + gap, y, half, rowH));
 		refreshPacketHudLabel();
 		y += rowH + gap;
 
@@ -75,13 +84,16 @@ public final class UiUtilsSettingsScreen extends Screen {
 			v -> UiUtilsSettings.get().logToChat = v));
 		y += rowH + gap;
 
-		addRenderableWidget(makeToggleButton(left, y, 205, rowH, "Bypass RP",
+		addRenderableWidget(makeToggleButton(left, y, third, rowH, "Bypass RP",
 			() -> UiUtilsSettings.get().bypassResourcePack,
 			v -> UiUtilsSettings.get().bypassResourcePack = v));
-		addRenderableWidget(
-			makeToggleButton(left + 215, y, 205, rowH, "Force Deny RP",
-				() -> UiUtilsSettings.get().resourcePackForceDeny,
-				v -> UiUtilsSettings.get().resourcePackForceDeny = v));
+		addRenderableWidget(makeToggleButton(left + third + gap, y, third, rowH,
+			"Force Deny RP", () -> UiUtilsSettings.get().resourcePackForceDeny,
+			v -> UiUtilsSettings.get().resourcePackForceDeny = v));
+		addRenderableWidget(makeToggleButton(left + (third + gap) * 2, y,
+			third, rowH, "Show RP Buttons",
+			() -> UiUtilsSettings.get().showResourcePackButtons,
+			v -> UiUtilsSettings.get().showResourcePackButtons = v));
 		y += rowH + gap;
 		
 		disconnectMethodButton = addRenderableWidget(UiUtils.styledButton("",
@@ -90,10 +102,10 @@ public final class UiUtilsSettingsScreen extends Screen {
 		y += rowH + gap;
 		
 		timeoutSecondsButton = addRenderableWidget(UiUtils.styledButton("",
-			b -> cycleTimeoutSeconds(), left, y, 205, rowH));
+			b -> cycleTimeoutSeconds(), left, y, half, rowH));
 		refreshTimeoutSecondsLabel();
 		timeoutLagMethodButton = addRenderableWidget(UiUtils.styledButton("",
-			b -> cycleTimeoutLagMethod(), left + 215, y, 205, rowH));
+			b -> cycleTimeoutLagMethod(), left + half + gap, y, half, rowH));
 		refreshTimeoutLagMethodLabel();
 		y += rowH + gap;
 
@@ -103,15 +115,15 @@ public final class UiUtilsSettingsScreen extends Screen {
 		y += rowH + gap;
 
 		colorPickerWidget =
-			addRenderableWidget(new HsvPickerWidget(left, y, panelWidth, 100,
+			addRenderableWidget(new HsvPickerWidget(left, y, panelWidth, pickerHeight,
 				rgb -> {
 					setSelectedTargetColor(rgb);
 					updateSelectedColorHexField();
 				}));
 		colorPickerWidget.setColor(getSelectedTargetColor());
-		y += 100 + gap;
+		y += pickerHeight + gap;
 
-		selectedColorHexField = new EditBox(this.font, left, y, 205, rowH,
+		selectedColorHexField = new EditBox(this.font, left, y, half, rowH,
 			Component.literal("#RRGGBB"));
 		selectedColorHexField.setMaxLength(7);
 		selectedColorHexField.setHint(Component.literal("#RRGGBB"));
@@ -128,85 +140,123 @@ public final class UiUtilsSettingsScreen extends Screen {
 			setSelectedTargetColor(rgb);
 			colorPickerWidget.setColor(rgb);
 			updateSelectedColorHexField();
-		}, left + 215, y, 205, rowH));
+		}, left + half + gap, y, half, rowH));
 		y += rowH + gap;
 
 		addRenderableWidget(new IntSlider(left, y, panelWidth, rowH,
 			"Slot overlay alpha", 0, 255, UiUtilsSettings.get().slotOverlayAlpha,
-			v -> UiUtilsSettings.get().slotOverlayAlpha = v));
+			v -> UiUtilsSettings.get().slotOverlayAlpha = v,
+			() -> settingsDirty = true));
 		y += rowH + gap;
 
 		addRenderableWidget(new IntSlider(left, y, panelWidth, rowH,
 			"Slot overlay offset X", -20, 20,
 			UiUtilsSettings.get().slotOverlayOffsetX,
-			v -> UiUtilsSettings.get().slotOverlayOffsetX = v));
+			v -> UiUtilsSettings.get().slotOverlayOffsetX = v,
+			() -> settingsDirty = true));
 		y += rowH + gap;
 
 		addRenderableWidget(new IntSlider(left, y, panelWidth, rowH,
 			"Slot overlay offset Y", -20, 20,
 			UiUtilsSettings.get().slotOverlayOffsetY,
-			v -> UiUtilsSettings.get().slotOverlayOffsetY = v));
+			v -> UiUtilsSettings.get().slotOverlayOffsetY = v,
+			() -> settingsDirty = true));
 		y += rowH + gap;
 
 		addRenderableWidget(new IntSlider(left, y, panelWidth, rowH,
 			"Fabricate overlay background alpha", 0, 255,
 			UiUtilsSettings.get().fabricateOverlayBgAlpha,
-			v -> UiUtilsSettings.get().fabricateOverlayBgAlpha = v));
+			v -> UiUtilsSettings.get().fabricateOverlayBgAlpha = v,
+			() -> settingsDirty = true));
 		y += rowH + gap;
 
-		restoreKeyField = new EditBox(this.font, left, y, 205, rowH,
-			Component.literal("Load GUI key"));
-		restoreKeyField.setMaxLength(64);
-		restoreKeyField.setValue(UiUtilsSettings.get().restoreKey);
-		restoreKeyField.setHint(Component.literal("key.keyboard.v"));
-		addRenderableWidget(restoreKeyField);
-		addRenderableWidget(UiUtils.styledButton("Apply restore key", b -> {
-			String key = restoreKeyField.getValue().trim();
-			if(!key.isEmpty()) {
-				UiUtilsSettings.get().restoreKey = key;
-				UiUtilsSettings.save();
-			}
-		}, left + 215, y, 205, rowH));
+		restoreKeyBindButton = addRenderableWidget(UiUtils.styledButton("", b -> {
+			keyCaptureMode = KeyCaptureMode.RESTORE;
+			refreshKeyBindLabels();
+		}, left, y, panelWidth, rowH));
 		y += rowH + gap;
 
-		packetToolsKeyField = new EditBox(this.font, left, y, 205, rowH,
-			Component.literal("Packet tool key"));
-		packetToolsKeyField.setMaxLength(64);
-		packetToolsKeyField.setValue(UiUtilsSettings.get().packetToolsKey);
-		packetToolsKeyField.setHint(Component.literal("key.keyboard.p"));
-		addRenderableWidget(packetToolsKeyField);
-		addRenderableWidget(UiUtils.styledButton("Apply packet key", b -> {
-			String key = packetToolsKeyField.getValue().trim();
-			if(!key.isEmpty()) {
-				UiUtilsSettings.get().packetToolsKey = key;
-				UiUtilsSettings.save();
-			}
-		}, left + 215, y, 205, rowH));
+		packetToolsKeyBindButton =
+			addRenderableWidget(UiUtils.styledButton("", b -> {
+				keyCaptureMode = KeyCaptureMode.PACKET_TOOL;
+				refreshKeyBindLabels();
+			}, left, y, panelWidth, rowH));
 		y += rowH + gap;
 
-		delayToggleKeyField = new EditBox(this.font, left, y, 205, rowH,
-			Component.literal("Delay toggle key"));
-		delayToggleKeyField.setMaxLength(64);
-		delayToggleKeyField.setValue(UiUtilsSettings.get().delayToggleKey);
-		delayToggleKeyField.setHint(Component.literal("key.keyboard.o"));
-		addRenderableWidget(delayToggleKeyField);
-		addRenderableWidget(UiUtils.styledButton("Apply delay key", b -> {
-			String key = delayToggleKeyField.getValue().trim();
-			if(!key.isEmpty()) {
-				UiUtilsSettings.get().delayToggleKey = key;
-				UiUtilsSettings.save();
-			}
-		}, left + 215, y, 205, rowH));
+		delayToggleKeyBindButton =
+			addRenderableWidget(UiUtils.styledButton("", b -> {
+				keyCaptureMode = KeyCaptureMode.DELAY_TOGGLE;
+				refreshKeyBindLabels();
+			}, left, y, panelWidth, rowH));
 		y += rowH + gap;
+
+		refreshKeyBindLabels();
 
 		addRenderableWidget(UiUtils.styledButton("Done",
-			b -> this.minecraft.setScreen(parent), left + 130, y, 160, rowH));
+			b -> {
+				flushPendingSettingsSave();
+				this.minecraft.setScreen(parent);
+			}, left + panelWidth / 2 - 80, y,
+			160, rowH));
 	}
 
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX,
 		int mouseY, float partialTicks) {
 		super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
+		int panelWidth = getPanelWidth();
+		int left = this.width / 2 - panelWidth / 2;
+		int y = getContentTop(20, 4, getPickerHeight(20, 4));
+		graphics.centeredText(this.font, Component.literal("UI-Utils by CevAPI"),
+			left + panelWidth / 2, y + (20 - this.font.lineHeight) / 2,
+			0xFFFFFF);
+	}
+
+	@Override
+	public boolean keyPressed(KeyEvent keyEvent) {
+		if(keyCaptureMode == KeyCaptureMode.NONE)
+			return super.keyPressed(keyEvent);
+		if(keyEvent.isEscape()) {
+			keyCaptureMode = KeyCaptureMode.NONE;
+			refreshKeyBindLabels();
+			return true;
+		}
+		InputConstants.Key key = InputConstants.getKey(keyEvent);
+		String name = key.getName();
+		switch(keyCaptureMode) {
+			case RESTORE -> {
+				UiUtilsSettings.get().restoreKey = name;
+			}
+			case PACKET_TOOL -> {
+				UiUtilsSettings.get().packetToolsKey = name;
+			}
+			case DELAY_TOGGLE -> {
+				UiUtilsSettings.get().delayToggleKey = name;
+			}
+			case NONE -> {}
+		}
+		UiUtilsSettings.save();
+		keyCaptureMode = KeyCaptureMode.NONE;
+		refreshKeyBindLabels();
+		return true;
+	}
+
+	private int getPanelWidth() {
+		return Math.min(420, Math.max(240, this.width - 40));
+	}
+
+	private int getPickerHeight(int rowH, int gap) {
+		int fixedRows = 16;
+		int gaps = 16;
+		int available = this.height - 24 - fixedRows * rowH - gaps * gap;
+		return Mth.clamp(available, 60, 100);
+	}
+
+	private int getContentTop(int rowH, int gap, int pickerHeight) {
+		int fixedRows = 16;
+		int gaps = 16;
+		int contentHeight = fixedRows * rowH + pickerHeight + gaps * gap;
+		return Math.max(8, (this.height - contentHeight) / 2);
 	}
 
 	private UiUtilsColoredButton makeToggleButton(int x, int y, int width,
@@ -329,11 +379,47 @@ public final class UiUtilsSettingsScreen extends Screen {
 			"Timeout lag: " + UiUtilsDisconnect.getConfiguredLagMethod().name()));
 	}
 
+	private void refreshKeyBindLabels() {
+		if(restoreKeyBindButton != null)
+			restoreKeyBindButton.setMessage(Component.literal(
+				keyCaptureMode == KeyCaptureMode.RESTORE ? "Press Restore Key..."
+					: "Set Restore Key: "
+						+ formatKeyName(UiUtilsSettings.get().restoreKey)));
+		if(packetToolsKeyBindButton != null)
+			packetToolsKeyBindButton.setMessage(Component.literal(
+				keyCaptureMode == KeyCaptureMode.PACKET_TOOL
+					? "Press Packet Tool Key..."
+					: "Set Packet Tool Key: "
+						+ formatKeyName(UiUtilsSettings.get().packetToolsKey)));
+		if(delayToggleKeyBindButton != null)
+			delayToggleKeyBindButton.setMessage(Component.literal(
+				keyCaptureMode == KeyCaptureMode.DELAY_TOGGLE
+					? "Press Delay Toggle Key..."
+					: "Set Delay Toggle Key: "
+						+ formatKeyName(UiUtilsSettings.get().delayToggleKey)));
+	}
+
+	private String formatKeyName(String keyName) {
+		String raw = keyName == null || keyName.isBlank() ? "key.keyboard.unknown"
+			: keyName;
+		int dot = raw.lastIndexOf('.');
+		String part = dot >= 0 && dot + 1 < raw.length() ? raw.substring(dot + 1)
+			: raw;
+		return part.toUpperCase(java.util.Locale.ROOT);
+	}
+
 	private void refreshColorTargetLabel() {
 		if(colorTargetButton == null)
 			return;
 		colorTargetButton.setMessage(
 			Component.literal("Editing color: " + selectedTarget.label));
+	}
+
+	private enum KeyCaptureMode {
+		NONE,
+		RESTORE,
+		PACKET_TOOL,
+		DELAY_TOGGLE
 	}
 
 	private int getSelectedTargetColor() {
@@ -353,7 +439,7 @@ public final class UiUtilsSettingsScreen extends Screen {
 			case OVERLAY_NUMBERS -> UiUtilsSettings.get().slotOverlayColor = color;
 			case PACKET_HUD -> UiUtilsSettings.get().packetHudColor = color;
 		}
-		UiUtilsSettings.save();
+		settingsDirty = true;
 	}
 
 	private void updateSelectedColorHexField() {
@@ -364,7 +450,15 @@ public final class UiUtilsSettingsScreen extends Screen {
 
 	@Override
 	public void onClose() {
+		flushPendingSettingsSave();
 		this.minecraft.setScreen(parent);
+	}
+
+	private void flushPendingSettingsSave() {
+		if(!settingsDirty)
+			return;
+		UiUtilsSettings.save();
+		settingsDirty = false;
 	}
 
 	private static final class IntSlider extends AbstractSliderButton {
@@ -372,14 +466,17 @@ public final class UiUtilsSettingsScreen extends Screen {
 		private final int min;
 		private final int max;
 		private final java.util.function.IntConsumer onChange;
+		private final Runnable onDirty;
 
 		private IntSlider(int x, int y, int w, int h, String label, int min,
-			int max, int initial, java.util.function.IntConsumer onChange) {
+			int max, int initial, java.util.function.IntConsumer onChange,
+			Runnable onDirty) {
 			super(x, y, w, h, Component.empty(), normalize(initial, min, max));
 			this.label = label;
 			this.min = min;
 			this.max = max;
 			this.onChange = onChange;
+			this.onDirty = onDirty;
 			updateMessage();
 		}
 
@@ -391,7 +488,7 @@ public final class UiUtilsSettingsScreen extends Screen {
 		@Override
 		protected void applyValue() {
 			onChange.accept(toInt());
-			UiUtilsSettings.save();
+			onDirty.run();
 		}
 
 		private int toInt() {
@@ -409,6 +506,7 @@ public final class UiUtilsSettingsScreen extends Screen {
 	private static final class HsvPickerWidget extends AbstractWidget {
 		private static final int HUE_BAR_WIDTH = 14;
 		private static final int PICKER_GAP = 4;
+		private static final int TARGET_CELLS = 2800;
 
 		private final Consumer<Integer> onColorChanged;
 		private int hue = 210;
@@ -427,23 +525,28 @@ public final class UiUtilsSettingsScreen extends Screen {
 			int squareWidth = getWidth() - HUE_BAR_WIDTH - PICKER_GAP;
 			int x = getX();
 			int y = getY();
+			int squareStep = renderStep(squareWidth, getHeight());
+			int hueStep = Math.max(1, squareStep - 1);
 
-			for(int px = 0; px < squareWidth; px += 2) {
+			for(int px = 0; px < squareWidth; px += squareStep) {
 				int s = Math.round(px * 100F / Math.max(1, squareWidth - 1));
-				for(int py = 0; py < getHeight(); py += 2) {
+				int x2 = x + Math.min(px + squareStep, squareWidth);
+				for(int py = 0; py < getHeight(); py += squareStep) {
 					int v = Math.round((getHeight() - 1 - py) * 100F
 						/ Math.max(1, getHeight() - 1));
 					int rgb = hsvToRgb(hue, s, v);
-					graphics.fill(x + px, y + py, x + Math.min(px + 2, squareWidth),
-						y + Math.min(py + 2, getHeight()), 0xFF000000 | rgb);
+					graphics.fill(x + px, y + py, x2,
+						y + Math.min(py + squareStep, getHeight()),
+						0xFF000000 | rgb);
 				}
 			}
 
 			int hueX = x + squareWidth + PICKER_GAP;
-			for(int py = 0; py < getHeight(); py++) {
+			for(int py = 0; py < getHeight(); py += hueStep) {
 				int h = Math.round(py * 359F / Math.max(1, getHeight() - 1));
 				int rgb = hsvToRgb(h, 100, 100);
-				graphics.fill(hueX, y + py, hueX + HUE_BAR_WIDTH, y + py + 1,
+				graphics.fill(hueX, y + py, hueX + HUE_BAR_WIDTH,
+					y + Math.min(py + hueStep, getHeight()),
 					0xFF000000 | rgb);
 			}
 
@@ -520,6 +623,12 @@ public final class UiUtilsSettingsScreen extends Screen {
 			hue = hsv[0];
 			sat = hsv[1];
 			val = hsv[2];
+		}
+
+		private static int renderStep(int width, int height) {
+			int area = Math.max(1, width * Math.max(1, height));
+			int step = (int)Math.ceil(Math.sqrt(area / (double)TARGET_CELLS));
+			return Mth.clamp(step, 2, 8);
 		}
 
 		private static int[] rgbToHsv(int rgb) {

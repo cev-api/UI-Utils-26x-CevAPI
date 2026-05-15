@@ -20,7 +20,8 @@ public abstract class MultiplayerScreenMixin extends Screen {
 
 	@Inject(method = "init()V", at = @At("TAIL"))
 	private void uiutils$addResourcePackButtons(CallbackInfo ci) {
-		if (!UiUtilsState.isUiEnabled()) {
+		if (!UiUtilsState.isUiEnabled()
+			|| !UiUtilsSettings.get().showResourcePackButtons) {
 			return;
 		}
 

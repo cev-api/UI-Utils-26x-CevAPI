@@ -61,6 +61,7 @@ public final class UiUtilsSettings {
 	public static final class Data {
 		public boolean bypassResourcePack = false;
 		public boolean resourcePackForceDeny = false;
+		public boolean showResourcePackButtons = true;
 		public boolean logToChat = true;
 		public String restoreKey = "key.keyboard.v";
 		public String packetToolsKey = "key.keyboard.p";
@@ -93,6 +94,33 @@ public final class UiUtilsSettings {
 		public boolean commandScannerRunFoundCommands = false;
 		public String commandScannerDontSendFilter = "";
 		public String commandScannerPacketCommands = "I Love Cevapcici!";
+
+		// Autoduper private plugin-GUI test options
+		public String autoduperOpenCommand = "/pv 1";
+		public String autoduperPrepareCommand = "";
+		public int autoduperTargetSlot = 54;
+		public int autoduperMaxAttempts = 220;
+		public int autoduperStepDelayTicks = 10;
+		public boolean autoduperDropValidation = true;
+		public int autoduperSingleAttempt = 0;
+		public boolean autoduperAbortHoldEnabled = true;
+		public String autoduperAbortKey = "key.keyboard.space";
+		public boolean autoduperMoveNone = true;
+		public boolean autoduperMovePickup = true;
+		public boolean autoduperMoveQuickMove = true;
+		public boolean autoduperMoveOffhandSwap = true;
+		public boolean autoduperMoveDelayed = true;
+		public boolean autoduperCloseKeepOpen = true;
+		public boolean autoduperCloseSoftClose = true;
+		public boolean autoduperClosePacketKeepScreen = true;
+		public boolean autoduperClosePacketLeave = true;
+		public boolean autoduperReopenNone = true;
+		public boolean autoduperReopenCommand = true;
+		public boolean autoduperReopenDoubleCommand = true;
+		public boolean autoduperReopenInteract = true;
+		public boolean autoduperReopenStaleRestore = true;
+		public boolean autoduperReopenPrepareCommand = true;
+		public boolean autoduperPacketDelayVariants = true;
 	}
 
 	public enum PacketHudPosition {

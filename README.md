@@ -57,6 +57,20 @@ Artifacts land in `build/libs/`.
   - Inspired by [HelixCraft's Packet Logger](https://github.com/HelixCraft/Fabric-Packet-Logger)
   - Runs in an external desktop window for now (Swing)
   - Open from the UI‑Utils overlay or by keybind (configurable in Settings)
+- Autoduper
+  - Uses a strategy matrix built from 218+ different methodologies inspired by DupeDB
+  - Built for private plugin-debugging scans, not vanilla Minecraft inventory or vanilla container interaction
+  - Accepts a plugin GUI open command plus an optional prepare command, so it can work with plugin inventory GUIs such as `/pv 1`, `/ec`, `/ah`, or `/shop`
+  - Player-inventory target slots are treated as seed items for plugin GUI lifecycles, not as a vanilla inventory dupe scan
+  - Per-category toggles let you narrow the run instead of running everything:
+    - Movement methods
+    - Close methods
+    - Reopen methods
+    - Packet-delay variants
+    - Validation
+  - Start from the main UI-Utils overlay or from the Autoduper options screen while a container is open
+  - Includes exact attempt replay, a visible abort overlay and a hold-to-abort key
+  - Success messages report the exact attempt number for easy replay
 - Expanded Settings screen
   - Tri‑state Slot Overlay: OFF / HOVER / ALWAYS
   - Unified HSV color picker with target selector:
@@ -112,6 +126,7 @@ Main commands:
 - `timeout <seconds>`
 - `lagmethod <list|current|METHOD>`
 - `settings`
+- `autoduper <open|start|stop|status|slot|command|attempt>`
 
 ## Settings List
 
@@ -137,6 +152,7 @@ Main commands:
 - Restore GUI key field
 - Packet tool key field
 - Delay toggle key field
+- Autoduper: plugin GUI open command, prepare command, target slot, max attempts, step delay, drop validation, single-attempt replay, abort key, hold-to-abort toggle and category filters
 
 ## Notes on the Mojmap Migration
 

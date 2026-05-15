@@ -31,6 +31,7 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.util.Mth;
 import net.minecraft.world.inventory.ContainerInput;
 import com.ui_utils.uiutils.UiUtils;
+import com.ui_utils.uiutils.UiUtilsAutoduper;
 import com.ui_utils.uiutils.UiUtilsColoredButton;
 import com.ui_utils.uiutils.UiUtilsSettings;
 import com.ui_utils.uiutils.UiUtilsState;
@@ -190,7 +191,11 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 		int chatHeight = 20;
 		int blockHeight = buttonCount * buttonHeight
 			+ (buttonCount - 1) * spacing + spacing + chatHeight;
-		int startY = Math.max(5, (this.height - blockHeight) / 2);
+		// Keep the stack near top-left so it does not bury in-game chat.
+		// "UI-Utils by CevAPI" ends up just below common Wurst headers.
+		int preferredTop = 24;
+		int startY = Mth.clamp(preferredTop, 5, Math.max(5,
+			this.height - blockHeight - 5));
 		int baseX = 8;
 		int nextY = UiUtils.addUiWidgets(mc, baseX, startY, spacing,
 			this::addRenderableWidget);
@@ -577,6 +582,21 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 			field.getY() - LABEL_OFFSET, 0xFFAAAAAA, false);
 	}
 	
+	@Inject(at = @At("HEAD"),
+		method = "mouseClicked(Lnet/minecraft/client/input/MouseButtonEvent;Z)Z",
+		cancellable = true)
+	private void uiutils$abortAutoduperClick(
+		net.minecraft.client.input.MouseButtonEvent context,
+		boolean doubleClick, CallbackInfoReturnable<Boolean> cir)
+	{
+		if(UiUtilsAutoduper.handleAbortOverlayClick(context.x(), context.y(),
+			context.button()))
+		{
+			cir.setReturnValue(true);
+			cir.cancel();
+		}
+	}
+
 	@Inject(at = @At("HEAD"),
 		method = "mouseClicked(Lnet/minecraft/client/input/MouseButtonEvent;Z)Z",
 		cancellable = true)

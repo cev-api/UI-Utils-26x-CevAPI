@@ -14,6 +14,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractSignEditScreen;
@@ -50,6 +51,7 @@ public final class UiUtils {
 		refreshQueueCounterButtons();
 		UiUtilsCommandScanner.onTick();
 		UiUtilsDisconnect.onClientTick(mc);
+		UiUtilsAutoduper.onClientTick(mc);
 		if (mc == null || mc.getWindow() == null)
 			return;
 
@@ -192,7 +194,46 @@ public final class UiUtils {
 			return;
 		Minecraft mc = Minecraft.getInstance();
 		if (mc.player != null)
-			mc.player.sendSystemMessage(Component.literal("[UI-Utils] " + msg));
+			mc.player.sendSystemMessage(styledUiMessage(msg));
+	}
+
+	private static Component styledUiMessage(String msg) {
+		// Prefix is always light blue for fast visual scanning in chat.
+		var prefix = Component.literal("[UI-Utils] ").withColor(0x55CCFF);
+		String safe = msg == null ? "" : msg;
+		String lower = safe.toLowerCase(Locale.ROOT);
+
+		int bodyColor = 0xFFFFFF; // default: white
+		if (lower.contains("validated")
+			|| lower.contains("success")
+			|| lower.contains("saved")
+			|| lower.contains("loaded"))
+			bodyColor = 0x6DE06D; // green
+		else if (lower.contains("failed")
+			|| lower.contains("error")
+			|| lower.contains("rejected")
+			|| lower.contains("stopped")
+			|| lower.contains("aborted"))
+			bodyColor = 0xFF6B6B; // red
+
+		int split = safe.indexOf(':');
+		if(split <= 0)
+			return Component.literal("").append(prefix)
+				.append(Component.literal(safe).withColor(bodyColor));
+
+		String label = safe.substring(0, split);
+		String rest = safe.substring(split + 1);
+		String labelLower = label.trim().toLowerCase(Locale.ROOT);
+		int labelColor = switch(labelLower) {
+			case "autoduper" -> 0x8BE8FF;
+			case "commandscanner", "command scanner" -> 0xFFE08A;
+			case "delay packets", "send packets" -> 0xD9D9D9;
+			default -> 0xD9D9D9;
+		};
+
+		return Component.literal("").append(prefix)
+			.append(Component.literal(label + ":").withColor(labelColor))
+			.append(Component.literal(rest).withColor(bodyColor));
 	}
 
 	public static void renderSyncInfo(Minecraft mc, GuiGraphicsExtractor graphics,
@@ -204,7 +245,7 @@ public final class UiUtils {
 	}
 
 	public static int getUiWidgetRows() {
-		return 16;
+		return 18;
 	}
 
 	public static void toggleUiUtils(Minecraft mc) {
@@ -307,12 +348,16 @@ public final class UiUtils {
 		final int halfWidth = (fullWidth - spacing) / 2;
 		final String defaultSlot = "default";
 
-		adder.accept(styledButton("Settings", b -> {
-			mc.setScreen(new UiUtilsSettingsScreen(mc.screen));
-		}, baseX, baseY, fullWidth, 20));
+		adder.accept(new UiUtilsTextLabel(baseX, baseY, fullWidth, 20,
+			Component.literal("UI-Utils by CevAPI")));
 		int y = baseY + 20 + spacing;
 
-		adder.accept(styledButton("Command scanner", b -> {
+		adder.accept(styledButton("Settings", b -> {
+			mc.setScreen(new UiUtilsSettingsScreen(mc.screen));
+		}, baseX, y, fullWidth, 20));
+		y += 20 + spacing;
+
+		adder.accept(styledButton("Command Scanner", b -> {
 			mc.setScreen(new UiUtilsCommandScannerScreen(mc.screen));
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
@@ -322,13 +367,23 @@ public final class UiUtils {
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
-		adder.accept(styledButton("Close without packet", b -> {
+		adder.accept(styledButton("Start Autoduper", b -> {
+			UiUtilsAutoduper.start();
+		}, baseX, y, fullWidth, 20));
+		y += 20 + spacing;
+
+		adder.accept(styledButton("Autoduper Options", b -> {
+			mc.setScreen(new UiUtilsAutoduperScreen(mc.screen));
+		}, baseX, y, fullWidth, 20));
+		y += 20 + spacing;
+
+		adder.accept(styledButton("Close Without Packet", b -> {
 			mc.setScreen(null);
 			chatIfEnabled("Closed GUI without packet");
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
-		adder.accept(styledButton("De-sync", b -> {
+		adder.accept(styledButton("De-Sync", b -> {
 			if (mc.getConnection() != null && mc.player != null)
 				mc.getConnection().send(new ServerboundContainerClosePacket(mc.player.containerMenu.containerId));
 			else
@@ -337,16 +392,18 @@ public final class UiUtils {
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
-		adder.accept(styledButton("Send packets: " + UiUtilsState.sendUiPackets, b -> {
+		adder.accept(styledButton("Send Packets: " + boolText(UiUtilsState.sendUiPackets), b -> {
 			UiUtilsState.sendUiPackets = !UiUtilsState.sendUiPackets;
-			b.setMessage(Component.literal("Send packets: " + UiUtilsState.sendUiPackets));
+			b.setMessage(Component.literal("Send Packets: "
+				+ boolText(UiUtilsState.sendUiPackets)));
 			chatIfEnabled("Send packets: " + UiUtilsState.sendUiPackets);
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
-		adder.accept(styledButton("Delay packets: " + UiUtilsState.delayUiPackets, b -> {
+		adder.accept(styledButton("Delay Packets: " + boolText(UiUtilsState.delayUiPackets), b -> {
 			UiUtilsState.delayUiPackets = !UiUtilsState.delayUiPackets;
-			b.setMessage(Component.literal("Delay packets: " + UiUtilsState.delayUiPackets));
+			b.setMessage(Component.literal("Delay Packets: "
+				+ boolText(UiUtilsState.delayUiPackets)));
 			if (!UiUtilsState.delayUiPackets && !UiUtilsState.delayedUiPackets.isEmpty() && mc.getConnection() != null) {
 				for (Packet<?> packet : UiUtilsState.delayedUiPackets)
 					mc.getConnection().send(packet);
@@ -360,7 +417,7 @@ public final class UiUtils {
 		y += 20 + spacing;
 
 
-		adder.accept(styledButton("Leave & send packets", b -> {
+		adder.accept(styledButton("Leave & Send Packets", b -> {
 			int sent = sendQueuedPackets(mc, 1);
 			UiUtilsState.delayUiPackets = false;
 			UiUtilsState.delayedUiPackets.clear();
@@ -370,7 +427,7 @@ public final class UiUtils {
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
-		adder.accept(styledButton("Disconnect & send packets", b -> {
+		adder.accept(styledButton("Disconnect & Send Packets", b -> {
 			int sent = sendQueuedPackets(mc, 1);
 			UiUtilsState.delayUiPackets = false;
 			UiUtilsState.delayedUiPackets.clear();
@@ -380,7 +437,7 @@ public final class UiUtils {
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
-		adder.accept(styledButton("Fabricate packet", b -> {
+		adder.accept(styledButton("Fabricate Packet", b -> {
 			if (mc.screen instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen) {
 				UiUtilsState.fabricateOverlayOpen = !UiUtilsState.fabricateOverlayOpen;
 				chatIfEnabled("Fabricate overlay: " + (UiUtilsState.fabricateOverlayOpen ? "opened" : "closed"));
@@ -441,20 +498,20 @@ public final class UiUtils {
 		}, baseX + halfWidth + spacing, y, halfWidth, 20));
 		y += 20 + spacing;
 
-		UiUtilsColoredButton spamButton = styledButton("Spam (x" + UiUtilsState.spamCount + ")", b -> {
+		UiUtilsColoredButton spamButton = styledButton("Spam (X" + UiUtilsState.spamCount + ")", b -> {
 			int sent = sendQueuedPackets(mc, UiUtilsState.spamCount);
 			chatIfEnabled("Spammed queued packets (" + sent + ")");
 		}, baseX + 32, y, fullWidth - 64, 20);
 		adder.accept(styledButton("-", b -> {
 			if (UiUtilsState.spamCount > 1)
 				UiUtilsState.spamCount--;
-			spamButton.setMessage(Component.literal("Spam (x" + UiUtilsState.spamCount + ")"));
+			spamButton.setMessage(Component.literal("Spam (X" + UiUtilsState.spamCount + ")"));
 		}, baseX, y, 30, 20));
 		adder.accept(spamButton);
 		adder.accept(styledButton("+", b -> {
 			if (UiUtilsState.spamCount < 100)
 				UiUtilsState.spamCount++;
-			spamButton.setMessage(Component.literal("Spam (x" + UiUtilsState.spamCount + ")"));
+			spamButton.setMessage(Component.literal("Spam (X" + UiUtilsState.spamCount + ")"));
 		}, baseX + fullWidth - 30, y, 30, 20));
 		y += 20 + spacing;
 
@@ -474,6 +531,33 @@ public final class UiUtils {
 		UiUtilsColoredButton.PressAction onPress, int x, int y, int width,
 		int height) {
 		return UiUtilsColoredButton.of(x, y, width, height, text, onPress);
+	}
+
+	private static String boolText(boolean value) {
+		return value ? "True" : "False";
+	}
+
+	private static final class UiUtilsTextLabel extends AbstractWidget {
+		private UiUtilsTextLabel(int x, int y, int width, int height,
+			Component message) {
+			super(x, y, width, height, message);
+			this.active = false;
+		}
+
+		@Override
+		protected void extractWidgetRenderState(GuiGraphicsExtractor graphics,
+			int mouseX, int mouseY, float partialTicks) {
+			int textColor = 0xFF000000
+				| (UiUtilsSettings.get().uiButtonTextColor & 0xFFFFFF);
+			int textY = getY()
+				+ (getHeight() - Minecraft.getInstance().font.lineHeight) / 2;
+			graphics.centeredText(Minecraft.getInstance().font, getMessage(),
+				getX() + getWidth() / 2, textY, textColor);
+		}
+
+		@Override
+		protected void updateWidgetNarration(NarrationElementOutput narration) {
+		}
 	}
 
 	public static EditBox createChatField(Minecraft mc, Font font, int x, int y) {
@@ -550,12 +634,3 @@ public final class UiUtils {
 		}, delayMs);
 	}
 }
-
-
-
-
-
-
-
-
-

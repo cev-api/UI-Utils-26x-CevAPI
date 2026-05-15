@@ -14,8 +14,8 @@ public final class UiUtilsCommandSystem {
 		"close", "desync", "apt", "advancedpacketscanner",
 		"advancedpackettool", "chat", "screen", "plugins", "commands",
 		"commandscan", "cmdscan", "queue", "packethud", "phud", "hud",
-		"delay", "sendpackets", "sendui", "disconnectmethod", "dcmethod",
-		"timeout", "lagmethod", "settings"};
+		"delay", "sendpackets", "sendui", "autoduper", "duper",
+		"disconnectmethod", "dcmethod", "timeout", "lagmethod", "settings"};
 
 	private UiUtilsCommandSystem() {}
 
@@ -42,6 +42,7 @@ public final class UiUtilsCommandSystem {
 			case "packethud", "phud", "hud" -> packetHud(args);
 			case "delay" -> delay(args);
 			case "sendpackets", "sendui" -> sendPackets(args);
+			case "autoduper", "duper" -> autoduper(args);
 			case "disconnectmethod", "dcmethod" -> disconnectMethod(args);
 			case "timeout" -> timeout(args);
 			case "lagmethod" -> lagMethod(args);
@@ -85,7 +86,7 @@ public final class UiUtilsCommandSystem {
 
 	private static String help() {
 		return PREFIX + "Usage: .uiutils <command> (or uiutils <command>)\n" + PREFIX
-			+ "Commands: help, enable, disable, close, desync, apt, chat, screen, plugins, commands, queue, packethud, delay, sendpackets, disconnectmethod, timeout, lagmethod, settings";
+			+ "Commands: help, enable, disable, close, desync, apt, chat, screen, plugins, commands, queue, packethud, delay, sendpackets, autoduper, disconnectmethod, timeout, lagmethod, settings";
 	}
 
 	private static String setEnabled(boolean enabled) {
@@ -206,6 +207,55 @@ public final class UiUtilsCommandSystem {
 		var parent = mc.screen;
 		mc.execute(() -> mc.setScreen(new UiUtilsSettingsScreen(parent)));
 		return PREFIX + "Opened settings.";
+	}
+
+	private static String autoduper(String args) {
+		String[] parts = args == null ? new String[0] : args.trim().split("\\s+", 2);
+		String action = parts.length == 0 || parts[0].isBlank() ? "status"
+			: parts[0].toLowerCase(Locale.ROOT);
+		String value = parts.length > 1 ? parts[1].trim() : "";
+		return switch(action) {
+			case "open", "screen" -> {
+				Minecraft mc = Minecraft.getInstance();
+				var parent = mc.screen;
+				mc.execute(() -> mc.setScreen(new UiUtilsAutoduperScreen(parent)));
+				yield PREFIX + "Opened Autoduper.";
+			}
+			case "start" -> {
+				UiUtilsAutoduper.start();
+				yield PREFIX + UiUtilsAutoduper.getStatus();
+			}
+			case "stop" -> {
+				UiUtilsAutoduper.stop("Stopped by command");
+				yield PREFIX + "Stopped Autoduper.";
+			}
+			case "status" -> PREFIX + UiUtilsAutoduper.summary();
+			case "slot" -> {
+				if(!UiUtils.isInteger(value))
+					yield PREFIX + "Usage: autoduper slot <slotId>";
+				UiUtilsSettings.get().autoduperTargetSlot =
+					Math.max(0, Integer.parseInt(value));
+				UiUtilsSettings.save();
+				yield PREFIX + "Autoduper slot set to "
+					+ UiUtilsSettings.get().autoduperTargetSlot + ".";
+			}
+			case "command", "cmd" -> {
+				UiUtilsSettings.get().autoduperOpenCommand = value;
+				UiUtilsSettings.save();
+				yield PREFIX + "Autoduper open command set.";
+			}
+			case "attempt" -> {
+				if(!UiUtils.isInteger(value))
+					yield PREFIX + "Usage: autoduper attempt <0|attemptNumber>";
+				UiUtilsSettings.get().autoduperSingleAttempt =
+					Math.max(0, Integer.parseInt(value));
+				UiUtilsSettings.save();
+				yield PREFIX + "Autoduper single attempt set to "
+					+ UiUtilsSettings.get().autoduperSingleAttempt + ".";
+			}
+			default -> PREFIX
+				+ "Usage: autoduper <open|start|stop|status|slot|command|attempt>";
+		};
 	}
 	
 	private static String packetHud(String args) {
