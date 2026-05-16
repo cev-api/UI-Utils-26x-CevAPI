@@ -3,7 +3,10 @@ import com.ui_utils.packettools.AdvancedPacketTool;
 import com.google.gson.Gson;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.serialization.JsonOps;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.WeakHashMap;
@@ -33,10 +36,9 @@ public final class UiUtils {
 	public static final Logger LOGGER = LoggerFactory.getLogger("ui-utils");
 
 	private static final WeakHashMap<UiUtilsColoredButton, Boolean> queueCounterButtons = new WeakHashMap<>();
+	private static final Map<String, Boolean> keyActionDown = new HashMap<>();
 	private static boolean initialized;
-	private static boolean restoreKeyDown;
-	private static boolean packetToolsKeyDown;
-	private static boolean delayToggleKeyDown;
+	private static EditBox currentChatField;
 
 	private UiUtils() {}
 
@@ -55,48 +57,25 @@ public final class UiUtils {
 		if (mc == null || mc.getWindow() == null)
 			return;
 
-		InputConstants.Key packetKey = getPacketToolsKey();
-		InputConstants.Key delayKey = getDelayToggleKey();
-		boolean packetDown = packetKey != null
-			&& InputConstants.isKeyDown(mc.getWindow(), packetKey.getValue());
-		boolean delayDown = delayKey != null
-			&& InputConstants.isKeyDown(mc.getWindow(), delayKey.getValue());
-		boolean restoreDown = false;
-		InputConstants.Key restoreKey = null;
-		if (UiUtilsState.isUiEnabled()) {
-			restoreKey = getRestoreKey();
-			restoreDown = restoreKey != null
-				&& InputConstants.isKeyDown(mc.getWindow(), restoreKey.getValue());
-		}
-
 		// Don't fire hotkeys while typing in chat/text fields.
 		if (isTypingIntoTextField(mc)) {
-			packetToolsKeyDown = packetDown;
-			delayToggleKeyDown = delayDown;
-			restoreKeyDown = restoreDown;
+			updateKeybindEdges(mc, false);
 			return;
 		}
+		updateKeybindEdges(mc, true);
+	}
 
-		// Allow Advanced Packet Tool key even if the UI overlay is disabled.
-		if (packetDown && !packetToolsKeyDown)
-			com.ui_utils.packettools.AdvancedPacketTool.openScreen(mc.screen);
-		packetToolsKeyDown = packetDown;
-
-		// Global delay toggle key.
-		if (delayDown && !delayToggleKeyDown)
-			toggleDelay(mc);
-		delayToggleKeyDown = delayDown;
-
-		if (!UiUtilsState.isUiEnabled())
-			return;
-
-		if (restoreKey == null) {
-			restoreKeyDown = false;
-			return;
+	private static void updateKeybindEdges(Minecraft mc, boolean execute) {
+		for(KeybindAction action : keybindActions()) {
+			InputConstants.Key key = parseKey(getKeybind(action.id, action.defaultKey));
+			boolean down = key != null && mc.getWindow() != null
+				&& InputConstants.isKeyDown(mc.getWindow(), key.getValue());
+			boolean wasDown = keyActionDown.getOrDefault(action.id, false);
+			if(execute && down && !wasDown
+				&& (action.alwaysAvailable || UiUtilsState.isUiEnabled()))
+				executeKeybindAction(action.id, mc);
+			keyActionDown.put(action.id, down);
 		}
-		if (restoreDown && !restoreKeyDown)
-			restoreScreen(mc);
-		restoreKeyDown = restoreDown;
 	}
 
 	private static boolean isTypingIntoTextField(Minecraft mc) {
@@ -128,28 +107,15 @@ public final class UiUtils {
 			|| simple.contains("textinput");
 	}
 
-	private static InputConstants.Key getRestoreKey() {
-		String key = UiUtilsSettings.get().restoreKey;
-		if (key == null || key.isBlank())
-			return InputConstants.getKey("key.keyboard.v");
+	private static InputConstants.Key parseKey(String raw) {
+		if(raw == null || raw.isBlank())
+			return null;
 		try {
-			InputConstants.Key parsed = InputConstants.getKey(key);
-			return parsed != null ? parsed : InputConstants.getKey("key.keyboard.v");
-		} catch (Exception ignored) {
-			return InputConstants.getKey("key.keyboard.v");
+			return InputConstants.getKey(raw);
+		}catch(Exception ignored) {
+			return null;
 		}
 	}
-		private static InputConstants.Key getDelayToggleKey() {
-			String key = UiUtilsSettings.get().delayToggleKey;
-			if (key == null || key.isBlank())
-				return InputConstants.getKey("key.keyboard.o");
-			try {
-				InputConstants.Key parsed = InputConstants.getKey(key);
-				return parsed != null ? parsed : InputConstants.getKey("key.keyboard.o");
-			} catch (Exception ignored) {
-				return InputConstants.getKey("key.keyboard.o");
-			}
-		}
 
 		private static void toggleDelay(Minecraft mc) {
 			UiUtilsState.delayUiPackets = !UiUtilsState.delayUiPackets;
@@ -164,19 +130,6 @@ public final class UiUtils {
 			}
 		}
 
-
-	private static InputConstants.Key getPacketToolsKey() {
-		String key = UiUtilsSettings.get().packetToolsKey;
-		if (key == null || key.isBlank())
-			return InputConstants.getKey("key.keyboard.p");
-		try {
-			InputConstants.Key parsed = InputConstants.getKey(key);
-			return parsed != null ? parsed : InputConstants.getKey("key.keyboard.p");
-		} catch (Exception ignored) {
-			return InputConstants.getKey("key.keyboard.p");
-		}
-	}
-
 	private static void restoreScreen(Minecraft mc) {
 		if (UiUtilsState.storedScreen == null || UiUtilsState.storedMenu == null || mc.player == null)
 			return;
@@ -187,6 +140,145 @@ public final class UiUtils {
 			chatIfEnabled("Loaded GUI: title=\"" + title + "\", syncId="
 				+ UiUtilsState.storedMenu.containerId + ", revision=" + UiUtilsState.storedMenu.getStateId());
 		} catch (Throwable ignored) {}
+	}
+
+	public static List<KeybindAction> keybindActions() {
+		return List.of(
+			new KeybindAction("restore_gui", "Restore GUI", UiUtilsSettings.get().restoreKey, false),
+			new KeybindAction("packet_tool", "Advanced Packet Tool", UiUtilsSettings.get().packetToolsKey, true),
+			new KeybindAction("command_scanner", "Command Scanner", "", false),
+			new KeybindAction("plugin_scanner", "Plugin Scanner", "", false),
+			new KeybindAction("autoduper_start", "Start Autoduper", "", false),
+			new KeybindAction("close_no_packet", "Close Without Packet", "", false),
+			new KeybindAction("desync", "De-Sync", "", false),
+			new KeybindAction("send_packets_toggle", "Send Packets Toggle", "", false),
+			new KeybindAction("send_packets_on", "Send Packets True", "", false),
+			new KeybindAction("send_packets_off", "Send Packets False", "", false),
+			new KeybindAction("delay_packets_toggle", "Delay Packets Toggle", UiUtilsSettings.get().delayToggleKey, true),
+			new KeybindAction("delay_packets_on", "Delay Packets True", "", false),
+			new KeybindAction("delay_packets_off", "Delay Packets False", "", false),
+			new KeybindAction("leave_send", "Leave & Send Packets", "", false),
+			new KeybindAction("disconnect_send", "Disconnect & Send Packets", "", false),
+			new KeybindAction("save_gui", "Save GUI", "", false),
+			new KeybindAction("load_gui", "Load GUI", "", false),
+			new KeybindAction("clear_queue", "Clear Queue", "", false),
+			new KeybindAction("resync_inv", "Resync Inv", "", false),
+			new KeybindAction("disconnect", "Disconnect", "", false),
+			new KeybindAction("spam_inc", "Spam Increase", "", false),
+			new KeybindAction("spam_dec", "Spam Decrease", "", false),
+			new KeybindAction("spam_send", "Spam Send", "", false),
+			new KeybindAction("send_one", "Send One", "", false),
+			new KeybindAction("pop_last", "Pop Last", "", false),
+			new KeybindAction("send_chat_box", "Send Chat Field", "", false)
+		);
+	}
+
+	public static String getKeybind(String id, String fallback) {
+		Map<String, String> binds = UiUtilsSettings.get().keyBinds;
+		if(binds == null) {
+			UiUtilsSettings.get().keyBinds = new HashMap<>();
+			binds = UiUtilsSettings.get().keyBinds;
+		}
+		String value = binds.get(id);
+		return value == null ? fallback : value;
+	}
+
+	public static void setKeybind(String id, String keyName) {
+		if(UiUtilsSettings.get().keyBinds == null)
+			UiUtilsSettings.get().keyBinds = new HashMap<>();
+		if(keyName == null || keyName.isBlank())
+			UiUtilsSettings.get().keyBinds.remove(id);
+		else
+			UiUtilsSettings.get().keyBinds.put(id, keyName);
+		UiUtilsSettings.save();
+	}
+
+	public static void executeKeybindAction(String id, Minecraft mc) {
+		final String defaultSlot = "default";
+		switch(id) {
+			case "restore_gui" -> restoreScreen(mc);
+			case "packet_tool" -> AdvancedPacketTool.openScreen(mc.screen);
+			case "command_scanner" -> mc.setScreen(new UiUtilsCommandScannerScreen(mc.screen));
+			case "plugin_scanner" -> UiUtilsPluginScanner.startScan();
+			case "autoduper_start" -> UiUtilsAutoduper.start();
+			case "close_no_packet" -> closeScreenWithConfiguredDelay(mc);
+			case "desync" -> sendClosePacketWithConfiguredDelay(mc);
+			case "send_packets_toggle" -> setSendPackets(!UiUtilsState.sendUiPackets);
+			case "send_packets_on" -> setSendPackets(true);
+			case "send_packets_off" -> setSendPackets(false);
+			case "delay_packets_toggle" -> toggleDelay(mc);
+			case "delay_packets_on" -> setDelayPackets(mc, true);
+			case "delay_packets_off" -> setDelayPackets(mc, false);
+			case "leave_send" -> leaveAndSendPackets(mc);
+			case "disconnect_send" -> disconnectAndSendPackets(mc);
+			case "save_gui" -> {
+				if(saveCurrentGuiToSlot(mc, defaultSlot))
+					chatIfEnabled("Saved GUI to slot \"" + defaultSlot + "\"");
+			}
+			case "load_gui" -> {
+				if(loadGuiFromSlot(mc, defaultSlot))
+					chatIfEnabled("Loaded GUI from slot \"" + defaultSlot + "\"");
+			}
+			case "clear_queue" -> chatIfEnabled("Cleared queued packets (" + clearQueuedPackets() + ")");
+			case "resync_inv" -> {
+				if(mc.player != null && tryResyncInventory(mc.player.containerMenu))
+					chatIfEnabled("Inventory resynced");
+			}
+			case "disconnect" -> UiUtilsDisconnect.disconnectWithConfiguredMethod(mc);
+			case "spam_inc" -> UiUtilsState.spamCount = Math.min(100, UiUtilsState.spamCount + 1);
+			case "spam_dec" -> UiUtilsState.spamCount = Math.max(1, UiUtilsState.spamCount - 1);
+			case "spam_send" -> chatIfEnabled("Spammed queued packets (" + sendQueuedPackets(mc, UiUtilsState.spamCount) + ")");
+			case "send_one" -> chatIfEnabled(sendOneQueuedPacket(mc) ? "Sent one queued packet" : "No queued packets to send");
+			case "pop_last" -> chatIfEnabled(popLastQueuedPacket() ? "Removed last queued packet" : "No queued packets to remove");
+			case "send_chat_box" -> sendCurrentChatField(mc);
+			default -> {}
+		}
+	}
+
+	private static void setSendPackets(boolean value) {
+		UiUtilsState.sendUiPackets = value;
+		chatIfEnabled("Send packets: " + value);
+	}
+
+	private static void setDelayPackets(Minecraft mc, boolean value) {
+		if(UiUtilsState.delayUiPackets == value)
+			return;
+		toggleDelay(mc);
+	}
+
+	private static void leaveAndSendPackets(Minecraft mc) {
+		int sent = sendQueuedPackets(mc, 1);
+		UiUtilsState.delayUiPackets = false;
+		UiUtilsState.delayedUiPackets.clear();
+		refreshQueueCounterButtons();
+		mc.setScreen(null);
+		chatIfEnabled("Left GUI and sent queued packets (" + sent + ")");
+	}
+
+	private static void disconnectAndSendPackets(Minecraft mc) {
+		int sent = sendQueuedPackets(mc, 1);
+		UiUtilsState.delayUiPackets = false;
+		UiUtilsState.delayedUiPackets.clear();
+		refreshQueueCounterButtons();
+		UiUtilsDisconnect.disconnectWithConfiguredMethod(mc);
+		chatIfEnabled("Disconnected and sent queued packets (" + sent + ")");
+	}
+
+	private static void sendCurrentChatField(Minecraft mc) {
+		if(currentChatField == null)
+			return;
+		String text = currentChatField.getValue();
+		if(text == null || text.isBlank())
+			return;
+		if(text.startsWith("/"))
+			sendCommandWithConfiguredDelay(mc, text.substring(1));
+		else
+			sendChatWithConfiguredDelay(mc, text);
+		currentChatField.setValue("");
+	}
+
+	public record KeybindAction(String id, String label, String defaultKey,
+		boolean alwaysAvailable) {
 	}
 
 	public static void chatIfEnabled(String msg) {
@@ -378,17 +470,12 @@ public final class UiUtils {
 		y += 20 + spacing;
 
 		adder.accept(styledButton("Close Without Packet", b -> {
-			mc.setScreen(null);
-			chatIfEnabled("Closed GUI without packet");
+			closeScreenWithConfiguredDelay(mc);
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
 		adder.accept(styledButton("De-Sync", b -> {
-			if (mc.getConnection() != null && mc.player != null)
-				mc.getConnection().send(new ServerboundContainerClosePacket(mc.player.containerMenu.containerId));
-			else
-				LOGGER.warn("Minecraft connection or player was null while using 'De-sync'.");
-			chatIfEnabled("De-synced (sent close packet)");
+			sendClosePacketWithConfiguredDelay(mc);
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
@@ -418,22 +505,12 @@ public final class UiUtils {
 
 
 		adder.accept(styledButton("Leave & Send Packets", b -> {
-			int sent = sendQueuedPackets(mc, 1);
-			UiUtilsState.delayUiPackets = false;
-			UiUtilsState.delayedUiPackets.clear();
-			refreshQueueCounterButtons();
-			mc.setScreen(null);
-			chatIfEnabled("Left GUI and sent queued packets (" + sent + ")");
+			leaveAndSendPackets(mc);
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
 		adder.accept(styledButton("Disconnect & Send Packets", b -> {
-			int sent = sendQueuedPackets(mc, 1);
-			UiUtilsState.delayUiPackets = false;
-			UiUtilsState.delayedUiPackets.clear();
-			refreshQueueCounterButtons();
-			UiUtilsDisconnect.disconnectWithConfiguredMethod(mc);
-			chatIfEnabled("Disconnected and sent queued packets (" + sent + ")");
+			disconnectAndSendPackets(mc);
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
@@ -588,9 +665,10 @@ public final class UiUtils {
 
 					if (mc.getConnection() != null && mc.player != null) {
 						if (text.startsWith("/"))
-							mc.getConnection().sendCommand(text.replaceFirst(Pattern.quote("/"), ""));
+							sendCommandWithConfiguredDelay(mc,
+								text.replaceFirst(Pattern.quote("/"), ""));
 						else
-							mc.getConnection().sendChat(text);
+							sendChatWithConfiguredDelay(mc, text);
 					} else {
 						LOGGER.warn("Minecraft player/connection was null while sending chat.");
 					}
@@ -600,6 +678,7 @@ public final class UiUtils {
 				return super.keyPressed(keyEvent);
 			}
 		};
+		currentChatField = field;
 		field.setMaxLength(256);
 		field.setHint(Component.literal("Chat ..."));
 		return field;
@@ -613,6 +692,63 @@ public final class UiUtils {
 			}
 			mc.getConnection().send(packet);
 		};
+	}
+
+	public static void closeScreenWithConfiguredDelay(Minecraft mc) {
+		int delayTicks = Math.max(0, UiUtilsSettings.get().uiCloseDelayTicks);
+		queueTask(() -> {
+			Minecraft current = Minecraft.getInstance();
+			current.setScreen(null);
+			chatIfEnabled("Closed GUI without packet"
+				+ delaySuffix(delayTicks));
+		}, delayTicks * 50L);
+	}
+
+	public static void sendClosePacketWithConfiguredDelay(Minecraft mc) {
+		if (mc.getConnection() == null || mc.player == null) {
+			LOGGER.warn(
+				"Minecraft connection or player was null while using 'De-sync'.");
+			return;
+		}
+		int syncId = mc.player.containerMenu.containerId;
+		int delayTicks = Math.max(0, UiUtilsSettings.get().uiCloseDelayTicks);
+		queueTask(() -> {
+			Minecraft current = Minecraft.getInstance();
+			if (current.getConnection() == null || current.player == null)
+				return;
+			current.getConnection().send(new ServerboundContainerClosePacket(syncId));
+			chatIfEnabled("De-synced syncId " + syncId + delaySuffix(delayTicks));
+		}, delayTicks * 50L);
+	}
+
+	public static void sendCommandWithConfiguredDelay(Minecraft mc, String command) {
+		String clean = command == null ? "" : command.trim();
+		while(clean.startsWith("/"))
+			clean = clean.substring(1).trim();
+		if(clean.isBlank())
+			return;
+		String commandToSend = clean;
+		int delayTicks = Math.max(0, UiUtilsSettings.get().uiCommandDelayTicks);
+		queueTask(() -> {
+			Minecraft current = Minecraft.getInstance();
+			if(current.getConnection() != null)
+				current.getConnection().sendCommand(commandToSend);
+		}, delayTicks * 50L);
+	}
+
+	public static void sendChatWithConfiguredDelay(Minecraft mc, String message) {
+		if(message == null || message.isBlank())
+			return;
+		int delayTicks = Math.max(0, UiUtilsSettings.get().uiCommandDelayTicks);
+		queueTask(() -> {
+			Minecraft current = Minecraft.getInstance();
+			if(current.getConnection() != null)
+				current.getConnection().sendChat(message);
+		}, delayTicks * 50L);
+	}
+
+	private static String delaySuffix(int ticks) {
+		return ticks > 0 ? " after " + ticks + " tick(s)" : "";
 	}
 
 	public static boolean isInteger(String string) {

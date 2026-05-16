@@ -4,7 +4,6 @@ import com.ui_utils.packettools.AdvancedPacketTool;
 import java.util.Locale;
 import java.util.StringJoiner;
 import net.minecraft.client.Minecraft;
-import net.minecraft.network.protocol.game.ServerboundContainerClosePacket;
 
 public final class UiUtilsCommandSystem {
 	private static final String PREFIX = "[UI-Utils] ";
@@ -15,7 +14,8 @@ public final class UiUtilsCommandSystem {
 		"advancedpackettool", "chat", "screen", "plugins", "commands",
 		"commandscan", "cmdscan", "queue", "packethud", "phud", "hud",
 		"delay", "sendpackets", "sendui", "autoduper", "duper",
-		"disconnectmethod", "dcmethod", "timeout", "lagmethod", "settings"};
+		"closedelay", "cmddelay", "commanddelay", "disconnectmethod",
+		"dcmethod", "timeout", "lagmethod", "settings"};
 
 	private UiUtilsCommandSystem() {}
 
@@ -41,6 +41,8 @@ public final class UiUtilsCommandSystem {
 			case "queue" -> queue(args);
 			case "packethud", "phud", "hud" -> packetHud(args);
 			case "delay" -> delay(args);
+			case "closedelay" -> closeDelay(args);
+			case "cmddelay", "commanddelay" -> commandDelay(args);
 			case "sendpackets", "sendui" -> sendPackets(args);
 			case "autoduper", "duper" -> autoduper(args);
 			case "disconnectmethod", "dcmethod" -> disconnectMethod(args);
@@ -86,7 +88,7 @@ public final class UiUtilsCommandSystem {
 
 	private static String help() {
 		return PREFIX + "Usage: .uiutils <command> (or uiutils <command>)\n" + PREFIX
-			+ "Commands: help, enable, disable, close, desync, apt, chat, screen, plugins, commands, queue, packethud, delay, sendpackets, autoduper, disconnectmethod, timeout, lagmethod, settings";
+			+ "Commands: help, enable, disable, close, desync, apt, chat, screen, plugins, commands, queue, packethud, delay, closedelay, commanddelay, sendpackets, autoduper, disconnectmethod, timeout, lagmethod, settings";
 	}
 
 	private static String setEnabled(boolean enabled) {
@@ -95,8 +97,9 @@ public final class UiUtilsCommandSystem {
 	}
 
 	private static String close() {
-		Minecraft.getInstance().setScreen(null);
-		return PREFIX + "Closed current screen.";
+		UiUtils.closeScreenWithConfiguredDelay(Minecraft.getInstance());
+		return PREFIX + "Closed current screen"
+			+ formatDelay(UiUtilsSettings.get().uiCloseDelayTicks) + ".";
 	}
 
 	private static String desync() {
@@ -105,8 +108,9 @@ public final class UiUtilsCommandSystem {
 			return PREFIX + "Not connected.";
 
 		int syncId = mc.player.containerMenu.containerId;
-		mc.getConnection().send(new ServerboundContainerClosePacket(syncId));
-		return PREFIX + "Sent close packet for syncId " + syncId + ".";
+		UiUtils.sendClosePacketWithConfiguredDelay(mc);
+		return PREFIX + "Queued close packet for syncId " + syncId
+			+ formatDelay(UiUtilsSettings.get().uiCloseDelayTicks) + ".";
 	}
 
 	private static String chat(String args) {
@@ -117,11 +121,12 @@ public final class UiUtilsCommandSystem {
 			return PREFIX + "Not connected.";
 
 		if (args.startsWith("/"))
-			mc.player.connection.sendCommand(args.substring(1));
+			UiUtils.sendCommandWithConfiguredDelay(mc, args.substring(1));
 		else
-			mc.player.connection.sendChat(args);
+			UiUtils.sendChatWithConfiguredDelay(mc, args);
 
-		return PREFIX + "Sent.";
+		return PREFIX + "Sent" + formatDelay(UiUtilsSettings.get().uiCommandDelayTicks)
+			+ ".";
 	}
 	
 	private static String openApt() {
@@ -253,8 +258,19 @@ public final class UiUtilsCommandSystem {
 				yield PREFIX + "Autoduper single attempt set to "
 					+ UiUtilsSettings.get().autoduperSingleAttempt + ".";
 			}
+			case "hybrid" -> {
+				if(!value.isBlank())
+					UiUtilsSettings.get().autoduperOpenCommand = value;
+				UiUtilsSettings.get().autoduperHybridOpen = true;
+				UiUtilsSettings.get().autoduperReopenCommand = true;
+				UiUtilsSettings.get().autoduperReopenDoubleCommand = true;
+				UiUtilsSettings.get().autoduperReopenInteract = true;
+				UiUtilsSettings.save();
+				yield PREFIX
+					+ "Enabled hybrid command+interact autoduper opens.";
+			}
 			default -> PREFIX
-				+ "Usage: autoduper <open|start|stop|status|slot|command|attempt>";
+				+ "Usage: autoduper <open|start|stop|status|slot|command|attempt|hybrid [openCommand]>";
 		};
 	}
 	
@@ -302,6 +318,34 @@ public final class UiUtilsCommandSystem {
 			return PREFIX + "Usage: delay <on|off|toggle>";
 		return PREFIX + "Delay packets: "
 			+ (UiUtilsState.delayUiPackets ? "ON" : "OFF");
+	}
+
+	private static String closeDelay(String args) {
+		String value = args == null ? "" : args.trim();
+		if(value.isBlank())
+			return PREFIX + "Close delay ticks: "
+				+ UiUtilsSettings.get().uiCloseDelayTicks;
+		if(!UiUtils.isInteger(value))
+			return PREFIX + "Usage: closedelay <ticks>";
+		UiUtilsSettings.get().uiCloseDelayTicks =
+			Math.max(0, Integer.parseInt(value));
+		UiUtilsSettings.save();
+		return PREFIX + "Close delay ticks set to "
+			+ UiUtilsSettings.get().uiCloseDelayTicks + ".";
+	}
+
+	private static String commandDelay(String args) {
+		String value = args == null ? "" : args.trim();
+		if(value.isBlank())
+			return PREFIX + "Command delay ticks: "
+				+ UiUtilsSettings.get().uiCommandDelayTicks;
+		if(!UiUtils.isInteger(value))
+			return PREFIX + "Usage: commanddelay <ticks>";
+		UiUtilsSettings.get().uiCommandDelayTicks =
+			Math.max(0, Integer.parseInt(value));
+		UiUtilsSettings.save();
+		return PREFIX + "Command delay ticks set to "
+			+ UiUtilsSettings.get().uiCommandDelayTicks + ".";
 	}
 	
 	private static String sendPackets(String args) {
@@ -372,5 +416,9 @@ public final class UiUtilsCommandSystem {
 		}catch(Exception ignored) {
 			return PREFIX + "Usage: lagmethod <list|current|METHOD>";
 		}
+	}
+
+	private static String formatDelay(int ticks) {
+		return ticks > 0 ? " after " + ticks + " tick(s)" : "";
 	}
 }

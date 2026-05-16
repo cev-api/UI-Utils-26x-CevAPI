@@ -109,6 +109,22 @@ public final class UiUtilsSettingsScreen extends Screen {
 		refreshTimeoutLagMethodLabel();
 		y += rowH + gap;
 
+		addRenderableWidget(new IntSlider(left, y, half, rowH, "Close Delay",
+			0, 80, UiUtilsSettings.get().uiCloseDelayTicks,
+			v -> UiUtilsSettings.get().uiCloseDelayTicks = v,
+			() -> settingsDirty = true));
+		addRenderableWidget(new IntSlider(left + half + gap, y, half, rowH,
+			"Command Delay", 0, 80,
+			UiUtilsSettings.get().uiCommandDelayTicks,
+			v -> UiUtilsSettings.get().uiCommandDelayTicks = v,
+			() -> settingsDirty = true));
+		y += rowH + gap;
+
+		addRenderableWidget(UiUtils.styledButton("Keybinds",
+			b -> this.minecraft.setScreen(new UiUtilsKeybindsScreen(this)),
+			left, y, panelWidth, rowH));
+		y += rowH + gap + 8;
+
 		colorTargetButton = addRenderableWidget(UiUtils.styledButton("",
 			b -> cycleColorTarget(), left, y, panelWidth, rowH));
 		refreshColorTargetLabel();
@@ -170,28 +186,6 @@ public final class UiUtilsSettingsScreen extends Screen {
 			() -> settingsDirty = true));
 		y += rowH + gap;
 
-		restoreKeyBindButton = addRenderableWidget(UiUtils.styledButton("", b -> {
-			keyCaptureMode = KeyCaptureMode.RESTORE;
-			refreshKeyBindLabels();
-		}, left, y, panelWidth, rowH));
-		y += rowH + gap;
-
-		packetToolsKeyBindButton =
-			addRenderableWidget(UiUtils.styledButton("", b -> {
-				keyCaptureMode = KeyCaptureMode.PACKET_TOOL;
-				refreshKeyBindLabels();
-			}, left, y, panelWidth, rowH));
-		y += rowH + gap;
-
-		delayToggleKeyBindButton =
-			addRenderableWidget(UiUtils.styledButton("", b -> {
-				keyCaptureMode = KeyCaptureMode.DELAY_TOGGLE;
-				refreshKeyBindLabels();
-			}, left, y, panelWidth, rowH));
-		y += rowH + gap;
-
-		refreshKeyBindLabels();
-
 		addRenderableWidget(UiUtils.styledButton("Done",
 			b -> {
 				flushPendingSettingsSave();
@@ -246,16 +240,16 @@ public final class UiUtilsSettingsScreen extends Screen {
 	}
 
 	private int getPickerHeight(int rowH, int gap) {
-		int fixedRows = 16;
-		int gaps = 16;
+		int fixedRows = 17;
+		int gaps = 17;
 		int available = this.height - 24 - fixedRows * rowH - gaps * gap;
 		return Mth.clamp(available, 60, 100);
 	}
 
 	private int getContentTop(int rowH, int gap, int pickerHeight) {
-		int fixedRows = 16;
-		int gaps = 16;
-		int contentHeight = fixedRows * rowH + pickerHeight + gaps * gap;
+		int fixedRows = 17;
+		int gaps = 17;
+		int contentHeight = fixedRows * rowH + pickerHeight + gaps * gap + 8;
 		return Math.max(8, (this.height - contentHeight) / 2);
 	}
 

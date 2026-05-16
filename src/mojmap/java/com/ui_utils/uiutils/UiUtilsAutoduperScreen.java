@@ -4,9 +4,12 @@ import com.mojang.blaze3d.platform.InputConstants;
 import java.util.Locale;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractSliderButton;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
@@ -19,6 +22,7 @@ public final class UiUtilsAutoduperScreen extends Screen {
 	private EditBox targetSlotField;
 	private EditBox singleAttemptField;
 	private UiUtilsColoredButton dropValidationButton;
+	private UiUtilsColoredButton verboseModeButton;
 	private UiUtilsColoredButton abortHoldButton;
 	private UiUtilsColoredButton abortKeyButton;
 	private UiUtilsColoredButton startStopButton;
@@ -34,10 +38,12 @@ public final class UiUtilsAutoduperScreen extends Screen {
 	protected void init() {
 		int width = 420;
 		int left = this.width / 2 - width / 2;
-		int y = Math.max(12, this.height / 2 - 116);
 		int row = 20;
 		int gap = 4;
 		int half = (width - gap) / 2;
+		int y = categoryPage ? Math.max(8,
+			(this.height - getCategoryContentHeight(row, gap)) / 2)
+			: Math.max(12, this.height / 2 - 116);
 
 		if(categoryPage) {
 			addCategoryToggles(left, y, width, half, row, gap);
@@ -98,13 +104,23 @@ public final class UiUtilsAutoduperScreen extends Screen {
 				refreshDropValidationLabel();
 			}, left, y, half, row));
 		refreshDropValidationLabel();
+		verboseModeButton = addRenderableWidget(UiUtils.styledButton("",
+			b -> {
+				UiUtilsSettings.get().autoduperVerboseMode =
+					!UiUtilsSettings.get().autoduperVerboseMode;
+				UiUtilsSettings.save();
+				refreshVerboseModeLabel();
+			}, left + half + gap, y, half, row));
+		refreshVerboseModeLabel();
+		y += row + gap;
+
 		abortHoldButton = addRenderableWidget(UiUtils.styledButton("",
 			b -> {
 				UiUtilsSettings.get().autoduperAbortHoldEnabled =
 					!UiUtilsSettings.get().autoduperAbortHoldEnabled;
 				UiUtilsSettings.save();
 				refreshAbortHoldLabel();
-			}, left + half + gap, y, half, row));
+			}, left, y, half, row));
 		refreshAbortHoldLabel();
 		y += row + gap;
 
@@ -173,15 +189,6 @@ public final class UiUtilsAutoduperScreen extends Screen {
 			graphics.text(this.font, "Replay Attempt (0 = Run All)",
 				singleAttemptField.getX(), labelY, 0xFFE0E0E0, false);
 		}
-		int left = this.width / 2 - 180;
-		int y = this.height - 30;
-		graphics.text(this.font, UiUtilsAutoduper.summary(), left, y, 0xFFFFFF,
-			false);
-		graphics.text(this.font,
-			"Strategy Matrix: " + UiUtilsAutoduper.getEnabledStrategyCount()
-				+ "/" + UiUtilsAutoduper.getStrategyCount()
-				+ " Lifecycle Trials",
-			left, y + 12, 0xFFAAAAAA, false);
 	}
 
 	private void applyFields() {
@@ -203,6 +210,7 @@ public final class UiUtilsAutoduperScreen extends Screen {
 
 	private void addCategoryToggles(int left, int y, int width, int half,
 		int row, int gap) {
+		y = addSectionLabel(left, y, "Movement");
 		addRenderableWidget(makeToggle(left, y, half, row, "Move None",
 			() -> UiUtilsSettings.get().autoduperMoveNone,
 			v -> UiUtilsSettings.get().autoduperMoveNone = v));
@@ -228,6 +236,8 @@ public final class UiUtilsAutoduperScreen extends Screen {
 			v -> UiUtilsSettings.get().autoduperPacketDelayVariants = v));
 		y += row + gap;
 
+		y += 3;
+		y = addSectionLabel(left, y, "Close");
 		addRenderableWidget(makeToggle(left, y, half, row, "Close Keep Open",
 			() -> UiUtilsSettings.get().autoduperCloseKeepOpen,
 			v -> UiUtilsSettings.get().autoduperCloseKeepOpen = v));
@@ -245,6 +255,8 @@ public final class UiUtilsAutoduperScreen extends Screen {
 			v -> UiUtilsSettings.get().autoduperClosePacketLeave = v));
 		y += row + gap;
 
+		y += 3;
+		y = addSectionLabel(left, y, "Reopen");
 		addRenderableWidget(makeToggle(left, y, half, row, "Reopen None",
 			() -> UiUtilsSettings.get().autoduperReopenNone,
 			v -> UiUtilsSettings.get().autoduperReopenNone = v));
@@ -263,7 +275,7 @@ public final class UiUtilsAutoduperScreen extends Screen {
 			v -> UiUtilsSettings.get().autoduperReopenInteract = v));
 		y += row + gap;
 
-		addRenderableWidget(makeToggle(left, y, half, row,
+		addRenderableWidget(makeToggle(left, y, width, row,
 			"Reopen Stale",
 			() -> UiUtilsSettings.get().autoduperReopenStaleRestore,
 			v -> UiUtilsSettings.get().autoduperReopenStaleRestore = v));
@@ -274,13 +286,49 @@ public final class UiUtilsAutoduperScreen extends Screen {
 			v -> UiUtilsSettings.get().autoduperReopenPrepareCommand = v));
 		y += row + gap;
 
+		addRenderableWidget(makeToggle(left, y, width, row,
+			"Hybrid Command+Interact Open",
+			() -> UiUtilsSettings.get().autoduperHybridOpen,
+			v -> UiUtilsSettings.get().autoduperHybridOpen = v));
+		y += row + gap;
+
+		y += 3;
+		y = addSectionLabel(left, y, "Finish");
+		addRenderableWidget(makeToggle(left, y, half, row, "Finish Leave+Send",
+			() -> UiUtilsSettings.get().autoduperFinishLeaveSend,
+			v -> UiUtilsSettings.get().autoduperFinishLeaveSend = v));
+		addRenderableWidget(makeToggle(left + half + gap, y, half, row,
+			"Finish Disconnect+Send",
+			() -> UiUtilsSettings.get().autoduperFinishDisconnectSend,
+			v -> UiUtilsSettings.get().autoduperFinishDisconnectSend = v));
+		y += row + gap;
+
+		y += 8;
 		addRenderableWidget(UiUtils.styledButton("Back",
 			b -> {
 				categoryPage = false;
 				rebuildWidgets();
 			}, left, y, width, row));
-		y += row + gap;
+	}
 
+	private int getCategoryContentHeight(int row, int gap) {
+		int label = 14;
+		int movementRows = 3;
+		int closeRows = 2;
+		int reopenRows = 5;
+		int finishRows = 1;
+		int backRows = 1;
+		return label + movementRows * (row + gap)
+			+ 3 + label + closeRows * (row + gap)
+			+ 3 + label + reopenRows * (row + gap)
+			+ 3 + label + finishRows * (row + gap)
+			+ 8 + backRows * row;
+	}
+
+	private int addSectionLabel(int left, int y, String label) {
+		addRenderableWidget(new UiUtilsTextLabel(left, y, 90, 14,
+			Component.literal(label)));
+		return y + 14;
 	}
 
 	private UiUtilsColoredButton makeToggle(int x, int y, int width, int height,
@@ -302,6 +350,14 @@ public final class UiUtilsAutoduperScreen extends Screen {
 			dropValidationButton.setMessage(Component.literal(
 				"Drop Validation: "
 					+ (UiUtilsSettings.get().autoduperDropValidation ? "ON"
+						: "OFF")));
+	}
+
+	private void refreshVerboseModeLabel() {
+		if(verboseModeButton != null)
+			verboseModeButton.setMessage(Component.literal(
+				"Verbose Mode: "
+					+ (UiUtilsSettings.get().autoduperVerboseMode ? "ON"
 						: "OFF")));
 	}
 
@@ -345,6 +401,25 @@ public final class UiUtilsAutoduperScreen extends Screen {
 	public void onClose() {
 		applyFields();
 		this.minecraft.setScreen(parent);
+	}
+
+	private static final class UiUtilsTextLabel extends AbstractWidget {
+		private UiUtilsTextLabel(int x, int y, int width, int height,
+			Component message) {
+			super(x, y, width, height, message);
+			this.active = false;
+		}
+
+		@Override
+		protected void extractWidgetRenderState(GuiGraphicsExtractor graphics,
+			int mouseX, int mouseY, float partialTicks) {
+			graphics.text(Minecraft.getInstance().font, getMessage(), getX(),
+				getY() + 3, 0xFFE0E0E0, false);
+		}
+
+		@Override
+		protected void updateWidgetNarration(NarrationElementOutput narration) {
+		}
 	}
 
 	private static final class IntSlider extends AbstractSliderButton {

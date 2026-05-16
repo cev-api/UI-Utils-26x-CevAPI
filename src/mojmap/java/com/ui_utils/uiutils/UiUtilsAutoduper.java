@@ -41,7 +41,16 @@ public final class UiUtilsAutoduper {
 	private static int validationTicks;
 	private static int setupTicks;
 	private static int abortHoldTicks;
+	private static int pendingClosePacketContainerId = -1;
 	private static boolean pluginInventorySeedMode;
+	private static boolean resumeAfterReconnect;
+	private static int resumeAttempt;
+	private static boolean resumingRun;
+	private static boolean reopenRecoveryTried;
+	private static boolean setupReopenDesyncTried;
+	private static ReplayStartMode[] replayStartModes = {ReplayStartMode.DEFAULT};
+	private static int replayStartIndex;
+	private static ReplayStartMode replayStartMode = ReplayStartMode.DEFAULT;
 
 	private UiUtilsAutoduper() {}
 
@@ -60,6 +69,13 @@ public final class UiUtilsAutoduper {
 		targetStack = ItemStack.EMPTY;
 		activeTargetSlot = slot;
 		pluginInventorySeedMode = false;
+		replayStartModes = new ReplayStartMode[] {ReplayStartMode.DEFAULT};
+		replayStartIndex = 0;
+		replayStartMode = ReplayStartMode.DEFAULT;
+		setupReopenDesyncTried = false;
+		resumeAfterReconnect = false;
+		resumeAttempt = 0;
+		resumingRun = false;
 		baselineCount = 0;
 		lastObservedCount = 0;
 		runPlan = buildRunPlan();
@@ -70,6 +86,7 @@ public final class UiUtilsAutoduper {
 		}
 		attempt = 0;
 		abortHoldTicks = 0;
+		pendingClosePacketContainerId = -1;
 		ticksUntilNext = 1;
 		phase = Phase.ACQUIRE_TARGET;
 		activeStrategy = runPlan[0];
@@ -83,9 +100,17 @@ public final class UiUtilsAutoduper {
 
 	public static void stop(String reason) {
 		running = false;
+		resumeAfterReconnect = false;
+		resumeAttempt = 0;
+		resumingRun = false;
+		setupReopenDesyncTried = false;
+		replayStartModes = new ReplayStartMode[] {ReplayStartMode.DEFAULT};
+		replayStartIndex = 0;
+		replayStartMode = ReplayStartMode.DEFAULT;
 		phase = Phase.IDLE;
 		UiUtilsState.delayUiPackets = false;
 		abortHoldTicks = 0;
+		pendingClosePacketContainerId = -1;
 		status = reason == null || reason.isBlank() ? "Stopped" : reason;
 		UiUtils.chatIfEnabled("Autoduper: " + status);
 	}
@@ -123,10 +148,12 @@ public final class UiUtilsAutoduper {
 	}
 
 	public static void onClientTick(Minecraft mc) {
-		if(!running)
+		if(!running) {
+			tickReconnectResume(mc);
 			return;
+		}
 		if(mc == null || mc.player == null || mc.getConnection() == null) {
-			stop("Stopped: not connected");
+			pauseForReconnect("Paused: waiting for reconnect");
 			return;
 		}
 		tickAbortKey(mc);
@@ -139,6 +166,47 @@ public final class UiUtilsAutoduper {
 			UiUtils.LOGGER.warn("Autoduper failed during {}", phase, t);
 			stop("Error: " + t.getClass().getSimpleName());
 		}
+	}
+
+	private static void tickReconnectResume(Minecraft mc) {
+		if(!resumeAfterReconnect)
+			return;
+		if(mc == null || mc.player == null || mc.getConnection() == null)
+			return;
+		runPlan = buildRunPlan();
+		if(runPlan.length == 0) {
+			stop("No Autoduper strategy categories are enabled after reconnect");
+			return;
+		}
+		attempt = Math.min(Math.max(0, resumeAttempt), getAttemptLimit());
+		if(attempt >= getAttemptLimit()) {
+			stop("No confirmed dupe after reconnect; attempts exhausted");
+			return;
+		}
+		if(targetStack.isEmpty())
+			activeTargetSlot = UiUtilsSettings.get().autoduperTargetSlot;
+		baselineCount = 0;
+		lastObservedCount = 0;
+		setupTicks = 0;
+		ticksUntilNext = 1;
+		phase = Phase.ACQUIRE_TARGET;
+		running = true;
+		resumeAfterReconnect = false;
+		resumingRun = true;
+		status = "Reconnected; resuming Autoduper at attempt "
+			+ (attempt + 1) + "/" + getAttemptLimit();
+		UiUtils.chatIfEnabled("Autoduper: " + status);
+	}
+
+	private static void pauseForReconnect(String reason) {
+		resumeAfterReconnect = true;
+		resumeAttempt = attempt;
+		running = false;
+		phase = Phase.IDLE;
+		UiUtilsState.delayUiPackets = false;
+		status = reason == null || reason.isBlank()
+			? "Paused: waiting for reconnect" : reason;
+		UiUtils.chatIfEnabled("Autoduper: " + status);
 	}
 
 	private static void tick(Minecraft mc) {
@@ -156,30 +224,36 @@ public final class UiUtilsAutoduper {
 			return;
 		}
 
-		refreshActiveTargetSlot(menu);
-		int observed = countMatching(menu, targetStack);
-		lastObservedCount = observed;
-		if(observed > baselineCount) {
-			if(UiUtilsSettings.get().autoduperDropValidation) {
-				status = "Potential dupe found; validating by drop";
-				phase = Phase.VALIDATE_DROP;
-			}else {
-				stop("Success on dupe attempt #" + activeStrategyNumber
-					+ ": count " + baselineCount + " -> " + observed);
-				return;
+		if(phase == Phase.OBSERVE) {
+			refreshActiveTargetSlot(menu);
+			int observed = countMatching(menu, targetStack);
+			lastObservedCount = observed;
+			if(observed > baselineCount) {
+				if(UiUtilsSettings.get().autoduperDropValidation) {
+					status = "Potential dupe found; validating by drop";
+					phase = Phase.VALIDATE_DROP;
+				}else {
+					stop("Success on dupe attempt #" + activeStrategyNumber
+						+ ": count " + baselineCount + " -> " + observed);
+					return;
+				}
 			}
 		}
 
 		switch(phase) {
 			case PREPARE -> prepare(mc);
 			case RUN_STRATEGY -> runStrategy(mc);
+			case WAIT_REOPEN -> waitForReopen(mc);
 			case OBSERVE -> observe(mc);
 			case VALIDATE_DROP -> validateByDrop(mc);
 			case VALIDATE_OBSERVE -> validateDropResult(mc);
 			case IDLE, ACQUIRE_TARGET, SETUP_STORE, SETUP_STORE_OBSERVE,
+				SETUP_RETRIEVE_FROM_CONTAINER,
+				SETUP_RETRIEVE_CONTAINER_OBSERVE,
 				SETUP_CLOSE_NORMAL, SETUP_REOPEN_FOR_RETRIEVE,
 				SETUP_RETRIEVE_OBSERVE, SETUP_CLOSE_WITHOUT_PACKET,
-				SETUP_FINAL_REOPEN -> {}
+				SETUP_DESYNC_RECOVER_CLOSE, SETUP_FINAL_REOPEN,
+				SETUP_FINAL_REOPEN_OBSERVE -> {}
 		}
 	}
 
@@ -196,7 +270,20 @@ public final class UiUtilsAutoduper {
 				+ " slots visible)";
 			return;
 		}
-		ItemStack stack = menu.slots.get(slot).getItem().copy();
+		if(!targetStack.isEmpty()
+			&& !matches(menu.slots.get(slot).getItem(), targetStack)) {
+			int foundSlot = firstPlayerInventorySlot(menu, targetStack);
+			if(foundSlot < 0)
+				foundSlot = firstContainerSlot(menu, targetStack);
+			if(foundSlot < 0) {
+				stop("Resume failed: original target item was not found");
+				return;
+			}
+			slot = foundSlot;
+			activeTargetSlot = foundSlot;
+		}
+		ItemStack stack = targetStack.isEmpty()
+			? menu.slots.get(slot).getItem().copy() : targetStack.copy();
 		if(stack.isEmpty()) {
 			stop("Target slot is empty");
 			return;
@@ -205,21 +292,29 @@ public final class UiUtilsAutoduper {
 		baselineCount = countMatching(menu, targetStack);
 		lastObservedCount = baselineCount;
 		setupTicks = 0;
+		setupReopenDesyncTried = false;
 		pluginInventorySeedMode = isPlayerInventorySlot(menu, slot);
+		replayStartModes = buildReplayStartModes(menu);
+		if(replayStartIndex >= replayStartModes.length)
+			replayStartIndex = 0;
+		replayStartMode = replayStartModes[replayStartIndex];
 		if(pluginInventorySeedMode) {
 			runPlan = buildRunPlan();
 			if(runPlan.length == 0) {
 				stop("No plugin-inventory seed Autoduper strategies are enabled");
 				return;
 			}
-			attempt = 0;
 		}
+		if(!resumingRun && pluginInventorySeedMode && replayStartIndex == 0)
+			attempt = 0;
 		phase = pluginInventorySeedMode ? Phase.SETUP_STORE : Phase.PREPARE;
 		status = "Locked target slot " + slot + " with "
 			+ targetStack.getHoverName().getString() + " x" + baselineCount
 			+ (pluginInventorySeedMode
-				? "; plugin GUI scan using player-slot seed" : "");
+				? "; plugin GUI scan using " + replayStartMode.label : "");
 		UiUtils.chatIfEnabled("Autoduper: " + status);
+		if(!pluginInventorySeedMode && replayStartMode.startsFromContainer())
+			closeForReplayStartMode(mc);
 	}
 
 	private static void tickSetupCycle(Minecraft mc, AbstractContainerMenu menu) {
@@ -237,6 +332,10 @@ public final class UiUtilsAutoduper {
 				int containerSlot = firstContainerSlot(menu, targetStack);
 				if(containerSlot >= 0) {
 					activeTargetSlot = containerSlot;
+					if(replayStartMode.startsFromContainer()) {
+						closeForReplayStartMode(mc);
+						return;
+					}
 					phase = Phase.SETUP_CLOSE_NORMAL;
 					setupTicks = 0;
 					status = "Setup: target stored in plugin GUI slot "
@@ -245,6 +344,27 @@ public final class UiUtilsAutoduper {
 				}
 				if(setupTicks > 20)
 					stop("Setup failed: target did not move into plugin GUI");
+			}
+			case SETUP_RETRIEVE_FROM_CONTAINER -> {
+				clickTracked(mc, activeTargetSlot, 0, ContainerInput.QUICK_MOVE);
+				phase = Phase.SETUP_RETRIEVE_CONTAINER_OBSERVE;
+				setupTicks = 0;
+				status = "Setup: moved target from plugin GUI toward player inventory";
+			}
+			case SETUP_RETRIEVE_CONTAINER_OBSERVE -> {
+				int playerSlot = firstPlayerInventorySlot(menu, targetStack);
+				if(playerSlot >= 0) {
+					activeTargetSlot = playerSlot;
+					sendClosePacket(mc);
+					mc.setScreen(null);
+					phase = Phase.SETUP_FINAL_REOPEN;
+					setupTicks = 0;
+					status = "Setup: target now in player slot "
+						+ activeTargetSlot + "; closed normally";
+					return;
+				}
+				if(setupTicks > 20)
+					stop("Setup failed: target did not move out to player inventory");
 			}
 			case SETUP_CLOSE_NORMAL -> {
 				sendClosePacket(mc);
@@ -279,17 +399,49 @@ public final class UiUtilsAutoduper {
 					return;
 				}
 				activeTargetSlot = playerSlot;
+				rememberClosePacketContainerId(mc);
 				mc.setScreen(null);
-				phase = Phase.SETUP_FINAL_REOPEN;
+				phase = Phase.SETUP_DESYNC_RECOVER_CLOSE;
 				setupTicks = 0;
 				status = "Setup: closed without packet with target in slot "
 					+ activeTargetSlot;
 			}
+			case SETUP_DESYNC_RECOVER_CLOSE -> {
+				if(setupTicks < 2)
+					return;
+				sendClosePacket(mc);
+				setupReopenDesyncTried = true;
+				phase = Phase.SETUP_FINAL_REOPEN;
+				setupTicks = 0;
+				status = "Setup: sent close packet after packetless close";
+			}
 			case SETUP_FINAL_REOPEN -> {
 				applyReopen(mc, preferredOpenMode());
+				phase = Phase.SETUP_FINAL_REOPEN_OBSERVE;
+				setupTicks = 0;
+				status = "Setup: waiting for final plugin GUI reopen";
+			}
+			case SETUP_FINAL_REOPEN_OBSERVE -> {
+				if(!isPluginContainerScreenOpen(mc)) {
+					if(setupTicks > 8 && !setupReopenDesyncTried) {
+						sendClosePacket(mc);
+						setupReopenDesyncTried = true;
+						phase = Phase.SETUP_FINAL_REOPEN;
+						setupTicks = 0;
+						status = "Setup: reopen blocked; sent desync close packet";
+						return;
+					}
+					if(setupTicks > 20 && tryAdvanceReplayStartMode())
+						return;
+					if(setupTicks > 20)
+						stop("Setup failed: plugin GUI did not reopen");
+					return;
+				}
+				refreshActiveTargetSlot(menu);
 				baselineCount = countMatching(menu, targetStack);
 				lastObservedCount = baselineCount;
 				phase = Phase.PREPARE;
+				resumingRun = false;
 				setupTicks = 0;
 				status = "Setup complete; scanning plugin GUI with seed slot "
 					+ activeTargetSlot;
@@ -320,11 +472,49 @@ public final class UiUtilsAutoduper {
 			+ activeTargetSlot + ": " + activeStrategy.label;
 		UiUtils.chatIfEnabled("Autoduper: " + status);
 		activeStrategy.run(mc);
-		phase = Phase.OBSERVE;
+		phase = Phase.WAIT_REOPEN;
+		setupTicks = 0;
+		reopenRecoveryTried = false;
+	}
+
+	private static void waitForReopen(Minecraft mc) {
+		setupTicks++;
+		if(isPluginContainerScreenOpen(mc)) {
+			phase = Phase.OBSERVE;
+			return;
+		}
+		if(setupTicks >= 1 && !reopenRecoveryTried
+			&& activeStrategy.needsClosePacketRecoveryForReopen()) {
+			sendClosePacket(mc);
+			applyReopen(mc, activeStrategy.reopenMode);
+			reopenRecoveryTried = true;
+			status = "Reopen blocked; sent close packet recovery";
+			return;
+		}
+		if(setupTicks >= 2 && !reopenRecoveryTried
+			&& hasOpenCommandConfigured()
+			&& activeStrategy.shouldRecoverReopenWithCommand()) {
+			sendOpenCommand(mc);
+			reopenRecoveryTried = true;
+			status = "Reopen failed; trying command recovery";
+			return;
+		}
+		if(setupTicks > 6) {
+			if(tryAdvanceReplayStartMode())
+				return;
+			status = "Reopen failed; skipping strategy #"
+				+ activeStrategyNumber;
+			phase = Phase.RUN_STRATEGY;
+		}
 	}
 
 	private static void observe(Minecraft mc) {
 		AbstractContainerMenu menu = mc.player.containerMenu;
+		if(!isPluginContainerScreenOpen(mc)) {
+			phase = Phase.WAIT_REOPEN;
+			setupTicks = 0;
+			return;
+		}
 		if(menu != null)
 			refreshActiveTargetSlot(menu);
 		int observed = menu == null ? 0 : countMatching(menu, targetStack);
@@ -337,6 +527,8 @@ public final class UiUtilsAutoduper {
 					+ ": count " + baselineCount + " -> " + observed);
 			return;
 		}
+		if(tryAdvanceReplayStartMode())
+			return;
 		phase = Phase.RUN_STRATEGY;
 	}
 
@@ -348,6 +540,8 @@ public final class UiUtilsAutoduper {
 		}
 		List<Integer> matchingSlots = matchingSlots(menu, targetStack);
 		if(matchingSlots.size() < 2) {
+			if(tryAdvanceReplayStartMode())
+				return;
 			phase = Phase.RUN_STRATEGY;
 			status = "Validation rejected ghost count";
 			return;
@@ -383,6 +577,8 @@ public final class UiUtilsAutoduper {
 			return;
 		}
 		if(validationTicks > 20) {
+			if(tryAdvanceReplayStartMode())
+				return;
 			status = "Validation rejected ghost item";
 			phase = Phase.RUN_STRATEGY;
 		}
@@ -398,14 +594,13 @@ public final class UiUtilsAutoduper {
 		int h = 20;
 		graphics.fill(x, y, x + w, y + h, 0xCC7A1010);
 		graphics.outline(x, y, w, h, 0xFFFFB0B0);
-		graphics.text(mc.font, "ABORT AUTODUPE", x + 8, y + 6, 0xFFFFFFFF,
-			false);
-		if(UiUtilsSettings.get().autoduperAbortHoldEnabled) {
-			String text = "Hold "
-				+ readableKey(UiUtilsSettings.get().autoduperAbortKey) + ": "
+		String abortText = "ABORT AUTODUPE";
+		if(UiUtilsSettings.get().autoduperAbortHoldEnabled
+			&& abortHoldTicks > 0) {
+			abortText += " "
 				+ Math.min(100, abortHoldTicks * 100 / 60) + "%";
-			graphics.text(mc.font, text, x, y + h + 3, 0xFFFFCCCC, false);
 		}
+		graphics.text(mc.font, abortText, x + 8, y + 6, 0xFFFFFFFF, false);
 	}
 
 	public static boolean handleAbortOverlayClick(double mouseX, double mouseY,
@@ -435,17 +630,79 @@ public final class UiUtilsAutoduper {
 	}
 
 	private static void sendClosePacket(Minecraft mc) {
-		if(mc.getConnection() == null || mc.player == null
-			|| mc.player.containerMenu == null)
+		if(mc.getConnection() == null || mc.player == null)
 			return;
-		mc.getConnection().send(
-			new ServerboundContainerClosePacket(mc.player.containerMenu.containerId));
+		int containerId = pendingClosePacketContainerId >= 0
+			? pendingClosePacketContainerId
+			: mc.player.containerMenu != null ? mc.player.containerMenu.containerId
+				: -1;
+		if(containerId < 0)
+			return;
+		pendingClosePacketContainerId = -1;
+		mc.getConnection().send(new ServerboundContainerClosePacket(containerId));
+	}
+
+	private static void rememberClosePacketContainerId(Minecraft mc) {
+		if(mc != null && mc.player != null && mc.player.containerMenu != null)
+			pendingClosePacketContainerId = mc.player.containerMenu.containerId;
 	}
 
 	private static void flushDelayed(Minecraft mc) {
 		UiUtilsState.delayUiPackets = false;
 		UiUtils.sendQueuedPackets(mc, 1);
 		UiUtils.clearQueuedPackets();
+	}
+
+	private static void closeForReplayStartMode(Minecraft mc) {
+		if(replayStartMode == ReplayStartMode.CONTAINER_NORMAL)
+			sendClosePacket(mc);
+		else
+			rememberClosePacketContainerId(mc);
+		mc.setScreen(null);
+		phase = replayStartMode == ReplayStartMode.CONTAINER_DESYNC
+			? Phase.SETUP_DESYNC_RECOVER_CLOSE : Phase.SETUP_FINAL_REOPEN;
+		setupTicks = 0;
+		status = "Setup: replay seeded target into plugin GUI slot "
+			+ activeTargetSlot + " using " + replayStartMode.label;
+	}
+
+	private static boolean tryAdvanceReplayStartMode() {
+		if(!isSingleReplay())
+			return false;
+		if(replayStartIndex + 1 >= replayStartModes.length)
+			return false;
+		replayStartIndex++;
+		replayStartMode = replayStartModes[replayStartIndex];
+		activeTargetSlot = UiUtilsSettings.get().autoduperTargetSlot;
+		baselineCount = 0;
+		lastObservedCount = 0;
+		setupTicks = 0;
+		phase = Phase.ACQUIRE_TARGET;
+		status = "Replay start state failed; trying "
+			+ replayStartMode.label;
+		UiUtils.chatIfEnabled("Autoduper: " + status);
+		return true;
+	}
+
+	private static void finishStrategy(Minecraft mc, FinishMode finishMode,
+		boolean hadDelayedPackets) {
+		if(hadDelayedPackets)
+			flushDelayed(mc);
+		switch(finishMode) {
+			case NONE -> {}
+			case LEAVE_SEND -> {
+				mc.setScreen(null);
+				status = "Finished strategy with leave + send";
+			}
+			case DISCONNECT_SEND -> {
+				status = "Finished strategy with disconnect + send";
+				resumeAfterReconnect = true;
+				resumeAttempt = attempt;
+				running = false;
+				phase = Phase.IDLE;
+				UiUtilsDisconnect.disconnectWithConfiguredMethod(mc);
+			}
+		}
 	}
 
 	private static void restoreSavedGui(Minecraft mc) {
@@ -468,6 +725,18 @@ public final class UiUtilsAutoduper {
 		String clean = cleanCommand(command);
 		if(!clean.isBlank())
 			mc.getConnection().sendCommand(clean);
+	}
+
+	private static void scheduleAutoduperTask(Minecraft mc, int ticks,
+		Runnable runnable) {
+		if(ticks <= 0) {
+			runnable.run();
+			return;
+		}
+		UiUtils.queueTask(() -> {
+			if(running && Minecraft.getInstance().player != null)
+				runnable.run();
+		}, ticks * 50L);
 	}
 
 	private static String cleanCommand(String command) {
@@ -539,11 +808,15 @@ public final class UiUtilsAutoduper {
 	private static boolean isSetupPhase(Phase phase) {
 		return phase == Phase.SETUP_STORE
 			|| phase == Phase.SETUP_STORE_OBSERVE
+			|| phase == Phase.SETUP_RETRIEVE_FROM_CONTAINER
+			|| phase == Phase.SETUP_RETRIEVE_CONTAINER_OBSERVE
 			|| phase == Phase.SETUP_CLOSE_NORMAL
 			|| phase == Phase.SETUP_REOPEN_FOR_RETRIEVE
 			|| phase == Phase.SETUP_RETRIEVE_OBSERVE
 			|| phase == Phase.SETUP_CLOSE_WITHOUT_PACKET
-			|| phase == Phase.SETUP_FINAL_REOPEN;
+			|| phase == Phase.SETUP_DESYNC_RECOVER_CLOSE
+			|| phase == Phase.SETUP_FINAL_REOPEN
+			|| phase == Phase.SETUP_FINAL_REOPEN_OBSERVE;
 	}
 
 	private static int playerInventoryStart(AbstractContainerMenu menu) {
@@ -587,6 +860,9 @@ public final class UiUtilsAutoduper {
 	}
 
 	private static ReopenMode preferredOpenMode() {
+		if(!cleanCommand(UiUtilsSettings.get().autoduperOpenCommand).isBlank()
+			&& UiUtilsSettings.get().autoduperHybridOpen)
+			return ReopenMode.COMMAND_THEN_INTERACT;
 		if(!cleanCommand(UiUtilsSettings.get().autoduperOpenCommand).isBlank())
 			return ReopenMode.COMMAND;
 		return ReopenMode.INTERACT;
@@ -670,7 +946,10 @@ public final class UiUtilsAutoduper {
 	private static void applyClose(Minecraft mc, CloseMode closeMode) {
 		switch(closeMode) {
 			case NONE -> {}
-			case SOFT_CLOSE -> mc.setScreen(null);
+			case SOFT_CLOSE -> {
+				rememberClosePacketContainerId(mc);
+				mc.setScreen(null);
+			}
 			case CLOSE_PACKET_KEEP_SCREEN -> sendClosePacket(mc);
 			case NORMAL_CLOSE_PACKET -> {
 				sendClosePacket(mc);
@@ -688,6 +967,19 @@ public final class UiUtilsAutoduper {
 				sendOpenCommand(mc);
 			}
 			case INTERACT -> interactInFront(mc);
+			case COMMAND_THEN_INTERACT -> {
+				sendOpenCommand(mc);
+				interactInFront(mc);
+			}
+			case INTERACT_THEN_COMMAND -> {
+				interactInFront(mc);
+				sendOpenCommand(mc);
+			}
+			case DOUBLE_COMMAND_THEN_INTERACT -> {
+				sendOpenCommand(mc);
+				sendOpenCommand(mc);
+				interactInFront(mc);
+			}
 			case COMMAND_THEN_RESTORE -> {
 				sendOpenCommand(mc);
 				restoreSavedGui(mc);
@@ -708,6 +1000,7 @@ public final class UiUtilsAutoduper {
 
 	private static Strategy[] buildStrategies() {
 		List<Strategy> strategies = new ArrayList<>();
+		List<StrategySeed> seeds = new ArrayList<>();
 		Movement[] movementOrder = {
 			Movement.PICKUP_PULSE,
 			Movement.QUICK_MOVE,
@@ -724,20 +1017,60 @@ public final class UiUtilsAutoduper {
 						continue;
 					if(reopenMode == ReopenMode.PREPARE_THEN_COMMAND)
 						continue;
-					strategies.add(new Strategy(strategies.size() + 1, movement,
-						closeMode, reopenMode, false));
-					if(movement.isDelayable())
-						strategies.add(new Strategy(strategies.size() + 1, movement,
-							closeMode, reopenMode, true));
+					seeds.add(new StrategySeed(movement, closeMode, reopenMode,
+						false, false));
+					if(movement.isDelayable()) {
+						seeds.add(new StrategySeed(movement, closeMode,
+							reopenMode, true, false));
+						seeds.add(new StrategySeed(movement, closeMode,
+							reopenMode, false, true));
+					}
 				}
-		strategies.add(new Strategy(strategies.size() + 1, Movement.NONE, CloseMode.NONE,
-			ReopenMode.PREPARE_THEN_COMMAND, false));
-		strategies.add(new Strategy(strategies.size() + 1, Movement.QUICK_MOVE_DELAYED,
-			CloseMode.CLOSE_PACKET_KEEP_SCREEN, ReopenMode.DOUBLE_COMMAND, true));
-		strategies.add(new Strategy(strategies.size() + 1, Movement.OFFHAND_SWAP,
-			CloseMode.CLOSE_PACKET_KEEP_SCREEN, ReopenMode.COMMAND_THEN_RESTORE,
+		seeds.add(new StrategySeed(Movement.NONE, CloseMode.NONE,
+			ReopenMode.PREPARE_THEN_COMMAND, false, false));
+		seeds.add(new StrategySeed(Movement.QUICK_MOVE_DELAYED,
+			CloseMode.CLOSE_PACKET_KEEP_SCREEN, ReopenMode.DOUBLE_COMMAND, true,
 			false));
+		seeds.add(new StrategySeed(Movement.OFFHAND_SWAP,
+			CloseMode.CLOSE_PACKET_KEEP_SCREEN, ReopenMode.COMMAND_THEN_RESTORE,
+			false, true));
+		for(StrategySeed seed : seeds)
+			addTimingStrategies(strategies, seed.movement, seed.closeMode,
+				seed.reopenMode, seed.releaseAfterReopen,
+				seed.releaseAfterClose, FinishMode.NONE);
+		for(StrategySeed seed : seeds)
+			addTimingStrategies(strategies, seed.movement, seed.closeMode,
+				seed.reopenMode, seed.releaseAfterReopen,
+				seed.releaseAfterClose, FinishMode.LEAVE_SEND);
+		for(StrategySeed seed : seeds)
+			addTimingStrategies(strategies, seed.movement, seed.closeMode,
+				seed.reopenMode, seed.releaseAfterReopen,
+				seed.releaseAfterClose,
+				FinishMode.DISCONNECT_SEND);
 		return strategies.toArray(Strategy[]::new);
+	}
+
+	private static void addTimingStrategies(List<Strategy> strategies,
+		Movement movement, CloseMode closeMode, ReopenMode reopenMode,
+		boolean releaseAfterReopen, boolean releaseAfterClose,
+		FinishMode finishMode) {
+		boolean canDelayClose = closeMode != CloseMode.NONE;
+		boolean canDelayCommand = reopenMode.usesCommand();
+		strategies.add(new Strategy(strategies.size() + 1, movement, closeMode,
+			reopenMode, releaseAfterReopen, releaseAfterClose, false, false,
+			finishMode));
+		if(canDelayClose)
+			strategies.add(new Strategy(strategies.size() + 1, movement, closeMode,
+				reopenMode, releaseAfterReopen, releaseAfterClose, true, false,
+				finishMode));
+		if(canDelayCommand)
+			strategies.add(new Strategy(strategies.size() + 1, movement, closeMode,
+				reopenMode, releaseAfterReopen, releaseAfterClose, false, true,
+				finishMode));
+		if(canDelayClose && canDelayCommand)
+			strategies.add(new Strategy(strategies.size() + 1, movement, closeMode,
+				reopenMode, releaseAfterReopen, releaseAfterClose, true, true,
+				finishMode));
 	}
 
 	private static int countMatching(AbstractContainerMenu menu,
@@ -787,8 +1120,11 @@ public final class UiUtilsAutoduper {
 	}
 
 	private static int getAttemptLimit() {
-		return Math.min(runPlan.length,
+		int base = Math.min(runPlan.length,
 			Math.max(1, UiUtilsSettings.get().autoduperMaxAttempts));
+		if(isSingleReplay())
+			return Math.max(base, replayStartModes.length);
+		return base;
 	}
 
 	private static Strategy[] buildRunPlan() {
@@ -797,9 +1133,36 @@ public final class UiUtilsAutoduper {
 			return new Strategy[] {STRATEGIES[single - 1]};
 		List<Strategy> filtered = new ArrayList<>();
 		for(Strategy strategy : STRATEGIES)
-			if(strategy.isEnabled())
+			if(strategy.isEnabled()
+				&& (UiUtilsSettings.get().autoduperVerboseMode
+					|| !strategy.isSmartPruned()))
 				filtered.add(strategy);
 		return filtered.toArray(Strategy[]::new);
+	}
+
+	private static boolean isSingleReplay() {
+		int single = UiUtilsSettings.get().autoduperSingleAttempt;
+		return single > 0 && single <= STRATEGIES.length && runPlan.length == 1;
+	}
+
+	private static ReplayStartMode[] buildReplayStartModes(
+		AbstractContainerMenu menu) {
+		if(!isSingleReplay())
+			return new ReplayStartMode[] {ReplayStartMode.DEFAULT};
+		int configuredSlot = UiUtilsSettings.get().autoduperTargetSlot;
+		if(!isPlayerInventorySlot(menu, configuredSlot))
+			return new ReplayStartMode[] {ReplayStartMode.DEFAULT};
+		if(runPlan[0].needsContainerSeedForDirectReplay())
+			return new ReplayStartMode[] {
+				ReplayStartMode.CONTAINER_DESYNC,
+				ReplayStartMode.CONTAINER_NORMAL,
+				ReplayStartMode.DEFAULT
+			};
+		return new ReplayStartMode[] {
+			ReplayStartMode.DEFAULT,
+			ReplayStartMode.CONTAINER_DESYNC,
+			ReplayStartMode.CONTAINER_NORMAL
+		};
 	}
 
 	private enum Phase {
@@ -807,16 +1170,37 @@ public final class UiUtilsAutoduper {
 		ACQUIRE_TARGET,
 		SETUP_STORE,
 		SETUP_STORE_OBSERVE,
+		SETUP_RETRIEVE_FROM_CONTAINER,
+		SETUP_RETRIEVE_CONTAINER_OBSERVE,
 		SETUP_CLOSE_NORMAL,
 		SETUP_REOPEN_FOR_RETRIEVE,
 		SETUP_RETRIEVE_OBSERVE,
 		SETUP_CLOSE_WITHOUT_PACKET,
+		SETUP_DESYNC_RECOVER_CLOSE,
 		SETUP_FINAL_REOPEN,
+		SETUP_FINAL_REOPEN_OBSERVE,
 		PREPARE,
 		RUN_STRATEGY,
+		WAIT_REOPEN,
 		OBSERVE,
 		VALIDATE_DROP,
 		VALIDATE_OBSERVE
+	}
+
+	private enum ReplayStartMode {
+		DEFAULT("default start"),
+		CONTAINER_DESYNC("container seed + desync close"),
+		CONTAINER_NORMAL("container seed + normal close");
+
+		private final String label;
+
+		ReplayStartMode(String label) {
+			this.label = label;
+		}
+
+		private boolean startsFromContainer() {
+			return this == CONTAINER_DESYNC || this == CONTAINER_NORMAL;
+		}
 	}
 
 	private enum Movement {
@@ -875,6 +1259,12 @@ public final class UiUtilsAutoduper {
 				case NORMAL_CLOSE_PACKET -> settings.autoduperClosePacketLeave;
 			};
 		}
+
+		private boolean sendsCloseOrLeaves() {
+			return this == CLOSE_PACKET_KEEP_SCREEN
+				|| this == NORMAL_CLOSE_PACKET
+				|| this == SOFT_CLOSE;
+		}
 	}
 
 	private enum ReopenMode {
@@ -882,6 +1272,9 @@ public final class UiUtilsAutoduper {
 		COMMAND("command reopen"),
 		DOUBLE_COMMAND("double command reopen"),
 		INTERACT("interact reopen"),
+		COMMAND_THEN_INTERACT("command + interact reopen"),
+		INTERACT_THEN_COMMAND("interact + command reopen"),
+		DOUBLE_COMMAND_THEN_INTERACT("double command + interact reopen"),
 		COMMAND_THEN_RESTORE("command then restore stale GUI"),
 		RESTORE_THEN_COMMAND("restore stale GUI then command"),
 		PREPARE_THEN_COMMAND("prepare command then open command");
@@ -897,7 +1290,13 @@ public final class UiUtilsAutoduper {
 			return switch(this) {
 				case NONE -> settings.autoduperReopenNone;
 				case COMMAND -> settings.autoduperReopenCommand;
-				case DOUBLE_COMMAND -> settings.autoduperReopenDoubleCommand;
+				case COMMAND_THEN_INTERACT,
+					INTERACT_THEN_COMMAND -> settings.autoduperReopenCommand
+						&& settings.autoduperHybridOpen;
+				case DOUBLE_COMMAND,
+					DOUBLE_COMMAND_THEN_INTERACT -> settings.autoduperReopenDoubleCommand
+						&& (this != DOUBLE_COMMAND_THEN_INTERACT
+							|| settings.autoduperHybridOpen);
 				case INTERACT -> settings.autoduperReopenInteract;
 				case COMMAND_THEN_RESTORE, RESTORE_THEN_COMMAND -> settings.autoduperReopenStaleRestore;
 				case PREPARE_THEN_COMMAND -> settings.autoduperReopenPrepareCommand;
@@ -909,11 +1308,53 @@ public final class UiUtilsAutoduper {
 			boolean hasPrepare = hasPrepareCommandConfigured();
 			return switch(this) {
 				case NONE, INTERACT -> true;
-				case COMMAND, DOUBLE_COMMAND, COMMAND_THEN_RESTORE,
-					RESTORE_THEN_COMMAND -> hasOpen;
+				case COMMAND, DOUBLE_COMMAND, COMMAND_THEN_INTERACT,
+					INTERACT_THEN_COMMAND, DOUBLE_COMMAND_THEN_INTERACT,
+					COMMAND_THEN_RESTORE, RESTORE_THEN_COMMAND -> hasOpen;
 				case PREPARE_THEN_COMMAND -> hasOpen && hasPrepare;
 			};
 		}
+
+		private boolean usesCommand() {
+			return switch(this) {
+				case COMMAND, DOUBLE_COMMAND, COMMAND_THEN_INTERACT,
+					INTERACT_THEN_COMMAND, DOUBLE_COMMAND_THEN_INTERACT,
+					COMMAND_THEN_RESTORE, RESTORE_THEN_COMMAND,
+					PREPARE_THEN_COMMAND -> true;
+				case NONE, INTERACT -> false;
+			};
+		}
+
+		private boolean isHybridDuplicate() {
+			return this == INTERACT_THEN_COMMAND
+				|| this == DOUBLE_COMMAND_THEN_INTERACT;
+		}
+	}
+
+	private enum FinishMode {
+		NONE(""),
+		LEAVE_SEND(" + leave after send"),
+		DISCONNECT_SEND(" + disconnect after send");
+
+		private final String label;
+
+		FinishMode(String label) {
+			this.label = label;
+		}
+
+		private boolean isEnabled() {
+			UiUtilsSettings.Data settings = UiUtilsSettings.get();
+			return switch(this) {
+				case NONE -> true;
+				case LEAVE_SEND -> settings.autoduperFinishLeaveSend;
+				case DISCONNECT_SEND -> settings.autoduperFinishDisconnectSend;
+			};
+		}
+	}
+
+	private record StrategySeed(Movement movement, CloseMode closeMode,
+		ReopenMode reopenMode, boolean releaseAfterReopen,
+		boolean releaseAfterClose) {
 	}
 
 	private static final class Strategy {
@@ -922,36 +1363,73 @@ public final class UiUtilsAutoduper {
 		private final CloseMode closeMode;
 		private final ReopenMode reopenMode;
 		private final boolean releaseAfterReopen;
+		private final boolean releaseAfterClose;
+		private final boolean delayedClose;
+		private final boolean delayedCommand;
+		private final FinishMode finishMode;
 		private final String label;
 
 		private Strategy(int number, Movement movement, CloseMode closeMode,
-			ReopenMode reopenMode, boolean releaseAfterReopen) {
+			ReopenMode reopenMode, boolean releaseAfterReopen,
+			boolean releaseAfterClose, boolean delayedClose,
+			boolean delayedCommand, FinishMode finishMode) {
 			this.number = number;
 			this.movement = movement;
 			this.closeMode = closeMode;
 			this.reopenMode = reopenMode;
 			this.releaseAfterReopen = releaseAfterReopen;
+			this.releaseAfterClose = releaseAfterClose;
+			this.delayedClose = delayedClose;
+			this.delayedCommand = delayedCommand;
+			this.finishMode = finishMode;
 			this.label = movement.label + " + " + closeMode.label + " + "
 				+ reopenMode.label
-				+ (releaseAfterReopen ? " + release queued" : "");
+				+ (delayedClose ? " + delayed close" : "")
+				+ (delayedCommand ? " + delayed command" : "")
+				+ (releaseAfterClose ? " + release after close" : "")
+				+ (releaseAfterReopen ? " + release queued" : "")
+				+ finishMode.label;
 		}
 
 		private void run(Minecraft mc) {
 			saveCurrentGui(mc);
 			boolean wasDelay = UiUtilsState.delayUiPackets;
-			if(releaseAfterReopen && movement.isDelayable())
+			if((releaseAfterReopen || releaseAfterClose) && movement.isDelayable())
 				UiUtilsState.delayUiPackets = true;
 			applyMovement(mc, movement);
-			applyClose(mc, closeMode);
-			applyReopen(mc, reopenMode);
-			if(releaseAfterReopen || movement.name().contains("DELAYED"))
-				flushDelayed(mc);
-			else
-				UiUtilsState.delayUiPackets = wasDelay;
+			Runnable finish = () -> {
+				boolean hadDelayedPackets =
+					releaseAfterReopen || releaseAfterClose
+						|| movement.name().contains("DELAYED");
+				if(!hadDelayedPackets)
+					UiUtilsState.delayUiPackets = wasDelay;
+				finishStrategy(mc, finishMode, hadDelayedPackets);
+			};
+			int closeDelay = delayedClose ? UiUtilsSettings.get().uiCloseDelayTicks
+				: 0;
+			int commandDelay = delayedCommand
+				? UiUtilsSettings.get().uiCommandDelayTicks : 0;
+			scheduleAutoduperTask(mc, closeDelay, () -> {
+				applyClose(mc, closeMode);
+				if(releaseAfterClose)
+					flushDelayed(mc);
+				scheduleAutoduperTask(mc, commandDelay, () -> {
+					applyReopen(mc, reopenMode);
+					finish.run();
+				});
+			});
 		}
 
 		private boolean isEnabled() {
-			if(releaseAfterReopen
+			if(delayedClose
+				&& UiUtilsSettings.get().uiCloseDelayTicks <= 0)
+				return false;
+			if(delayedCommand
+				&& UiUtilsSettings.get().uiCommandDelayTicks <= 0)
+				return false;
+			if(!finishMode.isEnabled())
+				return false;
+			if((releaseAfterReopen || releaseAfterClose)
 				&& !UiUtilsSettings.get().autoduperPacketDelayVariants)
 				return false;
 			if(!reopenMode.isRunnableForCurrentConfig())
@@ -960,6 +1438,46 @@ public final class UiUtilsAutoduper {
 				return false;
 			return movement.isEnabled() && closeMode.isEnabled()
 				&& reopenMode.isEnabled();
+		}
+
+		private boolean isSmartPruned() {
+			if(releaseAfterClose && closeMode == CloseMode.NONE)
+				return true;
+			if(releaseAfterReopen && reopenMode == ReopenMode.NONE)
+				return true;
+			if(releaseAfterClose && releaseAfterReopen)
+				return true;
+			if(releaseAfterClose && !closeMode.sendsCloseOrLeaves())
+				return true;
+			if(delayedCommand && !reopenMode.usesCommand())
+				return true;
+			if(delayedClose && closeMode == CloseMode.NONE)
+				return true;
+			if(reopenMode.isHybridDuplicate())
+				return true;
+			if(closeMode == CloseMode.NONE && reopenMode == ReopenMode.NONE)
+				return true;
+			if(finishMode != FinishMode.NONE && !releaseAfterClose
+				&& !releaseAfterReopen)
+				return true;
+			return false;
+		}
+
+		private boolean shouldRecoverReopenWithCommand() {
+			return finishMode != FinishMode.DISCONNECT_SEND
+				&& reopenMode != ReopenMode.COMMAND
+				&& reopenMode != ReopenMode.DOUBLE_COMMAND
+				&& reopenMode != ReopenMode.PREPARE_THEN_COMMAND;
+		}
+
+		private boolean needsClosePacketRecoveryForReopen() {
+			return closeMode == CloseMode.SOFT_CLOSE
+				|| closeMode == CloseMode.NONE;
+		}
+
+		private boolean needsContainerSeedForDirectReplay() {
+			return (releaseAfterReopen || releaseAfterClose)
+				&& movement.crossesContainerBoundary();
 		}
 
 		private boolean touchesPluginGuiLifecycle() {

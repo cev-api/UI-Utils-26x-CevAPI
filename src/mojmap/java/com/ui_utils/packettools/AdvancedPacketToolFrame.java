@@ -28,6 +28,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
+import javax.swing.UIManager;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 
@@ -94,7 +95,7 @@ final class AdvancedPacketToolFrame extends JFrame {
 
         JButton modeBtn = new JButton();
         modeBtn.addActionListener(e -> { mode = mode.next(); updateModeLabel(); refreshLists(); });
-        modeLabel.setForeground(new Color(220, 220, 220));
+        modeLabel.setForeground(UIManager.getColor("Label.foreground"));
         updateModeLabel();
         JPanel modePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         modePanel.add(new JLabel("Editing:"));

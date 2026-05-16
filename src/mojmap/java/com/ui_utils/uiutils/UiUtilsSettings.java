@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
+import java.util.HashMap;
+import java.util.Map;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import net.fabricmc.loader.api.FabricLoader;
@@ -69,6 +71,9 @@ public final class UiUtilsSettings {
 		public PacketHudPosition packetHudPosition = PacketHudPosition.TOP_LEFT;
 		public int packetHudColor = 0xFFFFFF;
 		public String delayToggleKey = "key.keyboard.o";
+		public Map<String, String> keyBinds = new HashMap<>();
+		public int uiCloseDelayTicks = 0;
+		public int uiCommandDelayTicks = 0;
 		public String disconnectMethod = "QUIT";
 		public int disconnectTimeoutSeconds = 30;
 		public String disconnectLagMethod = "SLOT_SPAM";
@@ -102,6 +107,7 @@ public final class UiUtilsSettings {
 		public int autoduperMaxAttempts = 220;
 		public int autoduperStepDelayTicks = 10;
 		public boolean autoduperDropValidation = true;
+		public boolean autoduperVerboseMode = false;
 		public int autoduperSingleAttempt = 0;
 		public boolean autoduperAbortHoldEnabled = true;
 		public String autoduperAbortKey = "key.keyboard.space";
@@ -121,6 +127,9 @@ public final class UiUtilsSettings {
 		public boolean autoduperReopenStaleRestore = true;
 		public boolean autoduperReopenPrepareCommand = true;
 		public boolean autoduperPacketDelayVariants = true;
+		public boolean autoduperHybridOpen = false;
+		public boolean autoduperFinishLeaveSend = false;
+		public boolean autoduperFinishDisconnectSend = false;
 	}
 
 	public enum PacketHudPosition {

@@ -59,7 +59,6 @@ Artifacts land in `build/libs/`.
   - Open from the UI‑Utils overlay or by keybind (configurable in Settings)
 - Autoduper
   - Uses a strategy matrix built from 218+ different methodologies inspired by DupeDB
-  - Built for private plugin-debugging scans, not vanilla Minecraft inventory or vanilla container interaction
   - Accepts a plugin GUI open command plus an optional prepare command, so it can work with plugin inventory GUIs such as `/pv 1`, `/ec`, `/ah`, or `/shop`
   - Player-inventory target slots are treated as seed items for plugin GUI lifecycles, not as a vanilla inventory dupe scan
   - Per-category toggles let you narrow the run instead of running everything:
@@ -71,6 +70,7 @@ Artifacts land in `build/libs/`.
   - Start from the main UI-Utils overlay or from the Autoduper options screen while a container is open
   - Includes exact attempt replay, a visible abort overlay and a hold-to-abort key
   - Success messages report the exact attempt number for easy replay
+  - Verbose mode toggle to find niche dupes even when similar attempts failed
 - Expanded Settings screen
   - Tri‑state Slot Overlay: OFF / HOVER / ALWAYS
   - Unified HSV color picker with target selector:
@@ -80,7 +80,9 @@ Artifacts land in `build/libs/`.
     - Packet HUD text color
   - Overlay alpha and XY offsets
   - Resource‑pack bypass/deny toggles
-  - Keybinds: restore GUI, delay toggle and open Advanced Packet Tool
+  - Close Delay and Command Delay sliders (tick based)
+  - Dedicated Keybinds screen for rebinding UI-Utils actions
+  - Legacy direct key fields still present: restore GUI and delay toggle
   - Disconnect method selector (used by UI‑Utils “Disconnect” buttons)
     - Includes QUIT, packet-based kick styles and lag styles
     - Includes TIMEOUT mode (KeepAlive wait + block + delayed action)
@@ -121,12 +123,14 @@ Main commands:
 - `queue <list|clear|sendone|poplast|spam [times]>`
 - `packethud <on|off|toggle>`
 - `delay <on|off|toggle>`
+- `closedelay <ticks>`
+- `commanddelay <ticks>` (alias: `cmddelay`)
 - `sendpackets <on|off|toggle>`
 - `disconnectmethod <list|current|METHOD>`
 - `timeout <seconds>`
 - `lagmethod <list|current|METHOD>`
 - `settings`
-- `autoduper <open|start|stop|status|slot|command|attempt>`
+- `autoduper <open|start|stop|status|slot|command|attempt|hybrid [openCommand]>`
 
 ## Settings List
 
@@ -152,7 +156,11 @@ Main commands:
 - Restore GUI key field
 - Packet tool key field
 - Delay toggle key field
-- Autoduper: plugin GUI open command, prepare command, target slot, max attempts, step delay, drop validation, single-attempt replay, abort key, hold-to-abort toggle and category filters
+- Keybinds page: configurable bindings for restore, packet tool, scanners, autoduper start, packet queue controls, disconnect flows and chat field send
+- UI close delay ticks
+- UI command/chat delay ticks
+- Autoduper: plugin GUI open command, prepare command, target slot, max attempts, step delay, verbose mode, drop validation, single-attempt replay, abort key, hold-to-abort toggle and category filters
+- Autoduper category filters include hybrid command+interact reopen and finish actions (leave+send / disconnect+send)
 
 ## Notes on the Mojmap Migration
 
