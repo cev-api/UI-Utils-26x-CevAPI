@@ -45,12 +45,14 @@ public final class UiUtils {
 	public static void init() {
 		if (initialized)
 			return;
+		UiUtilsVulnerablePlugins.init();
 		UiUtilsPluginScanner.init();
 		initialized = true;
 	}
 
 	public static void onClientTick(Minecraft mc) {
 		refreshQueueCounterButtons();
+		UiUtilsPluginScanner.onTick();
 		UiUtilsCommandScanner.onTick();
 		UiUtilsDisconnect.onClientTick(mc);
 		UiUtilsAutoduper.onClientTick(mc);
@@ -449,7 +451,7 @@ public final class UiUtils {
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
-		adder.accept(styledButton("Command Scanner", b -> {
+		adder.accept(styledButton("Command & Plugin Scanner", b -> {
 			mc.setScreen(new UiUtilsCommandScannerScreen(mc.screen));
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;

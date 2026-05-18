@@ -46,9 +46,14 @@ public final class UiUtilsCommandScanner {
 	private static int cooldownTicks;
 	private static int letterIndex;
 	private static int requestId;
+	private static int awaitingRequestId;
 	private static boolean active;
 	private static Phase phase = Phase.IDLE;
 	private static ScanMode activeMode = ScanMode.PACKET_PROBING;
+	private static String lastStatus = "Idle.";
+	private static final List<String> recentEvents = new ArrayList<>();
+	private static List<String> lastFoundCommands = List.of();
+	private static String boundServerKey = "";
 
 	private UiUtilsCommandScanner() {}
 
@@ -67,8 +72,13 @@ public final class UiUtilsCommandScanner {
 		cooldownTicks = 0;
 		letterIndex = 0;
 		requestId = 1;
+		awaitingRequestId = -1;
 		phase = Phase.SCANNING;
 		activeMode = getScanMode();
+		lastStatus = "Scanning commands (" + activeMode.name() + ")...";
+		recentEvents.clear();
+		lastFoundCommands = List.of();
+		boundServerKey = currentServerKey(mc);
 
 		if (activeMode == ScanMode.CLIENT_SIDE_ENUMERATION) {
 			runClientSideEnumerationScan();
@@ -80,6 +90,13 @@ public final class UiUtilsCommandScanner {
 	}
 
 	public static void onTick() {
+		Minecraft mc = Minecraft.getInstance();
+		String currentServer = currentServerKey(mc);
+		if (!boundServerKey.isEmpty() && !currentServer.equals(boundServerKey)) {
+			resetForServerChange();
+			return;
+		}
+
 		if (!active)
 			return;
 
@@ -96,6 +113,7 @@ public final class UiUtilsCommandScanner {
 			if (waitTicks >= RESPONSE_TIMEOUT_TICKS) {
 				if (UiUtilsSettings.get().commandScannerDebugProbe)
 					print("Probe timeout: /" + LETTERS[letterIndex] + " (id=" + requestId + ")");
+				lastStatus = "Scanning commands... timed out on /" + LETTERS[letterIndex];
 				awaitingResponse = false;
 				letterIndex++;
 				cooldownTicks = REQUEST_COOLDOWN_TICKS;
@@ -116,7 +134,7 @@ public final class UiUtilsCommandScanner {
 			return;
 		if (!awaitingResponse)
 			return;
-		if (packet.id() != requestId)
+		if (packet.id() != awaitingRequestId)
 			return;
 
 		Suggestions suggestions;
@@ -129,10 +147,11 @@ public final class UiUtilsCommandScanner {
 
 		int count = suggestions == null ? 0 : suggestions.getList().size();
 		if (UiUtilsSettings.get().commandScannerDebugProbe)
-			print("Probe response: /" + LETTERS[letterIndex] + " (id=" + requestId + ", suggestions=" + count + ")");
+			print("Probe response: /" + LETTERS[letterIndex] + " (id=" + awaitingRequestId + ", suggestions=" + count + ")");
 
 		readSuggestions(suggestions);
 		awaitingResponse = false;
+		awaitingRequestId = -1;
 		letterIndex++;
 		cooldownTicks = REQUEST_COOLDOWN_TICKS;
 	}
@@ -174,13 +193,14 @@ public final class UiUtilsCommandScanner {
 
 		char c = LETTERS[letterIndex];
 		String input = "/" + c;
+		int id = requestId++;
 		if (UiUtilsSettings.get().commandScannerDebugProbe)
-			print("Probe sent: " + input + " (id=" + requestId + ")");
+			print("Probe sent: " + input + " (id=" + id + ")");
 
-		mc.player.connection.send(new ServerboundCommandSuggestionPacket(requestId, input));
+		mc.player.connection.send(new ServerboundCommandSuggestionPacket(id, input));
 		awaitingResponse = true;
+		awaitingRequestId = id;
 		waitTicks = 0;
-		requestId++;
 	}
 
 	private static void readSuggestions(Suggestions suggestions) {
@@ -232,12 +252,12 @@ public final class UiUtilsCommandScanner {
 
 	private static void finishScan() {
 		print("Command scanner found " + scannedCommands.size() + " root commands.");
+		lastFoundCommands = new ArrayList<>(scannedCommands);
+		lastStatus = "Found " + scannedCommands.size() + " root commands.";
 		if (scannedCommands.isEmpty()) {
 			finish();
 			return;
 		}
-
-		sendChunkedCommandList(new ArrayList<>(scannedCommands));
 
 		if (UiUtilsSettings.get().commandScannerRunFoundCommands) {
 			commandsToExecute.clear();
@@ -257,6 +277,7 @@ public final class UiUtilsCommandScanner {
 					commandsToExecute.add(cmd);
 			}
 			print("Executing " + commandsToExecute.size() + " found non-vanilla command(s) via packets.");
+			lastStatus = "Executing " + commandsToExecute.size() + " discovered command(s)...";
 			phase = Phase.EXECUTING;
 			cooldownTicks = 0;
 			return;
@@ -281,6 +302,7 @@ public final class UiUtilsCommandScanner {
 		if (cmd == null) {
 			finish();
 			print("Command execution pass complete.");
+			lastStatus = "Execution pass complete.";
 			return;
 		}
 
@@ -301,26 +323,15 @@ public final class UiUtilsCommandScanner {
 		return terms;
 	}
 
-	private static void sendChunkedCommandList(List<String> commands) {
-		StringBuilder line = new StringBuilder("Commands: ");
-		for (String cmd : commands) {
-			String entry = "/" + cmd;
-			if (line.length() + entry.length() + 2 > 230) {
-				print(line.toString());
-				line = new StringBuilder("Commands: ");
-			}
-			if (line.length() > 10)
-				line.append(", ");
-			line.append(entry);
-		}
-		if (line.length() > 10)
-			print(line.toString());
-	}
-
 	private static void print(String msg) {
-		Minecraft mc = Minecraft.getInstance();
-		if (mc.player != null)
-			mc.player.sendSystemMessage(Component.literal("[UI-Utils] " + msg));
+		recentEvents.add(msg);
+		if (recentEvents.size() > 60)
+			recentEvents.remove(0);
+		if (UiUtilsSettings.get().commandScannerDebugProbe) {
+			Minecraft mc = Minecraft.getInstance();
+			if (mc.player != null)
+				mc.player.sendSystemMessage(Component.literal("[UI-Utils] " + msg));
+		}
 	}
 
 	private static ScanMode getScanMode() {
@@ -337,7 +348,77 @@ public final class UiUtilsCommandScanner {
 	private static void finish() {
 		active = false;
 		awaitingResponse = false;
+		awaitingRequestId = -1;
 		phase = Phase.IDLE;
+		cooldownTicks = 0;
+		waitTicks = 0;
+	}
+
+	private static void resetForServerChange() {
+		active = false;
+		awaitingResponse = false;
+		awaitingRequestId = -1;
+		phase = Phase.IDLE;
+		cooldownTicks = 0;
+		waitTicks = 0;
+		letterIndex = 0;
+		requestId = 1;
+		scannedCommands.clear();
+		commandsToExecute.clear();
+		lastFoundCommands = List.of();
+		recentEvents.clear();
+		lastStatus = "Cleared due to server change.";
+		boundServerKey = currentServerKey(Minecraft.getInstance());
+	}
+
+	private static String currentServerKey(Minecraft mc) {
+		if (mc == null)
+			return "";
+		try {
+			if (mc.getCurrentServer() != null && mc.getCurrentServer().ip != null)
+				return mc.getCurrentServer().ip.trim().toLowerCase(Locale.ROOT);
+		} catch (Throwable ignored) {}
+		try {
+			if (mc.getConnection() != null && mc.getConnection().getConnection() != null
+				&& mc.getConnection().getConnection().getRemoteAddress() != null)
+				return mc.getConnection().getConnection().getRemoteAddress().toString();
+		} catch (Throwable ignored) {}
+		return "";
+	}
+
+	public static String getStatusLine() {
+		if (active && phase == Phase.SCANNING)
+			return lastStatus + " [probe " + Math.min(letterIndex + 1, LETTERS.length)
+				+ "/" + LETTERS.length + "]";
+		if (active && phase == Phase.EXECUTING)
+			return lastStatus + " [remaining " + commandsToExecute.size() + "]";
+		return lastStatus;
+	}
+
+	public static boolean isActive() {
+		return active;
+	}
+
+	public static List<String> getFoundCommandsSnapshot() {
+		return new ArrayList<>(lastFoundCommands);
+	}
+
+	public static List<String> getRecentEventsSnapshot() {
+		return new ArrayList<>(recentEvents);
+	}
+
+	public static void clearResultsForUi() {
+		active = false;
+		awaitingResponse = false;
+		awaitingRequestId = -1;
+		phase = Phase.IDLE;
+		scannedCommands.clear();
+		commandsToExecute.clear();
+		lastFoundCommands = List.of();
+		recentEvents.clear();
+		lastStatus = "Cleared.";
+		letterIndex = 0;
+		requestId = 1;
 		cooldownTicks = 0;
 		waitTicks = 0;
 	}
