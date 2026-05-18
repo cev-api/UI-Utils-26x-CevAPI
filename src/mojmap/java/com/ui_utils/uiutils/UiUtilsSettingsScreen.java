@@ -79,9 +79,12 @@ public final class UiUtilsSettingsScreen extends Screen {
 		refreshPacketHudLabel();
 		y += rowH + gap;
 
-		addRenderableWidget(makeToggleButton(left, y, panelWidth, rowH,
+		addRenderableWidget(makeToggleButton(left, y, half, rowH,
 			"Log to chat", () -> UiUtilsSettings.get().logToChat,
 			v -> UiUtilsSettings.get().logToChat = v));
+		addRenderableWidget(makeToggleButton(left + half + gap, y, half, rowH,
+			"AntiCheat detector", () -> UiUtilsSettings.get().antiCheatDetectorEnabled,
+			v -> UiUtilsSettings.get().antiCheatDetectorEnabled = v));
 		y += rowH + gap;
 
 		addRenderableWidget(makeToggleButton(left, y, third, rowH, "Bypass RP",

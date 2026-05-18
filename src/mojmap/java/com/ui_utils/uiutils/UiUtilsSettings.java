@@ -65,6 +65,7 @@ public final class UiUtilsSettings {
 		public boolean resourcePackForceDeny = false;
 		public boolean showResourcePackButtons = true;
 		public boolean logToChat = true;
+		public boolean antiCheatDetectorEnabled = true;
 		public String restoreKey = "key.keyboard.v";
 		public String packetToolsKey = "key.keyboard.p";
 		public boolean packetHudEnabled = true;
