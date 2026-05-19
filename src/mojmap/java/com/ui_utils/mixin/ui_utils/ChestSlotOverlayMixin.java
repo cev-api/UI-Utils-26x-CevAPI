@@ -1,6 +1,7 @@
 package com.ui_utils.mixin.ui_utils;
 
 import com.ui_utils.uiutils.UiUtilsSettings;
+import com.ui_utils.uiutils.UiUtilsState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -19,6 +20,9 @@ public abstract class ChestSlotOverlayMixin {
 	@Inject(method = "extractSlot(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/world/inventory/Slot;II)V", at = @At("TAIL"))
 	private void uiutils$overlaySlot(GuiGraphicsExtractor graphics, Slot slot, int mouseX, int mouseY,
 		CallbackInfo ci) {
+		if (!UiUtilsState.isUiEnabled())
+			return;
+
 		if (!UiUtilsSettings.get().slotOverlayEnabled)
 			return;
 

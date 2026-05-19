@@ -3,6 +3,7 @@ package com.ui_utils.mixin.ui_utils;
 import com.ui_utils.packettools.AdvancedPacketTool;
 import com.ui_utils.uiutils.PacketHud;
 import com.ui_utils.uiutils.UiUtilsAntiCheatDetector;
+import com.ui_utils.uiutils.macro.UiUtilsMacroRuntimeState;
 import io.netty.channel.ChannelHandlerContext;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.Packet;
@@ -25,5 +26,6 @@ public class UiUtilsConnectionReceiveMixin {
 
 		// Count for HUD
 		PacketHud.incIncoming();
+		UiUtilsMacroRuntimeState.onIncomingPacket(packet.getClass().getSimpleName());
 	}
 }

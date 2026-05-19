@@ -131,6 +131,9 @@ public final class UiUtilsSettings {
 		public boolean autoduperHybridOpen = false;
 		public boolean autoduperFinishLeaveSend = false;
 		public boolean autoduperFinishDisconnectSend = false;
+		public String macroRunLastKey = "key.keyboard.m";
+		public String macroStopKey = "";
+		public String lastMacroName = "";
 	}
 
 	public enum PacketHudPosition {

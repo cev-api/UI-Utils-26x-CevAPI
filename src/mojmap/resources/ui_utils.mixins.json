@@ -6,6 +6,7 @@
   "client": [
     "ChatScreenMixin",
     "ClientCommonNetworkHandlerMixin",
+    "ClientPacketListenerChatMixin",
     "ClientPacketListenerMixin",
     "MultiplayerScreenMixin",
     "ui_utils.ChestSlotOverlayMixin",
@@ -23,4 +24,3 @@
     "defaultRequire": 1
   }
 }
-

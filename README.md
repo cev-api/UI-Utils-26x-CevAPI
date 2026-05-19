@@ -57,6 +57,32 @@ Artifacts land in `build/libs/`.
   - Inspired by [HelixCraft's Packet Logger](https://github.com/HelixCraft/Fabric-Packet-Logger)
   - Runs in an external desktop window for now (Swing)
   - Open from the UI‑Utils overlay or by keybind (configurable in Settings)
+- Macro system
+  - A macro is a named automation script made of ordered steps (actions and wait conditions).
+  - Macros can be saved, edited, duplicated, reordered, deleted, exported and imported.
+  - The macro editor supports:
+    - Add Action and Add Conditional pickers
+    - Per-step controls: move up/down, duplicate, edit, delete
+    - Scrollable step list with draggable scrollbar
+    - Undo/redo for editor changes
+    - Run Once (temporary) and Run (saved macro)
+    - Optional keybind assignment per macro
+  - The step options screen supports:
+    - Context-aware fields per action type
+    - Compact layout for simple actions
+    - Multi-value list fields (comma-separated input + Add/Clear)
+    - No empty editor for actions with no configurable options (for example `STOP_MACRO`)
+  - Runtime behavior:
+    - Macros execute steps in order
+    - `WAIT_*` conditions pause progression until matched (or timeout depending on the condition)
+    - `STOP_MACRO` terminates execution immediately
+  - Import/export:
+    - Import reads `.nbt` macro files
+    - Export accepts a folder path and writes `<macro-name>.nbt`
+    - Native pickers are available from `...` buttons
+    - Default directories are auto-created:
+      - `<gameDir>/config/ui-utils/macro_import`
+      - `<gameDir>/config/ui-utils/macro_export`
 - Autoduper
   - Uses a strategy matrix built from 218+ different methodologies inspired by DupeDB
   - Accepts a plugin GUI open command plus an optional prepare command, so it can work with plugin inventory GUIs such as `/pv 1`, `/ec`, `/ah`, or `/shop`
@@ -161,6 +187,20 @@ Main commands:
 - UI command/chat delay ticks
 - Autoduper: plugin GUI open command, prepare command, target slot, max attempts, step delay, verbose mode, drop validation, single-attempt replay, abort key, hold-to-abort toggle and category filters
 - Autoduper category filters include hybrid command+interact reopen and finish actions (leave+send / disconnect+send)
+
+## Macro Import/Export
+
+Open `Macros` from the overlay to use the Macro Library.
+
+Workflow:
+1. Create or edit a macro, then save it.
+2. To export, select the macro and choose an export folder (`...` opens folder picker).
+3. To import, choose a `.nbt` file (`...` opens file picker) and import it.
+
+Path behavior:
+- Import field points to: `<gameDir>/config/ui-utils/macro_import`
+- Export field points to: `<gameDir>/config/ui-utils/macro_export`
+- Both folders are created automatically if they do not exist.
 
 ## Notes on the Mojmap Migration
 

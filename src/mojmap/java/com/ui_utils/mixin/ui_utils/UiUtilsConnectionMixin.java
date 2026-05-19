@@ -12,6 +12,7 @@ import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsDisconnect;
 import com.ui_utils.uiutils.PacketHud;
 import com.ui_utils.uiutils.UiUtilsState;
+import com.ui_utils.uiutils.macro.UiUtilsMacroRuntimeState;
 import io.netty.channel.ChannelFutureListener;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.Packet;
@@ -75,6 +76,7 @@ public class UiUtilsConnectionMixin {
 
 		// Update HUD counter for all outgoing packets
 		PacketHud.incOutgoing();
+		UiUtilsMacroRuntimeState.onOutgoingPacket(packet.getClass().getSimpleName());
 
 		if (!UiUtilsState.shouldEditSign
 			&& packet instanceof ServerboundSignUpdatePacket) {
@@ -83,4 +85,3 @@ public class UiUtilsConnectionMixin {
 		}
 	}
 }
-

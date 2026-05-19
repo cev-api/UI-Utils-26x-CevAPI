@@ -11,7 +11,7 @@ import net.minecraft.network.chat.Component;
 public final class UiUtilsKeybindsScreen extends Screen {
 	private final Screen parent;
 	private String waitingForAction;
-	private int page;
+	private int offset;
 
 	public UiUtilsKeybindsScreen(Screen parent) {
 		super(Component.literal("UI-Utils Keybinds"));
@@ -26,9 +26,12 @@ public final class UiUtilsKeybindsScreen extends Screen {
 		int row = 20;
 		int gap = 4;
 		int y = Math.max(12, this.height / 2 - 132);
-		int perPage = 10;
-		int start = page * perPage;
-		int end = Math.min(actions.size(), start + perPage);
+		int visibleRows = 10;
+		int maxOffset = Math.max(0, actions.size() - visibleRows);
+		if(offset > maxOffset)
+			offset = maxOffset;
+		int start = offset;
+		int end = Math.min(actions.size(), start + visibleRows);
 
 		for(int i = start; i < end; i++) {
 			UiUtils.KeybindAction action = actions.get(i);
@@ -39,23 +42,30 @@ public final class UiUtilsKeybindsScreen extends Screen {
 			y += row + gap;
 		}
 
-		int half = (width - gap) / 2;
-		addRenderableWidget(UiUtils.styledButton("Previous", b -> {
-			if(page > 0) {
-				page--;
-				rebuildWidgets();
-			}
-		}, left, y, half, row));
-		addRenderableWidget(UiUtils.styledButton("Next", b -> {
-			if((page + 1) * perPage < actions.size()) {
-				page++;
-				rebuildWidgets();
-			}
-		}, left + half + gap, y, half, row));
-		y += row + gap + 8;
+		y += 8;
 
 		addRenderableWidget(UiUtils.styledButton("Back",
 			b -> this.minecraft.setScreen(parent), left, y, width, row));
+	}
+
+	@Override
+	public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+		List<UiUtils.KeybindAction> actions = UiUtils.keybindActions();
+		int width = 420;
+		int left = this.width / 2 - width / 2;
+		int row = 20;
+		int gap = 4;
+		int top = Math.max(12, this.height / 2 - 132);
+		int bottom = top + 10 * (row + gap) - gap;
+		if(mouseX < left || mouseX > left + width || mouseY < top || mouseY > bottom)
+			return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+		int maxOffset = Math.max(0, actions.size() - 10);
+		if(scrollY < 0)
+			offset = Math.min(maxOffset, offset + 1);
+		else if(scrollY > 0)
+			offset = Math.max(0, offset - 1);
+		rebuildWidgets();
+		return true;
 	}
 
 	@Override

@@ -1,6 +1,9 @@
 package com.ui_utils.uiutils;
 
 import com.ui_utils.packettools.AdvancedPacketTool;
+import com.ui_utils.uiutils.macro.UiUtilsMacroExecutor;
+import com.ui_utils.uiutils.macro.UiUtilsMacroIo;
+import com.ui_utils.uiutils.macro.UiUtilsMacroManager;
 import java.util.Locale;
 import java.util.StringJoiner;
 import net.minecraft.client.Minecraft;
@@ -15,7 +18,7 @@ public final class UiUtilsCommandSystem {
 		"commandscan", "cmdscan", "queue", "packethud", "phud", "hud",
 		"delay", "sendpackets", "sendui", "autoduper", "duper",
 		"closedelay", "cmddelay", "commanddelay", "disconnectmethod",
-		"dcmethod", "timeout", "lagmethod", "settings"};
+		"dcmethod", "timeout", "lagmethod", "settings", "macro", "macros"};
 
 	private UiUtilsCommandSystem() {}
 
@@ -49,6 +52,7 @@ public final class UiUtilsCommandSystem {
 			case "timeout" -> timeout(args);
 			case "lagmethod" -> lagMethod(args);
 			case "settings" -> openSettings();
+			case "macro", "macros" -> macro(args);
 			default -> PREFIX + "Unknown command: " + command;
 		};
 	}
@@ -88,7 +92,49 @@ public final class UiUtilsCommandSystem {
 
 	private static String help() {
 		return PREFIX + "Usage: .uiutils <command> (or uiutils <command>)\n" + PREFIX
-			+ "Commands: help, enable, disable, close, desync, apt, chat, screen, plugins, commands, queue, packethud, delay, closedelay, commanddelay, sendpackets, autoduper, disconnectmethod, timeout, lagmethod, settings";
+			+ "Commands: help, enable, disable, close, desync, apt, chat, screen, plugins, commands, queue, packethud, delay, closedelay, commanddelay, sendpackets, autoduper, disconnectmethod, timeout, lagmethod, settings, macro";
+	}
+
+	private static String macro(String args) {
+		String[] parts = args == null ? new String[0] : args.trim().split("\\s+", 3);
+		String action = parts.length == 0 || parts[0].isBlank() ? "list" : parts[0].toLowerCase(Locale.ROOT);
+		return switch (action) {
+			case "list" -> {
+				var all = UiUtilsMacroManager.get().getAll();
+				if (all.isEmpty()) yield PREFIX + "No macros.";
+				StringJoiner joiner = new StringJoiner(", ");
+				all.forEach(m -> joiner.add(m.name));
+				yield PREFIX + "Macros: " + joiner;
+			}
+			case "run", "start" -> {
+				if (parts.length < 2 || parts[1].isBlank()) yield PREFIX + "Usage: macro run <name>";
+				boolean ok = UiUtilsMacroManager.get().execute(parts[1]);
+				yield ok ? PREFIX + "Running macro: " + parts[1] : PREFIX + "Macro not found: " + parts[1];
+			}
+			case "stop" -> {
+				UiUtilsMacroExecutor.stop();
+				yield PREFIX + "Stopped macro execution.";
+			}
+			case "delete", "remove" -> {
+				if (parts.length < 2 || parts[1].isBlank()) yield PREFIX + "Usage: macro delete <name>";
+				boolean ok = UiUtilsMacroManager.get().remove(parts[1]);
+				yield ok ? PREFIX + "Deleted macro: " + parts[1] : PREFIX + "Macro not found: " + parts[1];
+			}
+			case "import" -> {
+				if (parts.length < 2 || parts[1].isBlank()) yield PREFIX + "Usage: macro import <path> [name]";
+				String preferred = parts.length >= 3 ? parts[2] : "";
+				yield PREFIX + UiUtilsMacroIo.importMacro(parts[1], preferred);
+			}
+			case "export" -> {
+				if (parts.length < 3 || parts[1].isBlank() || parts[2].isBlank()) yield PREFIX + "Usage: macro export <name> <path>";
+				yield PREFIX + UiUtilsMacroIo.exportMacro(parts[1], parts[2]);
+			}
+			case "status" -> {
+				if (UiUtilsMacroExecutor.isRunning()) yield PREFIX + "Running: " + UiUtilsMacroExecutor.currentName();
+				yield PREFIX + "No macro running.";
+			}
+			default -> PREFIX + "Usage: macro <list|run|stop|delete|import|export|status>";
+		};
 	}
 
 	private static String setEnabled(boolean enabled) {

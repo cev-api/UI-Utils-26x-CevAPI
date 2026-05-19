@@ -1,5 +1,7 @@
 package com.ui_utils.uiutils;
 import com.ui_utils.packettools.AdvancedPacketTool;
+import com.ui_utils.uiutils.macro.UiUtilsMacroExecutor;
+import com.ui_utils.uiutils.macro.UiUtilsMacroManager;
 import com.google.gson.Gson;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.serialization.JsonOps;
@@ -47,6 +49,7 @@ public final class UiUtils {
 			return;
 		UiUtilsVulnerablePlugins.init();
 		UiUtilsPluginScanner.init();
+		UiUtilsMacroManager.get();
 		initialized = true;
 	}
 
@@ -172,6 +175,9 @@ public final class UiUtils {
 			new KeybindAction("send_one", "Send One", "", false),
 			new KeybindAction("pop_last", "Pop Last", "", false),
 			new KeybindAction("send_chat_box", "Send Chat Field", "", false)
+			,
+			new KeybindAction("macro_run_last", "Run Last Macro", UiUtilsSettings.get().macroRunLastKey, true),
+			new KeybindAction("macro_stop", "Stop Macro", UiUtilsSettings.get().macroStopKey, true)
 		);
 	}
 
@@ -233,6 +239,12 @@ public final class UiUtils {
 			case "send_one" -> chatIfEnabled(sendOneQueuedPacket(mc) ? "Sent one queued packet" : "No queued packets to send");
 			case "pop_last" -> chatIfEnabled(popLastQueuedPacket() ? "Removed last queued packet" : "No queued packets to remove");
 			case "send_chat_box" -> sendCurrentChatField(mc);
+			case "macro_run_last" -> {
+				String macroName = UiUtilsSettings.get().lastMacroName;
+				if (macroName != null && !macroName.isBlank())
+					UiUtilsMacroManager.get().execute(macroName);
+			}
+			case "macro_stop" -> UiUtilsMacroExecutor.stop();
 			default -> {}
 		}
 	}
@@ -468,6 +480,11 @@ public final class UiUtils {
 
 		adder.accept(styledButton("Autoduper Options", b -> {
 			mc.setScreen(new UiUtilsAutoduperScreen(mc.screen));
+		}, baseX, y, fullWidth, 20));
+		y += 20 + spacing;
+
+		adder.accept(styledButton("Macros", b -> {
+			mc.setScreen(new UiUtilsMacroLibraryScreen(mc.screen));
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 

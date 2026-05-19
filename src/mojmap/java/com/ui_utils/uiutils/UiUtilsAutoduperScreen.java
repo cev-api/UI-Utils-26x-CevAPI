@@ -122,13 +122,11 @@ public final class UiUtilsAutoduperScreen extends Screen {
 				refreshAbortHoldLabel();
 			}, left, y, half, row));
 		refreshAbortHoldLabel();
-		y += row + gap;
-
 		abortKeyButton = addRenderableWidget(UiUtils.styledButton("",
 			b -> {
 				waitingForAbortKey = true;
 				refreshAbortKeyLabel();
-			}, left, y, width, row));
+			}, left + half + gap, y, half, row));
 		refreshAbortKeyLabel();
 		y += row + gap;
 
