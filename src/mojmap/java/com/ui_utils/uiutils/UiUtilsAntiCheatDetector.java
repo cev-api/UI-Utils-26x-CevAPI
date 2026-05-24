@@ -76,6 +76,9 @@ public final class UiUtilsAntiCheatDetector {
 	private static void announceDetection(String antiCheat) {
 		if(!UiUtilsSettings.get().antiCheatDetectorEnabled)
 			return;
+		if(antiCheat == null || antiCheat.isBlank()
+			|| "Unknown".equalsIgnoreCase(antiCheat))
+			return;
 		UiUtils.chatIfEnabled("AntiCheat: " + antiCheat);
 	}
 
