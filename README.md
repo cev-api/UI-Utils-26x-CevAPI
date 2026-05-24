@@ -1,13 +1,15 @@
 # UI-Utils 26x CevAPI
 
-![26.1](https://i.imgur.com/oEPShFT.png)
+![26.1](https://i.imgur.com/RoXogYx.png)
+![Plugin](https://i.imgur.com/vOyTsYx.png)
+![Macro](https://i.imgur.com/9H2JbKC.png)
 
 ## Overview
 
 - This is a rewrite of the original **UI-Utils 2.4.0**, migrated to Mojang mappings (mojmap) which was ported out of [Wurst-7-CevAPI](https://github.com/cev-api/Wurst7-CevAPI) and then bumped to **Minecraft 26.x** and put into a standalone mod. 
-- On top of classic UI-Utils quality-of-life features, this build adds advanced packet tooling, command scanning and expanded UI controls. 
-- This application is designed and presented for people already familiar with UI-Utils. There will be no explanations or guide on how to use it in-game, you can instead find that [here](https://github.com/ui-utils/docs/blob/main/OverlayOverview.md).
-- If you are looking for a **1.21.11** version you can find that [here](https://github.com/cev-api/UI-Utils-CevAPI).
+- On top of classic UI-Utils quality-of-life features, this build adds advanced packet tooling, command scanning, macros, auto-duping and expanded UI controls. 
+- This application is designed and presented for people already familiar with UI-Utils. **There will be no explanations or guide on how to use it in-game**, you can instead find that [here](https://github.com/ui-utils/docs/blob/main/OverlayOverview.md).
+- If you are looking for a **1.21.11** version you can find that [here](https://github.com/cev-api/UI-Utils-CevAPI) but it will not have the majority of features in this project.
 
 ## Build
 
@@ -27,26 +29,31 @@ Artifacts land in `build/libs/`.
 
 ## Highlights
 
-- Simple, always‑available in‑GUI toolbox for handled screens
+### Simple GUI
   - Close GUI without sending a packet
   - De‑sync tricks (close packet only)
   - Send/Delay queue for UI packets, with flush on demand
   - Copy GUI title JSON
-- Command (and Plugin) Scanner
+### Command (and Plugin) Scanner
   - Enumerate server side commands that are typically unavailable to the player by sending specialised packets
   - Optionally elicit only 'unknown' commands. Scans via packets then compares via client commands, whichever isn't available to the user is shown.
   - Your command list probing won't appear in server side logs
   - Can also run each command, run specific commands via packets or enumerate via client side commands 
   - Great replacement for when the UI-Utils plugin scanner fails
-- Packet fabrication helpers (ClickSlot, ButtonClick)
+  - Supports parsing commands for each plugin
+  - Supports parsing each plugin for vulnerabilities pursuant to the latest cache of [DupeDB](https://dupedb.net/)
+### AntiCheat Detector
+  - Reads packets on server join to determine the current AntiCheat, if any.
+  - Disable/Enable in settings.
+### Packet Fabrication Helpers (ClickSlot, ButtonClick)
   - In-game popup that is repositionable.
-- Added extra tools from [FrannnnDev's fork](https://github.com/FrannnnDev/ui-utils-advanced/) of UI-Utils
+### Added Extra Tools From [FrannnnDev's fork](https://github.com/FrannnnDev/ui-utils-advanced/) of UI-Utils
   - Leave & send, Disconnect & send, Save/Load GUI, Clear Queue, Queue, Resync Inv, Disconnect, Spam +/-, Send One, Pop Last
   - Queue helper and counter
   - ```.uiutils``` commands
   - Named GUI slot maps
   - Plugin scanner
-- Advanced Packet Tool (APT)
+### Advanced Packet Tool (APT)
   - Lets you manage packet behavior per packet type (S2C & C2S)
   - Supports 3 independent modes: Log, Deny and Delay
   - Modes can overlap (Log & Deny Packet A but also Log & Delay Packet B)
@@ -57,7 +64,7 @@ Artifacts land in `build/libs/`.
   - Inspired by [HelixCraft's Packet Logger](https://github.com/HelixCraft/Fabric-Packet-Logger)
   - Runs in an external desktop window for now (Swing)
   - Open from the UI‑Utils overlay or by keybind (configurable in Settings)
-- Macro system
+### Macro System (Beta)
   - A macro is a named automation script made of ordered steps (actions and wait conditions).
   - Macros can be saved, edited, duplicated, reordered, deleted, exported and imported.
   - The macro editor supports:
@@ -83,8 +90,8 @@ Artifacts land in `build/libs/`.
     - Default directories are auto-created:
       - `<gameDir>/config/ui-utils/macro_import`
       - `<gameDir>/config/ui-utils/macro_export`
-- Autoduper
-  - Uses a strategy matrix built from 218+ different methodologies inspired by DupeDB
+### Autoduper (Beta)
+  - Uses a strategy matrix built from 218+ different methodologies inspired by [DupeDB](https://dupedb.net)
   - Accepts a plugin GUI open command plus an optional prepare command, so it can work with plugin inventory GUIs such as `/pv 1`, `/ec`, `/ah`, or `/shop`
   - Player-inventory target slots are treated as seed items for plugin GUI lifecycles, not as a vanilla inventory dupe scan
   - Per-category toggles let you narrow the run instead of running everything:
@@ -97,7 +104,7 @@ Artifacts land in `build/libs/`.
   - Includes exact attempt replay, a visible abort overlay and a hold-to-abort key
   - Success messages report the exact attempt number for easy replay
   - Verbose mode toggle to find niche dupes even when similar attempts failed
-- Expanded Settings screen
+### Expanded Settings Screen
   - Tri‑state Slot Overlay: OFF / HOVER / ALWAYS
   - Unified HSV color picker with target selector:
     - Button background color
@@ -112,14 +119,14 @@ Artifacts land in `build/libs/`.
   - Disconnect method selector (used by UI‑Utils “Disconnect” buttons)
     - Includes QUIT, packet-based kick styles and lag styles
     - Includes TIMEOUT mode (KeepAlive wait + block + delayed action)
-- Packet HUD 
+### Packet HUD 
   - In-game HUD rendering of packet flow.
   - Format:
     - `888 IN / 999 OUT`
     - `    20 QUEUED` (only shown when queue > 0)
   - HUD color is configurable in Settings
   - Positionable to all four corners
-- Themed UI‑Utils buttons
+### Themed UI‑Utils buttons
   - Colored button renderer is used across UI‑Utils screens and injected buttons
   - Removes mixed vanilla/colored button look
 
@@ -130,7 +137,7 @@ Artifacts land in `build/libs/`.
 [12:52:54]: UiUtilsConnectionMixin: attempting to send UI packet class_2813 (sendUiPackets=true, delayUiPackets=false)
 ```
 
-#### UI‑Utils Commands
+## UI‑Utils Commands
 
 Supported roots:
 - `.uiutils`
@@ -165,6 +172,7 @@ Main commands:
 - Log to chat toggle
 - Bypass resource-pack toggle
 - Force-deny resource-pack toggle
+- AntiCheat detector toggle
 - Disconnect method selector
 - Timeout seconds selector (for `TIMEOUT` disconnect mode)
 - Timeout lag method selector (for `TIMEOUT` disconnect mode)
@@ -215,6 +223,7 @@ Path behavior:
 - Advanced Packet Tool inspired by [HelixCraft's Packet Logger](https://github.com/HelixCraft/Fabric-Packet-Logger)
 - Extra UI-Utils options inspired by [FrannnnDev's fork](https://github.com/FrannnnDev/ui-utils-advanced/)
 - Published **with approval** from [MrBreakNFix](https://github.com/MrBreakNFix)
+- [DupeDB](https://dupedb.net) for their dupe list. Will eventually add API access for live updates.
 
 ## License
 
