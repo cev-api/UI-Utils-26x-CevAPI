@@ -44,7 +44,7 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		int rowH = 20;
 		int gap = 4;
 
-		int topRows = 5;
+		int topRows = 6;
 		int controlsHeight = (rowH * topRows) + (gap * (topRows - 1));
 		int footerHeight = rowH + gap;
 		int desiredResultsHeight = Math.min(320, Math.max(180, this.height - 150));
@@ -74,6 +74,10 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 
 		addRenderableWidget(UiUtils.styledButton("Run plugin scan", b -> UiUtilsPluginScanner.startScan(),
 			left + 215, y, 205, rowH));
+		y += rowH + gap;
+
+		addRenderableWidget(UiUtils.styledButton("Legacy Plugin Scan (Safer)", b -> UiUtilsLegacyPluginScanner.startScan(),
+			left, y, 420, rowH));
 		y += rowH + gap;
 
 		searchField = new EditBox(this.font, left, y, 205, rowH, Component.literal("Search results"));
@@ -121,6 +125,7 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 	private void clearResults() {
 		UiUtilsCommandScanner.clearResultsForUi();
 		UiUtilsPluginScanner.clearResultsForUi();
+		UiUtilsLegacyPluginScanner.clearResultsForUi();
 		expandedPlugins.clear();
 		expandedCommandLetters.clear();
 		vulnerableListExpanded = false;
@@ -323,6 +328,19 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		}
 
 		lines.add(new Line("", 0xFFFFFFFF));
+		lines.add(new Line("Legacy Plugin Scanner", 0xFFFFB347));
+		lines.add(new Line("Status: " + UiUtilsLegacyPluginScanner.getStatusLine(), 0xFFEAEAEA));
+		List<UiUtilsPluginScanner.PluginResultRow> legacyPlugins = UiUtilsLegacyPluginScanner.getResultsSnapshot();
+		lines.add(new Line("Detected plugins: " + legacyPlugins.size(), 0xFFB8B8B8));
+		for (UiUtilsPluginScanner.PluginResultRow row : legacyPlugins) {
+			String flag = row.anticheatFlagged() ? " ! " : " - ";
+			boolean vulnerable = UiUtilsVulnerablePlugins.entriesByKey()
+				.containsKey(UiUtilsVulnerablePlugins.normalizeKey(row.plugin()));
+			lines.add(new Line(flag + row.plugin(),
+				vulnerable ? 0xFFFF7A7A : (row.anticheatFlagged() ? 0xFFFFA8A8 : 0xFF93F7A4)));
+		}
+
+		lines.add(new Line("", 0xFFFFFFFF));
 		lines.add(new Line("Recent events", 0xFFD8D8D8));
 		List<String> commandEvents = UiUtilsCommandScanner.getRecentEventsSnapshot();
 		List<String> pluginEvents = UiUtilsPluginScanner.getRecentEventsSnapshot();
@@ -330,6 +348,9 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 			lines.add(new Line("CMD: " + commandEvents.get(i), 0xFFAAAAAA));
 		for (int i = Math.max(0, pluginEvents.size() - 8); i < pluginEvents.size(); i++)
 			lines.add(new Line("PLG: " + pluginEvents.get(i), 0xFFAAAAAA));
+		List<String> legacyEvents = UiUtilsLegacyPluginScanner.getRecentEventsSnapshot();
+		for (int i = Math.max(0, legacyEvents.size() - 8); i < legacyEvents.size(); i++)
+			lines.add(new Line("LGC: " + legacyEvents.get(i), 0xFFAAAAAA));
 
 		String query = searchField == null ? "" : searchField.getValue().trim().toLowerCase();
 		if (query.isEmpty())

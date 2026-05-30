@@ -49,6 +49,7 @@ public final class UiUtils {
 			return;
 		UiUtilsVulnerablePlugins.init();
 		UiUtilsPluginScanner.init();
+		UiUtilsLegacyPluginScanner.init();
 		UiUtilsMacroManager.get();
 		initialized = true;
 	}
@@ -56,6 +57,7 @@ public final class UiUtils {
 	public static void onClientTick(Minecraft mc) {
 		refreshQueueCounterButtons();
 		UiUtilsPluginScanner.onTick();
+		UiUtilsLegacyPluginScanner.onTick();
 		UiUtilsCommandScanner.onTick();
 		UiUtilsDisconnect.onClientTick(mc);
 		UiUtilsAutoduper.onClientTick(mc);
@@ -153,6 +155,7 @@ public final class UiUtils {
 			new KeybindAction("packet_tool", "Advanced Packet Tool", UiUtilsSettings.get().packetToolsKey, true),
 			new KeybindAction("command_scanner", "Command Scanner", "", false),
 			new KeybindAction("plugin_scanner", "Plugin Scanner", "", false),
+			new KeybindAction("legacy_plugin_scanner", "Legacy Plugin Scanner", "", false),
 			new KeybindAction("autoduper_start", "Start Autoduper", "", false),
 			new KeybindAction("close_no_packet", "Close Without Packet", "", false),
 			new KeybindAction("desync", "De-Sync", "", false),
@@ -208,6 +211,7 @@ public final class UiUtils {
 			case "packet_tool" -> AdvancedPacketTool.openScreen(mc.screen);
 			case "command_scanner" -> mc.setScreen(new UiUtilsCommandScannerScreen(mc.screen));
 			case "plugin_scanner" -> UiUtilsPluginScanner.startScan();
+			case "legacy_plugin_scanner" -> UiUtilsLegacyPluginScanner.startScan();
 			case "autoduper_start" -> UiUtilsAutoduper.start();
 			case "close_no_packet" -> closeScreenWithConfiguredDelay(mc);
 			case "desync" -> sendClosePacketWithConfiguredDelay(mc);

@@ -1,6 +1,7 @@
 package com.ui_utils.mixin;
 
 import com.ui_utils.uiutils.UiUtilsCommandScanner;
+import com.ui_utils.uiutils.UiUtilsLegacyPluginScanner;
 import com.ui_utils.uiutils.UiUtilsPluginScanner;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.protocol.game.ClientboundCommandSuggestionsPacket;
@@ -14,6 +15,7 @@ public abstract class ClientPacketListenerMixin {
 	@Inject(method = "handleCommandSuggestions(Lnet/minecraft/network/protocol/game/ClientboundCommandSuggestionsPacket;)V", at = @At("TAIL"))
 	private void uiutils$onSuggestions(ClientboundCommandSuggestionsPacket packet, CallbackInfo ci) {
 		UiUtilsPluginScanner.onSuggestionsPacket(packet);
+		UiUtilsLegacyPluginScanner.onSuggestionsPacket(packet);
 		UiUtilsCommandScanner.onSuggestionsPacket(packet);
 	}
 }

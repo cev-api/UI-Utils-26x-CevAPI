@@ -14,7 +14,8 @@ public final class UiUtilsCommandSystem {
 	public static final String ALT_ROOT_COMMAND = "uiutils";
 	public static final String[] SUBCOMMANDS = {"help", "enable", "disable",
 		"close", "desync", "apt", "advancedpacketscanner",
-		"advancedpackettool", "chat", "screen", "plugins", "commands",
+		"advancedpackettool", "chat", "screen", "plugins", "legacyplugins",
+		"lplugins", "commands",
 		"commandscan", "cmdscan", "queue", "packethud", "phud", "hud",
 		"delay", "sendpackets", "sendui", "autoduper", "duper",
 		"closedelay", "cmddelay", "commanddelay", "disconnectmethod",
@@ -40,6 +41,7 @@ public final class UiUtilsCommandSystem {
 			case "chat" -> chat(args);
 			case "screen" -> screen(args);
 			case "plugins" -> UiUtilsPluginScanner.startScan();
+			case "legacyplugins", "lplugins" -> UiUtilsLegacyPluginScanner.startScan();
 			case "commands", "commandscan", "cmdscan" -> UiUtilsCommandScanner.startScan();
 			case "queue" -> queue(args);
 			case "packethud", "phud", "hud" -> packetHud(args);
