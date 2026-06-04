@@ -198,7 +198,7 @@ public final class UiUtils {
 		if(UiUtilsSettings.get().keyBinds == null)
 			UiUtilsSettings.get().keyBinds = new HashMap<>();
 		if(keyName == null || keyName.isBlank())
-			UiUtilsSettings.get().keyBinds.remove(id);
+			UiUtilsSettings.get().keyBinds.put(id, "");
 		else
 			UiUtilsSettings.get().keyBinds.put(id, keyName);
 		UiUtilsSettings.save();
