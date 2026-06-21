@@ -130,7 +130,7 @@ public final class UiUtilsStepEditScreen extends Screen {
 
         int contentRows = Math.max(1, Math.min(viewport, visibleDefs.size()));
         int by = top + contentRows * (row + gap) + 14;
-        addRenderableWidget(UiUtils.styledButton("Cancel", b -> minecraft.setScreen(parent), left, by, (width - gap) / 2, row));
+        addRenderableWidget(UiUtils.styledButton("Cancel", b -> McCompat.setScreen(minecraft, parent), left, by, (width - gap) / 2, row));
         addRenderableWidget(UiUtils.styledButton("Save", b -> {
             apply();
             onSave.run();
@@ -256,7 +256,7 @@ public final class UiUtilsStepEditScreen extends Screen {
 
     @Override
     public void onClose() {
-        minecraft.setScreen(parent);
+        McCompat.setScreen(minecraft, parent);
     }
 
     @Override

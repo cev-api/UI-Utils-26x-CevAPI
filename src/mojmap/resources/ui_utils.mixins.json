@@ -2,6 +2,7 @@
   "required": true,
   "minVersion": "0.8",
   "package": "com.ui_utils.mixin",
+  "plugin": "com.ui_utils.mixin.UiUtilsMixinPlugin",
   "compatibilityLevel": "JAVA_21",
   "client": [
     "ChatScreenMixin",
@@ -10,6 +11,7 @@
     "ClientPacketListenerMixin",
     "MultiplayerScreenMixin",
     "ui_utils.ChestSlotOverlayMixin",
+    "ui_utils.UiUtilsHudMixin",
     "ui_utils.UiUtilsAbstractContainerScreenMixin",
     "ui_utils.UiUtilsAbstractSignEditScreenMixin",
     "ui_utils.UiUtilsBookEditScreenMixin",

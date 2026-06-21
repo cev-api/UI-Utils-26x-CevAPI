@@ -15,6 +15,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.InBedChatScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import com.ui_utils.uiutils.McCompat;
 import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsState;
 
@@ -39,7 +40,7 @@ public abstract class UiUtilsInBedChatScreenMixin extends Screen
 				if(mc.player != null)
 				{
 					mc.player.stopSleeping();
-					mc.setScreen(null);
+					McCompat.setScreen(mc, null);
 				}
 			}, baseX, startY, 115, 20));
 	}

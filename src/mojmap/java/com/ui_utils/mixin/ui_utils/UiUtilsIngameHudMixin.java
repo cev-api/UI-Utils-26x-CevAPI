@@ -12,9 +12,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(Gui.class)
 public class UiUtilsIngameHudMixin {
-    @Inject(method = "extractRenderState(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V", at = @At("TAIL"))
-    private void uiutils$renderHud(GuiGraphicsExtractor graphics, DeltaTracker tickCounter, CallbackInfo ci) {
-        PacketHud.render(graphics);
-        UiUtilsAutoduper.renderAbortOverlay(graphics);
-    }
+	@Inject(method = "extractRenderState(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V", at = @At("TAIL"))
+	private void uiutils$renderHud(GuiGraphicsExtractor graphics, DeltaTracker tickCounter, CallbackInfo ci) {
+		PacketHud.render(graphics);
+		UiUtilsAutoduper.renderAbortOverlay(graphics);
+	}
 }

@@ -179,7 +179,7 @@ public final class UiUtilsCommandSystem {
 	
 	private static String openApt() {
 		Minecraft mc = Minecraft.getInstance();
-		AdvancedPacketTool.openScreen(mc.screen);
+		AdvancedPacketTool.openScreen(McCompat.getScreen(mc));
 		return PREFIX + "Opened Advanced Packet Tool.";
 	}
 
@@ -257,8 +257,8 @@ public final class UiUtilsCommandSystem {
 
 	private static String openSettings() {
 		Minecraft mc = Minecraft.getInstance();
-		var parent = mc.screen;
-		mc.execute(() -> mc.setScreen(new UiUtilsSettingsScreen(parent)));
+		var parent = McCompat.getScreen(mc);
+		mc.execute(() -> McCompat.setScreen(mc, new UiUtilsSettingsScreen(parent)));
 		return PREFIX + "Opened settings.";
 	}
 
@@ -270,8 +270,8 @@ public final class UiUtilsCommandSystem {
 		return switch(action) {
 			case "open", "screen" -> {
 				Minecraft mc = Minecraft.getInstance();
-				var parent = mc.screen;
-				mc.execute(() -> mc.setScreen(new UiUtilsAutoduperScreen(parent)));
+				var parent = McCompat.getScreen(mc);
+				mc.execute(() -> McCompat.setScreen(mc, new UiUtilsAutoduperScreen(parent)));
 				yield PREFIX + "Opened Autoduper.";
 			}
 			case "start" -> {

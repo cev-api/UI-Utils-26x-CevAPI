@@ -1,5 +1,6 @@
 package com.ui_utils.uiutils.macro;
 
+import com.ui_utils.uiutils.McCompat;
 import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsCommandSystem;
 import com.ui_utils.uiutils.UiUtilsState;
@@ -284,8 +285,9 @@ public final class UiUtilsMacroExecutor {
         String expected = action.getData().getStringOr("guiTitle", "").toLowerCase(Locale.ROOT);
         long deadline = System.currentTimeMillis() + 30000L;
         while (running && System.currentTimeMillis() < deadline) {
-            boolean open = mc.screen != null;
-            String title = open && mc.screen.getTitle() != null ? mc.screen.getTitle().getString().toLowerCase(Locale.ROOT) : "";
+            var screen = McCompat.getScreen(mc);
+            boolean open = screen != null;
+            String title = open && screen.getTitle() != null ? screen.getTitle().getString().toLowerCase(Locale.ROOT) : "";
             if ("CLOSE".equalsIgnoreCase(mode)) {
                 if (!open || !title.contains(expected)) return;
             } else {

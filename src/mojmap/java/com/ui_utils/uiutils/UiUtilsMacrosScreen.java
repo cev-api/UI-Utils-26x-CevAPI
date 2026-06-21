@@ -117,10 +117,10 @@ public final class UiUtilsMacrosScreen extends Screen {
 
         int by = listY + (row + gap) * 8 + 7;
         addRenderableWidget(UiUtils.styledButton("Save", b -> saveMacro(), left, by, 110, row));
-        addRenderableWidget(UiUtils.styledButton("Cancel", b -> minecraft.setScreen(parent), left + 114, by, 110, row));
+        addRenderableWidget(UiUtils.styledButton("Cancel", b -> McCompat.setScreen(minecraft, parent), left + 114, by, 110, row));
         addRenderableWidget(UiUtils.styledButton("Undo", b -> undo(), left + 228, by, 86, row));
         addRenderableWidget(UiUtils.styledButton("Redo", b -> redo(), left + 318, by, 86, row));
-        addRenderableWidget(UiUtils.styledButton("Done", b -> minecraft.setScreen(parent), left + 408, by, 92, row));
+        addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(minecraft, parent), left + 408, by, 92, row));
 
         refreshRows();
     }
@@ -132,7 +132,7 @@ public final class UiUtilsMacrosScreen extends Screen {
 
     private void openPicker(UiUtilsMacroTypePickerScreen.Mode mode) {
         syncNameField();
-        minecraft.setScreen(new UiUtilsMacroTypePickerScreen(this, mode));
+        McCompat.setScreen(minecraft, new UiUtilsMacroTypePickerScreen(this, mode));
     }
 
     private void syncNameField() {
@@ -261,10 +261,10 @@ public final class UiUtilsMacrosScreen extends Screen {
             return;
         }
         UiUtilsMacroAction draft = UiUtilsMacroAction.fromTag(editing.actions.get(index).toTag());
-        minecraft.setScreen(new UiUtilsStepEditScreen(this, draft, () -> {
+        McCompat.setScreen(minecraft, new UiUtilsStepEditScreen(this, draft, () -> {
             pushUndo();
             editing.actions.set(index, draft);
-            minecraft.setScreen(this);
+            McCompat.setScreen(minecraft, this);
             refreshRows();
         }));
     }
@@ -310,16 +310,16 @@ public final class UiUtilsMacrosScreen extends Screen {
             editing.actions.add(a);
             selectedStep = editing.actions.size() - 1;
             ensureVisible();
-            minecraft.setScreen(this);
+            McCompat.setScreen(minecraft, this);
             refreshRows();
             return;
         }
-        minecraft.setScreen(new UiUtilsStepEditScreen(this, a, () -> {
+        McCompat.setScreen(minecraft, new UiUtilsStepEditScreen(this, a, () -> {
             pushUndo();
             editing.actions.add(a);
             selectedStep = editing.actions.size() - 1;
             ensureVisible();
-            minecraft.setScreen(this);
+            McCompat.setScreen(minecraft, this);
             refreshRows();
         }));
     }
@@ -425,7 +425,7 @@ public final class UiUtilsMacrosScreen extends Screen {
 
     @Override
     public void onClose() {
-        Minecraft.getInstance().setScreen(parent);
+        McCompat.setScreen(Minecraft.getInstance(), parent);
     }
 
     private void jumpScrollToMouse(int mouseY, int grabOffset) {

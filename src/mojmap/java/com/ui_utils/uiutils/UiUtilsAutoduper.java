@@ -91,7 +91,7 @@ public final class UiUtilsAutoduper {
 		phase = Phase.ACQUIRE_TARGET;
 		activeStrategy = runPlan[0];
 		activeStrategyNumber = activeStrategy.number;
-		savedScreen = mc.screen;
+		savedScreen = McCompat.getScreen(mc);
 		savedMenu = mc.player.containerMenu;
 		running = true;
 		status = "Waiting for target slot " + slot + " to become available";
@@ -356,7 +356,7 @@ public final class UiUtilsAutoduper {
 				if(playerSlot >= 0) {
 					activeTargetSlot = playerSlot;
 					sendClosePacket(mc);
-					mc.setScreen(null);
+					McCompat.setScreen(mc, null);
 					phase = Phase.SETUP_FINAL_REOPEN;
 					setupTicks = 0;
 					status = "Setup: target now in player slot "
@@ -368,7 +368,7 @@ public final class UiUtilsAutoduper {
 			}
 			case SETUP_CLOSE_NORMAL -> {
 				sendClosePacket(mc);
-				mc.setScreen(null);
+				McCompat.setScreen(mc, null);
 				phase = Phase.SETUP_REOPEN_FOR_RETRIEVE;
 				setupTicks = 0;
 				status = "Setup: closed plugin GUI normally";
@@ -400,7 +400,7 @@ public final class UiUtilsAutoduper {
 				}
 				activeTargetSlot = playerSlot;
 				rememberClosePacketContainerId(mc);
-				mc.setScreen(null);
+				McCompat.setScreen(mc, null);
 				phase = Phase.SETUP_DESYNC_RECOVER_CLOSE;
 				setupTicks = 0;
 				status = "Setup: closed without packet with target in slot "
@@ -658,7 +658,7 @@ public final class UiUtilsAutoduper {
 			sendClosePacket(mc);
 		else
 			rememberClosePacketContainerId(mc);
-		mc.setScreen(null);
+		McCompat.setScreen(mc, null);
 		phase = replayStartMode == ReplayStartMode.CONTAINER_DESYNC
 			? Phase.SETUP_DESYNC_RECOVER_CLOSE : Phase.SETUP_FINAL_REOPEN;
 		setupTicks = 0;
@@ -691,7 +691,7 @@ public final class UiUtilsAutoduper {
 		switch(finishMode) {
 			case NONE -> {}
 			case LEAVE_SEND -> {
-				mc.setScreen(null);
+				McCompat.setScreen(mc, null);
 				status = "Finished strategy with leave + send";
 			}
 			case DISCONNECT_SEND -> {
@@ -707,7 +707,7 @@ public final class UiUtilsAutoduper {
 
 	private static void restoreSavedGui(Minecraft mc) {
 		if(mc.player != null && savedScreen != null && savedMenu != null) {
-			mc.setScreen(savedScreen);
+			McCompat.setScreen(mc, savedScreen);
 			mc.player.containerMenu = savedMenu;
 		}
 	}
@@ -715,7 +715,7 @@ public final class UiUtilsAutoduper {
 	private static void saveCurrentGui(Minecraft mc) {
 		if(mc.player == null)
 			return;
-		savedScreen = mc.screen;
+		savedScreen = McCompat.getScreen(mc);
 		savedMenu = mc.player.containerMenu;
 	}
 
@@ -869,11 +869,12 @@ public final class UiUtilsAutoduper {
 	}
 
 	private static boolean isPluginContainerScreenOpen(Minecraft mc) {
-		if(mc == null || mc.screen == null)
+		Screen screen = mc == null ? null : McCompat.getScreen(mc);
+		if(screen == null)
 			return false;
-		if(!(mc.screen instanceof AbstractContainerScreen<?>))
+		if(!(screen instanceof AbstractContainerScreen<?>))
 			return false;
-		return !(mc.screen instanceof InventoryScreen);
+		return !(screen instanceof InventoryScreen);
 	}
 
 	private static boolean hasOpenCommandConfigured() {
@@ -948,12 +949,12 @@ public final class UiUtilsAutoduper {
 			case NONE -> {}
 			case SOFT_CLOSE -> {
 				rememberClosePacketContainerId(mc);
-				mc.setScreen(null);
+				McCompat.setScreen(mc, null);
 			}
 			case CLOSE_PACKET_KEEP_SCREEN -> sendClosePacket(mc);
 			case NORMAL_CLOSE_PACKET -> {
 				sendClosePacket(mc);
-				mc.setScreen(null);
+				McCompat.setScreen(mc, null);
 			}
 		}
 	}

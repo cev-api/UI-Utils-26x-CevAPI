@@ -124,7 +124,7 @@ public final class UiUtilsSettingsScreen extends Screen {
 		y += rowH + gap;
 
 		addRenderableWidget(UiUtils.styledButton("Keybinds",
-			b -> this.minecraft.setScreen(new UiUtilsKeybindsScreen(this)),
+			b -> McCompat.setScreen(this.minecraft, new UiUtilsKeybindsScreen(this)),
 			left, y, panelWidth, rowH));
 		y += rowH + gap + 8;
 
@@ -192,7 +192,7 @@ public final class UiUtilsSettingsScreen extends Screen {
 		addRenderableWidget(UiUtils.styledButton("Done",
 			b -> {
 				flushPendingSettingsSave();
-				this.minecraft.setScreen(parent);
+				McCompat.setScreen(this.minecraft, parent);
 			}, left + panelWidth / 2 - 80, y,
 			160, rowH));
 	}
@@ -448,7 +448,7 @@ public final class UiUtilsSettingsScreen extends Screen {
 	@Override
 	public void onClose() {
 		flushPendingSettingsSave();
-		this.minecraft.setScreen(parent);
+		McCompat.setScreen(this.minecraft, parent);
 	}
 
 	private void flushPendingSettingsSave() {

@@ -86,21 +86,22 @@ public final class UiUtils {
 	}
 
 	private static boolean isTypingIntoTextField(Minecraft mc) {
-		if (mc.screen == null)
+		Screen screen = McCompat.getScreen(mc);
+		if (screen == null)
 			return false;
-		if (mc.screen instanceof ChatScreen)
+		if (screen instanceof ChatScreen)
 			return true;
-		if (mc.screen instanceof AbstractSignEditScreen
-			|| mc.screen instanceof BookEditScreen)
+		if (screen instanceof AbstractSignEditScreen
+			|| screen instanceof BookEditScreen)
 			return true;
 		try {
-			Object focused = mc.screen.getFocused();
+			Object focused = screen.getFocused();
 			if (focused instanceof EditBox editBox && editBox.isFocused())
 				return true;
 			if (focused != null && isLikelyTextInputWidget(focused))
 				return true;
 		} catch (Throwable ignored) {}
-		for (Object child : mc.screen.children())
+		for (Object child : screen.children())
 			if (child instanceof EditBox editBox && editBox.isFocused())
 				return true;
 			else if (child != null && isLikelyTextInputWidget(child))
@@ -140,7 +141,7 @@ public final class UiUtils {
 	private static void restoreScreen(Minecraft mc) {
 		if (UiUtilsState.storedScreen == null || UiUtilsState.storedMenu == null || mc.player == null)
 			return;
-		mc.setScreen(UiUtilsState.storedScreen);
+		McCompat.setScreen(mc, UiUtilsState.storedScreen);
 		mc.player.containerMenu = UiUtilsState.storedMenu;
 		try {
 			String title = UiUtilsState.storedScreen.getTitle().getString();
@@ -208,8 +209,8 @@ public final class UiUtils {
 		final String defaultSlot = "default";
 		switch(id) {
 			case "restore_gui" -> restoreScreen(mc);
-			case "packet_tool" -> AdvancedPacketTool.openScreen(mc.screen);
-			case "command_scanner" -> mc.setScreen(new UiUtilsCommandScannerScreen(mc.screen));
+			case "packet_tool" -> AdvancedPacketTool.openScreen(McCompat.getScreen(mc));
+			case "command_scanner" -> McCompat.setScreen(mc, new UiUtilsCommandScannerScreen(McCompat.getScreen(mc)));
 			case "plugin_scanner" -> UiUtilsPluginScanner.startScan();
 			case "legacy_plugin_scanner" -> UiUtilsLegacyPluginScanner.startScan();
 			case "autoduper_start" -> UiUtilsAutoduper.start();
@@ -269,7 +270,7 @@ public final class UiUtils {
 		UiUtilsState.delayUiPackets = false;
 		UiUtilsState.delayedUiPackets.clear();
 		refreshQueueCounterButtons();
-		mc.setScreen(null);
+		McCompat.setScreen(mc, null);
 		chatIfEnabled("Left GUI and sent queued packets (" + sent + ")");
 	}
 
@@ -369,9 +370,9 @@ public final class UiUtils {
 		if (mc.player == null)
 			return false;
 		String key = slot.toLowerCase(Locale.ROOT);
-		UiUtilsState.storedScreen = mc.screen;
+		UiUtilsState.storedScreen = McCompat.getScreen(mc);
 		UiUtilsState.storedMenu = mc.player.containerMenu;
-		UiUtilsState.savedScreens.put(key, mc.screen);
+		UiUtilsState.savedScreens.put(key, UiUtilsState.storedScreen);
 		UiUtilsState.savedMenus.put(key, mc.player.containerMenu);
 		return true;
 	}
@@ -384,7 +385,7 @@ public final class UiUtils {
 		AbstractContainerMenu menu = UiUtilsState.savedMenus.get(key);
 		if (screen == null || menu == null)
 			return false;
-		mc.setScreen(screen);
+		McCompat.setScreen(mc, screen);
 		mc.player.containerMenu = menu;
 		UiUtilsState.storedScreen = screen;
 		UiUtilsState.storedMenu = menu;
@@ -463,17 +464,17 @@ public final class UiUtils {
 		int y = baseY + 20 + spacing;
 
 		adder.accept(styledButton("Settings", b -> {
-			mc.setScreen(new UiUtilsSettingsScreen(mc.screen));
+			McCompat.setScreen(mc, new UiUtilsSettingsScreen(McCompat.getScreen(mc)));
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
 		adder.accept(styledButton("Command & Plugin Scanner", b -> {
-			mc.setScreen(new UiUtilsCommandScannerScreen(mc.screen));
+			McCompat.setScreen(mc, new UiUtilsCommandScannerScreen(McCompat.getScreen(mc)));
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
 		adder.accept(styledButton("Advanced Packet Tool", b -> {
-			AdvancedPacketTool.openScreen(mc.screen);
+			AdvancedPacketTool.openScreen(McCompat.getScreen(mc));
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
@@ -483,12 +484,12 @@ public final class UiUtils {
 		y += 20 + spacing;
 
 		adder.accept(styledButton("Autoduper Options", b -> {
-			mc.setScreen(new UiUtilsAutoduperScreen(mc.screen));
+			McCompat.setScreen(mc, new UiUtilsAutoduperScreen(McCompat.getScreen(mc)));
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
 		adder.accept(styledButton("Macros", b -> {
-			mc.setScreen(new UiUtilsMacroLibraryScreen(mc.screen));
+			McCompat.setScreen(mc, new UiUtilsMacroLibraryScreen(McCompat.getScreen(mc)));
 		}, baseX, y, fullWidth, 20));
 		y += 20 + spacing;
 
@@ -538,7 +539,7 @@ public final class UiUtils {
 		y += 20 + spacing;
 
 		adder.accept(styledButton("Fabricate Packet", b -> {
-			if (mc.screen instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen) {
+			if (McCompat.getScreen(mc) instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen) {
 				UiUtilsState.fabricateOverlayOpen = !UiUtilsState.fabricateOverlayOpen;
 				chatIfEnabled("Fabricate overlay: " + (UiUtilsState.fabricateOverlayOpen ? "opened" : "closed"));
 			} else {
@@ -549,9 +550,10 @@ public final class UiUtils {
 
 		adder.accept(styledButton("Copy GUI Title JSON", b -> {
 			try {
-				if (mc.screen == null)
+				Screen screen = McCompat.getScreen(mc);
+				if (screen == null)
 					throw new IllegalStateException("Minecraft screen was null.");
-				String json = new Gson().toJson(ComponentSerialization.CODEC.encodeStart(JsonOps.INSTANCE, mc.screen.getTitle()).getOrThrow());
+				String json = new Gson().toJson(ComponentSerialization.CODEC.encodeStart(JsonOps.INSTANCE, screen.getTitle()).getOrThrow());
 				mc.keyboardHandler.setClipboard(json);
 				chatIfEnabled("Copied GUI title JSON to clipboard");
 			} catch (IllegalStateException e) {
@@ -721,7 +723,7 @@ public final class UiUtils {
 		int delayTicks = Math.max(0, UiUtilsSettings.get().uiCloseDelayTicks);
 		queueTask(() -> {
 			Minecraft current = Minecraft.getInstance();
-			current.setScreen(null);
+			McCompat.setScreen(current, null);
 			chatIfEnabled("Closed GUI without packet"
 				+ delaySuffix(delayTicks));
 		}, delayTicks * 50L);

@@ -1,5 +1,6 @@
 package com.ui_utils.mixin;
 
+import com.ui_utils.uiutils.McCompat;
 import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsCommandSystem;
 import net.minecraft.client.gui.screens.ChatScreen;
@@ -26,8 +27,8 @@ public abstract class ChatScreenMixin extends Screen {
 		if (message.equalsIgnoreCase("^toggleuiutils")) {
 			UiUtils.toggleUiUtils(minecraft);
 			if (addToHistory)
-				minecraft.gui.getChat().addRecentChat(message);
-			minecraft.setScreen(null);
+				McCompat.addRecentChat(minecraft, message);
+			McCompat.setScreen(minecraft, null);
 			ci.cancel();
 			return;
 		}
@@ -37,13 +38,13 @@ public abstract class ChatScreenMixin extends Screen {
 			String result = UiUtilsCommandSystem.execute(command);
 			boolean opensScreen = command.equalsIgnoreCase("settings") || command.toLowerCase().startsWith("settings ");
 			if (addToHistory)
-				minecraft.gui.getChat().addRecentChat(message);
+				McCompat.addRecentChat(minecraft, message);
 			if (minecraft.player != null && !result.isEmpty()) {
 				for (String line : result.split("\\n"))
 					minecraft.player.sendSystemMessage(Component.literal(line));
 			}
 			if (!opensScreen)
-				minecraft.setScreen(null);
+				McCompat.setScreen(minecraft, null);
 			ci.cancel();
 		}
 	}

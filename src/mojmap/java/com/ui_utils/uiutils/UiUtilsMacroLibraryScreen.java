@@ -56,7 +56,7 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
         top += rowH + gap;
 
         addRenderableWidget(UiUtils.styledButton("Create New", b -> {
-            minecraft.setScreen(new UiUtilsMacrosScreen(this));
+            McCompat.setScreen(minecraft, new UiUtilsMacrosScreen(this));
         }, left, top, 110, rowH));
         addRenderableWidget(UiUtils.styledButton("Edit Selected", b -> openSelected(), left + 114, top, 110, rowH));
         addRenderableWidget(UiUtils.styledButton("Run Selected", b -> runSelected(), left + 228, top, 110, rowH));
@@ -98,7 +98,7 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
             selected = -1;
             refreshRows();
         }, left, ioTop + (rowH + gap) * 2, 220, rowH));
-        addRenderableWidget(UiUtils.styledButton("Done", b -> minecraft.setScreen(parent), left + 224, ioTop + (rowH + gap) * 2, 236, rowH));
+        addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(minecraft, parent), left + 224, ioTop + (rowH + gap) * 2, 236, rowH));
 
         refreshRows();
     }
@@ -110,7 +110,7 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
 
     private void openSelected() {
         UiUtilsMacro m = selectedMacro();
-        if (m != null) minecraft.setScreen(new UiUtilsMacrosScreen(this, m.name));
+        if (m != null) McCompat.setScreen(minecraft, new UiUtilsMacrosScreen(this, m.name));
     }
 
     private UiUtilsMacro selectedMacro() {

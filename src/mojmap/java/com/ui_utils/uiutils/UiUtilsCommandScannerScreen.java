@@ -111,7 +111,7 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		int footerY = resultsBottom + 8;
 		addRenderableWidget(UiUtils.styledButton("Clear results", b -> clearResults(),
 			left, footerY, 205, rowH));
-		addRenderableWidget(UiUtils.styledButton("Done", b -> this.minecraft.setScreen(parent),
+		addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(this.minecraft, parent),
 			left + 215, footerY, 205, rowH));
 	}
 
@@ -252,7 +252,7 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 
 	@Override
 	public void onClose() {
-		this.minecraft.setScreen(parent);
+		McCompat.setScreen(this.minecraft, parent);
 	}
 
 	private List<Line> buildLines() {

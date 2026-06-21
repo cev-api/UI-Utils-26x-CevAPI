@@ -15,6 +15,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractSignEditScreen;
 import net.minecraft.network.chat.Component;
+import com.ui_utils.uiutils.McCompat;
 import com.ui_utils.uiutils.UiUtilsDisconnect;
 import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsState;
@@ -41,7 +42,7 @@ public abstract class UiUtilsAbstractSignEditScreenMixin extends Screen
 		int baseX = 8;
 		addRenderableWidget(UiUtils.styledButton("Close without packet", b -> {
 				UiUtilsState.shouldEditSign = false;
-				mc.setScreen(null);
+				McCompat.setScreen(mc, null);
 			}, baseX, startY, 115, 20));
 		
 		addRenderableWidget(UiUtils.styledButton("Disconnect", b -> {

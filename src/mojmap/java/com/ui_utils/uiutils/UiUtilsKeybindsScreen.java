@@ -54,7 +54,7 @@ public final class UiUtilsKeybindsScreen extends Screen {
 		y += 8;
 
 		addRenderableWidget(UiUtils.styledButton("Back",
-			b -> this.minecraft.setScreen(parent), left, y, listWidth, row));
+			b -> McCompat.setScreen(this.minecraft, parent), left, y, listWidth, row));
 		lastScrollbar = computeScrollbar(scrollbarX, top,
 			top + visibleRows * (row + gap) - gap, actions.size(), visibleRows, offset);
 	}
@@ -148,7 +148,7 @@ public final class UiUtilsKeybindsScreen extends Screen {
 
 	@Override
 	public void onClose() {
-		this.minecraft.setScreen(parent);
+		McCompat.setScreen(this.minecraft, parent);
 	}
 
 	private String labelFor(UiUtils.KeybindAction action) {

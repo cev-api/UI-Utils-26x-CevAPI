@@ -72,7 +72,7 @@ public final class UiUtilsMacroTypePickerScreen extends Screen {
             rows.size(), viewportRows, rowOffset);
 
         int footerY = drawY + 6;
-        addRenderableWidget(UiUtils.styledButton("Cancel", b -> minecraft.setScreen(parent), left, footerY, half * 2 + gap, row));
+        addRenderableWidget(UiUtils.styledButton("Cancel", b -> McCompat.setScreen(minecraft, parent), left, footerY, half * 2 + gap, row));
     }
 
     private static String label(UiUtilsMacroActionType t) {

@@ -154,7 +154,7 @@ public final class UiUtilsAutoduperScreen extends Screen {
 			left, y, 110, row));
 		addRenderableWidget(UiUtils.styledButton("Done", b -> {
 			applyFields();
-			this.minecraft.setScreen(parent);
+			McCompat.setScreen(this.minecraft, parent);
 		}, left + width - 110, y, 110, row));
 	}
 
@@ -398,7 +398,7 @@ public final class UiUtilsAutoduperScreen extends Screen {
 	@Override
 	public void onClose() {
 		applyFields();
-		this.minecraft.setScreen(parent);
+		McCompat.setScreen(this.minecraft, parent);
 	}
 
 	private static final class UiUtilsTextLabel extends AbstractWidget {

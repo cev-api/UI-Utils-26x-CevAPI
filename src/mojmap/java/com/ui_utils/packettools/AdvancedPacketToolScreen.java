@@ -1,5 +1,6 @@
 package com.ui_utils.packettools;
 
+import com.ui_utils.uiutils.McCompat;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
@@ -16,7 +17,7 @@ public final class AdvancedPacketToolScreen extends Screen {
 	@Override
 	public void onClose() {
 		if (minecraft != null)
-			minecraft.setScreen(parent);
+			McCompat.setScreen(minecraft, parent);
 	}
 
 	@Override
