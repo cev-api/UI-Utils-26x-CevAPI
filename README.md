@@ -49,6 +49,10 @@ If you want to compile specifically against `26.1.2`, you can still override the
   - Can also run each command, run specific commands via packets or enumerate via client side commands 
   - Great replacement for when the UI-Utils plugin scanner fails
   - Supports parsing commands for each plugin
+  - Completed plugin and command scans are saved automatically as per-server JSON logs under <gameDir>/config/ui-utils-scan-history/.
+  - Separate scan types include normal/legacy plugin scans and packet/client-side command scans.
+  - Each snapshot marks entries as added, removed, changed, or unchanged so server changes can be tracked over time.
+  - A command such as trigger is only logged when autocomplete returns a value, formatted as trigger (value).
   - Supports parsing each plugin for vulnerabilities pursuant to the latest cache of [DupeDB](https://dupedb.net/)
 ### AntiCheat Detector
   - Reads packets on server join to determine the current AntiCheat, if any.

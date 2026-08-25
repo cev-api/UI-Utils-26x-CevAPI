@@ -3,6 +3,7 @@ package com.ui_utils.uiutils;
 import com.mojang.blaze3d.platform.InputConstants;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -61,8 +62,8 @@ public final class UiUtilsSettingsScreen extends Screen {
 	protected void init() {
 		int panelWidth = getPanelWidth();
 		int left = this.width / 2 - panelWidth / 2;
-		int rowH = 20;
-		int gap = 4;
+		int rowH = rowHeight();
+		int gap = rowGap();
 		int pickerHeight = getPickerHeight(rowH, gap);
 		int y = getContentTop(rowH, gap, pickerHeight);
 		int half = (panelWidth - gap) / 2;
@@ -203,10 +204,13 @@ public final class UiUtilsSettingsScreen extends Screen {
 		super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
 		int panelWidth = getPanelWidth();
 		int left = this.width / 2 - panelWidth / 2;
-		int y = getContentTop(20, 4, getPickerHeight(20, 4));
-		graphics.centeredText(this.font, Component.literal("UI-Utils by CevAPI"),
-			left + panelWidth / 2, y + (20 - this.font.lineHeight) / 2,
-			0xFFFFFF);
+		int rowH = rowHeight();
+		int gap = rowGap();
+		int y = getContentTop(rowH, gap, getPickerHeight(rowH, gap));
+		UiUtils.renderScaledCenteredText(graphics, this.font,
+			Component.literal("UI-Utils by CevAPI"), left + panelWidth / 2,
+			y + Math.max(1, (rowH - this.font.lineHeight) / 2),
+			panelWidth - 8, rowH - 2, 0xFFFFFF, 0.55F);
 	}
 
 	@Override
@@ -239,7 +243,15 @@ public final class UiUtilsSettingsScreen extends Screen {
 	}
 
 	private int getPanelWidth() {
-		return Math.min(420, Math.max(240, this.width - 40));
+		return Math.min(420, Math.max(220, this.width - 24));
+	}
+
+	private int rowHeight() {
+		return Mth.clamp((this.height - 130) / 17, 12, 18);
+	}
+
+	private int rowGap() {
+		return rowHeight() <= 15 ? 2 : 4;
 	}
 
 	private int getPickerHeight(int rowH, int gap) {
@@ -486,6 +498,22 @@ public final class UiUtilsSettingsScreen extends Screen {
 		protected void applyValue() {
 			onChange.accept(toInt());
 			onDirty.run();
+		}
+
+		@Override
+		public void extractWidgetRenderState(GuiGraphicsExtractor graphics,
+			int mouseX, int mouseY, float partialTicks) {
+			Component original = getMessage();
+			setMessage(Component.empty());
+			super.extractWidgetRenderState(graphics, mouseX, mouseY,
+				partialTicks);
+			setMessage(original);
+			int textY = getY() + Math.max(1,
+				(getHeight() - Minecraft.getInstance().font.lineHeight) / 2);
+			UiUtils.renderScaledCenteredText(graphics,
+				Minecraft.getInstance().font, original,
+				getX() + getWidth() / 2, textY, getWidth() - 10,
+				getHeight() - 2, 0xFFFFFFFF, 0.35F);
 		}
 
 		private int toInt() {

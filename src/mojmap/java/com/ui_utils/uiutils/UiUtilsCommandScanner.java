@@ -28,20 +28,22 @@ public final class UiUtilsCommandScanner {
 
 	private static final Set<String> VANILLA_COMMANDS = new HashSet<>(Arrays.asList(
 		"advancement", "attribute", "ban", "ban-ip", "banlist", "bossbar", "clear", "clone",
-		"damage", "data", "datapack", "debug", "defaultgamemode", "deop", "difficulty", "effect",
+		"damage", "data", "datapack", "debug", "defaultgamemode", "deop", "dialog", "difficulty", "effect",
 		"enchant", "execute", "experience", "fill", "fillbiome", "forceload", "function", "gamemode",
 		"gamerule", "give", "help", "item", "jfr", "kick", "kill", "list", "locate", "loot", "me",
 		"msg", "op", "pardon", "pardon-ip", "particle", "perf", "place", "playsound", "publish", "random",
-		"recipe", "reload", "return", "ride", "save-all", "save-off", "save-on", "say", "schedule",
+		"recipe", "reload", "return", "ride", "rotate", "save-all", "save-off", "save-on", "say", "schedule",
 		"scoreboard", "seed", "setblock", "setidletimeout", "setworldspawn", "spawnpoint", "spectate",
-		"spreadplayers", "stop", "stopsound", "summon", "tag", "team", "teammsg", "teleport", "tell",
-		"tellraw", "tick", "time", "title", "tm", "tp", "transfer", "trigger", "w", "weather",
+		"spreadplayers", "stop", "stopsound", "stopwatch", "summon", "swing", "tag", "team", "teammsg", "teleport", "tell",
+		"tellraw", "test", "tick", "time", "title", "tm", "tp", "transfer", "trigger", "version", "w", "waypoint", "weather",
 		"whitelist", "worldborder", "xp"));
 
 	private static final Set<String> scannedCommands = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+	private static final Set<String> triggerValues = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 	private static final ArrayDeque<String> commandsToExecute = new ArrayDeque<>();
 
 	private static boolean awaitingResponse;
+	private static boolean triggerProbePending;
 	private static int waitTicks;
 	private static int cooldownTicks;
 	private static int letterIndex;
@@ -111,6 +113,13 @@ public final class UiUtilsCommandScanner {
 		if (awaitingResponse) {
 			waitTicks++;
 			if (waitTicks >= RESPONSE_TIMEOUT_TICKS) {
+				if (triggerProbePending) {
+					triggerProbePending = false;
+					awaitingResponse = false;
+					awaitingRequestId = -1;
+					finishScan();
+					return;
+				}
 				if (UiUtilsSettings.get().commandScannerDebugProbe)
 					print("Probe timeout: /" + LETTERS[letterIndex] + " (id=" + requestId + ")");
 				lastStatus = "Scanning commands... timed out on /" + LETTERS[letterIndex];
@@ -136,6 +145,22 @@ public final class UiUtilsCommandScanner {
 			return;
 		if (packet.id() != awaitingRequestId)
 			return;
+
+		if (triggerProbePending) {
+			Suggestions triggerSuggestions;
+			try {
+				triggerSuggestions = packet.toSuggestions();
+			} catch (Exception e) {
+				UiUtils.LOGGER.warn("Command scanner: failed to parse trigger suggestions.", e);
+				triggerSuggestions = null;
+			}
+			readTriggerValues(triggerSuggestions);
+			triggerProbePending = false;
+			awaitingResponse = false;
+			awaitingRequestId = -1;
+			finishScan();
+			return;
+		}
 
 		Suggestions suggestions;
 		try {
@@ -187,7 +212,7 @@ public final class UiUtilsCommandScanner {
 		}
 
 		if (letterIndex >= LETTERS.length) {
-			finishScan();
+			requestTriggerValues();
 			return;
 		}
 
@@ -203,12 +228,34 @@ public final class UiUtilsCommandScanner {
 		waitTicks = 0;
 	}
 
+	private static void requestTriggerValues() {
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.player == null || mc.player.connection == null) {
+			finishScan();
+			return;
+		}
+		triggerProbePending = true;
+		int id = requestId++;
+		awaitingRequestId = id;
+		awaitingResponse = true;
+		waitTicks = 0;
+		mc.player.connection.send(new ServerboundCommandSuggestionPacket(id, "/trigger "));
+	}
+
+	private static void readTriggerValues(Suggestions suggestions) {
+		if (suggestions == null) return;
+		for (Suggestion suggestion : suggestions.getList()) {
+			String value = suggestion.getText() == null ? "" : suggestion.getText().trim();
+			if (!value.isEmpty()) triggerValues.add(value);
+		}
+	}
+
 	private static void readSuggestions(Suggestions suggestions) {
 		if (suggestions == null)
 			return;
 		for (Suggestion suggestion : suggestions.getList()) {
 			String command = extractRootCommand(suggestion.getText());
-			if (command != null)
+			if (command != null && !command.equalsIgnoreCase("trigger") && !isVanillaOrDefaultCommand(command))
 				scannedCommands.add(command);
 		}
 	}
@@ -242,19 +289,22 @@ public final class UiUtilsCommandScanner {
 		for (CommandNode<ClientSuggestionProvider> node : dispatcher.getRoot().getChildren()) {
 			if (node instanceof LiteralCommandNode<ClientSuggestionProvider>) {
 				String name = node.getName();
-				if (name != null && !name.isBlank())
+				if (name != null && !name.isBlank() && !name.equalsIgnoreCase("trigger") && !isVanillaOrDefaultCommand(name))
 					scannedCommands.add(name);
 			}
 		}
 
-		finishScan();
+		requestTriggerValues();
 	}
 
 	private static void finishScan() {
-		print("Command scanner found " + scannedCommands.size() + " root commands.");
-		lastFoundCommands = new ArrayList<>(scannedCommands);
-		lastStatus = "Found " + scannedCommands.size() + " root commands.";
-		if (scannedCommands.isEmpty()) {
+		List<String> results = new ArrayList<>(scannedCommands);
+		for (String value : triggerValues) results.add("trigger (" + value + ")");
+		print("Command scanner found " + results.size() + " commands.");
+		lastFoundCommands = results;
+		lastStatus = "Found " + results.size() + " commands.";
+		UiUtilsScanHistory.recordCommands(boundServerKey, "command_" + activeMode.name().toLowerCase(Locale.ROOT), lastFoundCommands);
+		if (results.isEmpty()) {
 			finish();
 			return;
 		}
@@ -334,7 +384,16 @@ public final class UiUtilsCommandScanner {
 		}
 	}
 
-	private static ScanMode getScanMode() {
+	public static boolean isVanillaOrDefaultCommand(String raw) {
+		if (raw == null) return true;
+		String command = raw.trim().toLowerCase(Locale.ROOT);
+		if (command.startsWith("/")) command = command.substring(1);
+		int colon = command.indexOf(':');
+		if (colon > 0 && (command.startsWith("minecraft:") || command.startsWith("brigadier:") || command.startsWith("fabric:"))) return true;
+		return VANILLA_COMMANDS.contains(command);
+	}
+
+private static ScanMode getScanMode() {
 		String raw = UiUtilsSettings.get().commandScannerMode;
 		if (raw == null)
 			return ScanMode.PACKET_PROBING;

@@ -50,9 +50,11 @@ public final class UiUtilsColoredButton extends AbstractButton {
 
 		int textColor = 0xFF000000
 			| (UiUtilsSettings.get().uiButtonTextColor & 0xFFFFFF);
-		int textY = y + (h - Minecraft.getInstance().font.lineHeight) / 2;
-		graphics.centeredText(Minecraft.getInstance().font, getMessage(),
-			x + w / 2, textY, textColor);
+		int textY = y + Math.max(1,
+			(h - Minecraft.getInstance().font.lineHeight) / 2);
+		UiUtils.renderScaledCenteredText(graphics,
+			Minecraft.getInstance().font, getMessage(), x + w / 2, textY,
+			w - 6, h - 2, textColor, 0.35F);
 	}
 
 	@Override

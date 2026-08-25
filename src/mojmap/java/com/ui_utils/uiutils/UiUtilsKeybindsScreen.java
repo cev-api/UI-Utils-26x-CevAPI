@@ -10,7 +10,6 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
 
 public final class UiUtilsKeybindsScreen extends Screen {
-	private static final int VISIBLE_ROWS = 12;
 	private static final int SCROLLBAR_WIDTH = 4;
 	private final Screen parent;
 	private String waitingForAction;
@@ -27,15 +26,15 @@ public final class UiUtilsKeybindsScreen extends Screen {
 	@Override
 	protected void init() {
 		List<UiUtils.KeybindAction> actions = UiUtils.keybindActions();
-		int width = 420;
-		int left = this.width / 2 - width / 2;
+		int width = panelWidth();
+		int left = (this.width - width) / 2;
 		int listWidth = width - SCROLLBAR_WIDTH - 4;
 		int scrollbarX = left + listWidth + 4;
 		int row = 20;
 		int gap = 4;
-		int y = Math.max(12, this.height / 2 - 132);
+		int visibleRows = visibleRows();
+		int y = contentTop(visibleRows, row, gap);
 		int top = y;
-		int visibleRows = VISIBLE_ROWS;
 		int maxOffset = Math.max(0, actions.size() - visibleRows);
 		if(offset > maxOffset)
 			offset = maxOffset;
@@ -62,15 +61,16 @@ public final class UiUtilsKeybindsScreen extends Screen {
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
 		List<UiUtils.KeybindAction> actions = UiUtils.keybindActions();
-		int width = 420;
-		int left = this.width / 2 - width / 2;
+		int width = panelWidth();
+		int left = (this.width - width) / 2;
 		int row = 20;
 		int gap = 4;
-		int top = Math.max(12, this.height / 2 - 132);
-		int bottom = top + VISIBLE_ROWS * (row + gap) - gap;
+		int visibleRows = visibleRows();
+		int top = contentTop(visibleRows, row, gap);
+		int bottom = top + visibleRows * (row + gap) - gap;
 		if(mouseX < left || mouseX > left + width || mouseY < top || mouseY > bottom)
 			return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
-		int maxOffset = Math.max(0, actions.size() - VISIBLE_ROWS);
+		int maxOffset = Math.max(0, actions.size() - visibleRows);
 		if(scrollY < 0)
 			offset = Math.min(maxOffset, offset + 1);
 		else if(scrollY > 0)
@@ -121,7 +121,7 @@ public final class UiUtilsKeybindsScreen extends Screen {
 		if(waitingForAction != null)
 			graphics.centeredText(this.font,
 				Component.literal("Press a key, Backspace clears, Esc cancels"),
-				this.width / 2, Math.max(6, this.height / 2 - 154),
+				this.width / 2, Math.max(6, contentTop(visibleRows(), 20, 4) - 18),
 				0xFFFFFFFF);
 	}
 
@@ -176,6 +176,19 @@ public final class UiUtilsKeybindsScreen extends Screen {
 			Math.min(lastScrollbar.trackBottom - lastScrollbar.thumbH, mouseY - grabOffset));
 		double ratio = (thumbTop - lastScrollbar.trackTop) / (double)travel;
 		offset = Math.max(0, Math.min(maxScroll, (int)Math.round(ratio * maxScroll)));
+	}
+
+	private int panelWidth() {
+		return Math.min(420, Math.max(220, this.width - 32));
+	}
+
+	private int visibleRows() {
+		return Math.max(5, Math.min(14, (this.height - 72) / 24));
+	}
+
+	private int contentTop(int visibleRows, int row, int gap) {
+		int totalHeight = visibleRows * (row + gap) - gap + row + 8;
+		return Math.max(12, (this.height - totalHeight) / 2);
 	}
 
 	private static ScrollbarMetrics computeScrollbar(int x, int top, int bottom, int totalRows,

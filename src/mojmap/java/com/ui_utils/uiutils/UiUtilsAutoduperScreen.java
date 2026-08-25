@@ -36,17 +36,18 @@ public final class UiUtilsAutoduperScreen extends Screen {
 
 	@Override
 	protected void init() {
-		int width = 420;
-		int left = this.width / 2 - width / 2;
+		int width = Math.min(420, Math.max(240, this.width - 32));
+		int left = (this.width - width) / 2;
 		int row = 20;
 		int gap = 4;
-		int half = (width - gap) / 2;
+		boolean stacked = width < 360;
+		int half = stacked ? width : (width - gap) / 2;
 		int y = categoryPage ? Math.max(8,
-			(this.height - getCategoryContentHeight(row, gap)) / 2)
+			(this.height - getCategoryContentHeight(row, gap, stacked)) / 2)
 			: Math.max(12, this.height / 2 - 116);
 
 		if(categoryPage) {
-			addCategoryToggles(left, y, width, half, row, gap);
+			addCategoryToggles(left, y, width, half, row, gap, stacked);
 			return;
 		}
 
@@ -79,11 +80,21 @@ public final class UiUtilsAutoduperScreen extends Screen {
 			.setValue(String.valueOf(UiUtilsSettings.get().autoduperTargetSlot));
 		addRenderableWidget(targetSlotField);
 
-		addRenderableWidget(new IntSlider(left + 120, y, 150, row,
-			"Max Attempts", 1, 500, UiUtilsSettings.get().autoduperMaxAttempts,
-			v -> UiUtilsSettings.get().autoduperMaxAttempts = v));
-		singleAttemptField = new EditBox(this.font, left + 280, y, 140, row,
-			Component.literal("Replay Attempt #"));
+		if(stacked) {
+			y += row + gap;
+			addRenderableWidget(new IntSlider(left, y, width, row, "Max Attempts",
+				1, 500, UiUtilsSettings.get().autoduperMaxAttempts,
+				v -> UiUtilsSettings.get().autoduperMaxAttempts = v));
+			y += row + gap;
+			singleAttemptField = new EditBox(this.font, left, y, width, row,
+				Component.literal("Replay Attempt #"));
+		} else {
+			addRenderableWidget(new IntSlider(left + 120, y, 150, row,
+				"Max Attempts", 1, 500, UiUtilsSettings.get().autoduperMaxAttempts,
+				v -> UiUtilsSettings.get().autoduperMaxAttempts = v));
+			singleAttemptField = new EditBox(this.font, left + 280, y, 140, row,
+				Component.literal("Replay Attempt #"));
+		}
 		singleAttemptField.setMaxLength(4);
 		singleAttemptField.setHint(Component.literal("0 = All"));
 		singleAttemptField
@@ -150,12 +161,22 @@ public final class UiUtilsAutoduperScreen extends Screen {
 		refreshStartStopLabel();
 		y += row + gap;
 
-		addRenderableWidget(UiUtils.styledButton("Apply", b -> applyFields(),
-			left, y, 110, row));
-		addRenderableWidget(UiUtils.styledButton("Done", b -> {
-			applyFields();
-			McCompat.setScreen(this.minecraft, parent);
-		}, left + width - 110, y, 110, row));
+		if(stacked) {
+			addRenderableWidget(UiUtils.styledButton("Apply", b -> applyFields(),
+				left, y, width, row));
+			y += row + gap;
+			addRenderableWidget(UiUtils.styledButton("Done", b -> {
+				applyFields();
+				McCompat.setScreen(this.minecraft, parent);
+			}, left, y, width, row));
+		} else {
+			addRenderableWidget(UiUtils.styledButton("Apply", b -> applyFields(),
+				left, y, 110, row));
+			addRenderableWidget(UiUtils.styledButton("Done", b -> {
+				applyFields();
+				McCompat.setScreen(this.minecraft, parent);
+			}, left + width - 110, y, 110, row));
+		}
 	}
 
 	@Override
@@ -207,31 +228,53 @@ public final class UiUtilsAutoduperScreen extends Screen {
 	}
 
 	private void addCategoryToggles(int left, int y, int width, int half,
-		int row, int gap) {
+		int row, int gap, boolean stacked) {
 		y = addSectionLabel(left, y, "Movement");
 		addRenderableWidget(makeToggle(left, y, half, row, "Move None",
 			() -> UiUtilsSettings.get().autoduperMoveNone,
 			v -> UiUtilsSettings.get().autoduperMoveNone = v));
-		addRenderableWidget(makeToggle(left + half + gap, y, half, row,
-			"Move Pickup", () -> UiUtilsSettings.get().autoduperMovePickup,
-			v -> UiUtilsSettings.get().autoduperMovePickup = v));
+		if(stacked) {
+			y += row + gap;
+			addRenderableWidget(makeToggle(left, y, half, row, "Move Pickup",
+				() -> UiUtilsSettings.get().autoduperMovePickup,
+				v -> UiUtilsSettings.get().autoduperMovePickup = v));
+		} else {
+			addRenderableWidget(makeToggle(left + half + gap, y, half, row,
+				"Move Pickup", () -> UiUtilsSettings.get().autoduperMovePickup,
+				v -> UiUtilsSettings.get().autoduperMovePickup = v));
+		}
 		y += row + gap;
 
 		addRenderableWidget(makeToggle(left, y, half, row, "Move Quick",
 			() -> UiUtilsSettings.get().autoduperMoveQuickMove,
 			v -> UiUtilsSettings.get().autoduperMoveQuickMove = v));
-		addRenderableWidget(makeToggle(left + half + gap, y, half, row,
-			"Move Offhand", () -> UiUtilsSettings.get().autoduperMoveOffhandSwap,
-			v -> UiUtilsSettings.get().autoduperMoveOffhandSwap = v));
+		if(stacked) {
+			y += row + gap;
+			addRenderableWidget(makeToggle(left, y, half, row, "Move Offhand",
+				() -> UiUtilsSettings.get().autoduperMoveOffhandSwap,
+				v -> UiUtilsSettings.get().autoduperMoveOffhandSwap = v));
+		} else {
+			addRenderableWidget(makeToggle(left + half + gap, y, half, row,
+				"Move Offhand", () -> UiUtilsSettings.get().autoduperMoveOffhandSwap,
+				v -> UiUtilsSettings.get().autoduperMoveOffhandSwap = v));
+		}
 		y += row + gap;
 
 		addRenderableWidget(makeToggle(left, y, half, row, "Move Delayed",
 			() -> UiUtilsSettings.get().autoduperMoveDelayed,
 			v -> UiUtilsSettings.get().autoduperMoveDelayed = v));
-		addRenderableWidget(makeToggle(left + half + gap, y, half, row,
-			"Packet Delay Variants",
-			() -> UiUtilsSettings.get().autoduperPacketDelayVariants,
-			v -> UiUtilsSettings.get().autoduperPacketDelayVariants = v));
+		if(stacked) {
+			y += row + gap;
+			addRenderableWidget(makeToggle(left, y, half, row,
+				"Packet Delay Variants",
+				() -> UiUtilsSettings.get().autoduperPacketDelayVariants,
+				v -> UiUtilsSettings.get().autoduperPacketDelayVariants = v));
+		} else {
+			addRenderableWidget(makeToggle(left + half + gap, y, half, row,
+				"Packet Delay Variants",
+				() -> UiUtilsSettings.get().autoduperPacketDelayVariants,
+				v -> UiUtilsSettings.get().autoduperPacketDelayVariants = v));
+		}
 		y += row + gap;
 
 		y += 3;
@@ -239,18 +282,32 @@ public final class UiUtilsAutoduperScreen extends Screen {
 		addRenderableWidget(makeToggle(left, y, half, row, "Close Keep Open",
 			() -> UiUtilsSettings.get().autoduperCloseKeepOpen,
 			v -> UiUtilsSettings.get().autoduperCloseKeepOpen = v));
-		addRenderableWidget(makeToggle(left + half + gap, y, half, row,
-			"Close Soft", () -> UiUtilsSettings.get().autoduperCloseSoftClose,
-			v -> UiUtilsSettings.get().autoduperCloseSoftClose = v));
+		if(stacked) {
+			y += row + gap;
+			addRenderableWidget(makeToggle(left, y, half, row, "Close Soft",
+				() -> UiUtilsSettings.get().autoduperCloseSoftClose,
+				v -> UiUtilsSettings.get().autoduperCloseSoftClose = v));
+		} else {
+			addRenderableWidget(makeToggle(left + half + gap, y, half, row,
+				"Close Soft", () -> UiUtilsSettings.get().autoduperCloseSoftClose,
+				v -> UiUtilsSettings.get().autoduperCloseSoftClose = v));
+		}
 		y += row + gap;
 
 		addRenderableWidget(makeToggle(left, y, half, row, "Close Pkt Stale",
 			() -> UiUtilsSettings.get().autoduperClosePacketKeepScreen,
 			v -> UiUtilsSettings.get().autoduperClosePacketKeepScreen = v));
-		addRenderableWidget(makeToggle(left + half + gap, y, half, row,
-			"Close Pkt Leave",
-			() -> UiUtilsSettings.get().autoduperClosePacketLeave,
-			v -> UiUtilsSettings.get().autoduperClosePacketLeave = v));
+		if(stacked) {
+			y += row + gap;
+			addRenderableWidget(makeToggle(left, y, half, row, "Close Pkt Leave",
+				() -> UiUtilsSettings.get().autoduperClosePacketLeave,
+				v -> UiUtilsSettings.get().autoduperClosePacketLeave = v));
+		} else {
+			addRenderableWidget(makeToggle(left + half + gap, y, half, row,
+				"Close Pkt Leave",
+				() -> UiUtilsSettings.get().autoduperClosePacketLeave,
+				v -> UiUtilsSettings.get().autoduperClosePacketLeave = v));
+		}
 		y += row + gap;
 
 		y += 3;
@@ -258,19 +315,33 @@ public final class UiUtilsAutoduperScreen extends Screen {
 		addRenderableWidget(makeToggle(left, y, half, row, "Reopen None",
 			() -> UiUtilsSettings.get().autoduperReopenNone,
 			v -> UiUtilsSettings.get().autoduperReopenNone = v));
-		addRenderableWidget(makeToggle(left + half + gap, y, half, row,
-			"Reopen Command",
-			() -> UiUtilsSettings.get().autoduperReopenCommand,
-			v -> UiUtilsSettings.get().autoduperReopenCommand = v));
+		if(stacked) {
+			y += row + gap;
+			addRenderableWidget(makeToggle(left, y, half, row, "Reopen Command",
+				() -> UiUtilsSettings.get().autoduperReopenCommand,
+				v -> UiUtilsSettings.get().autoduperReopenCommand = v));
+		} else {
+			addRenderableWidget(makeToggle(left + half + gap, y, half, row,
+				"Reopen Command",
+				() -> UiUtilsSettings.get().autoduperReopenCommand,
+				v -> UiUtilsSettings.get().autoduperReopenCommand = v));
+		}
 		y += row + gap;
 
 		addRenderableWidget(makeToggle(left, y, half, row, "Reopen Double",
 			() -> UiUtilsSettings.get().autoduperReopenDoubleCommand,
 			v -> UiUtilsSettings.get().autoduperReopenDoubleCommand = v));
-		addRenderableWidget(makeToggle(left + half + gap, y, half, row,
-			"Reopen Interact",
-			() -> UiUtilsSettings.get().autoduperReopenInteract,
-			v -> UiUtilsSettings.get().autoduperReopenInteract = v));
+		if(stacked) {
+			y += row + gap;
+			addRenderableWidget(makeToggle(left, y, half, row, "Reopen Interact",
+				() -> UiUtilsSettings.get().autoduperReopenInteract,
+				v -> UiUtilsSettings.get().autoduperReopenInteract = v));
+		} else {
+			addRenderableWidget(makeToggle(left + half + gap, y, half, row,
+				"Reopen Interact",
+				() -> UiUtilsSettings.get().autoduperReopenInteract,
+				v -> UiUtilsSettings.get().autoduperReopenInteract = v));
+		}
 		y += row + gap;
 
 		addRenderableWidget(makeToggle(left, y, width, row,
@@ -309,12 +380,12 @@ public final class UiUtilsAutoduperScreen extends Screen {
 			}, left, y, width, row));
 	}
 
-	private int getCategoryContentHeight(int row, int gap) {
+	private int getCategoryContentHeight(int row, int gap, boolean stacked) {
 		int label = 14;
-		int movementRows = 3;
-		int closeRows = 2;
-		int reopenRows = 5;
-		int finishRows = 1;
+		int movementRows = stacked ? 6 : 3;
+		int closeRows = stacked ? 4 : 2;
+		int reopenRows = stacked ? 7 : 5;
+		int finishRows = stacked ? 2 : 1;
 		int backRows = 1;
 		return label + movementRows * (row + gap)
 			+ 3 + label + closeRows * (row + gap)
@@ -409,10 +480,13 @@ public final class UiUtilsAutoduperScreen extends Screen {
 		}
 
 		@Override
-		protected void extractWidgetRenderState(GuiGraphicsExtractor graphics,
+		public void extractWidgetRenderState(GuiGraphicsExtractor graphics,
 			int mouseX, int mouseY, float partialTicks) {
-			graphics.text(Minecraft.getInstance().font, getMessage(), getX(),
-				getY() + 3, 0xFFE0E0E0, false);
+			UiUtils.renderScaledText(graphics, Minecraft.getInstance().font,
+				getMessage().getString(), getX(),
+				getY() + Math.max(1,
+					(getHeight() - Minecraft.getInstance().font.lineHeight) / 2),
+				getWidth(), getHeight() - 2, 0xFFE0E0E0, 0.4F);
 		}
 
 		@Override
@@ -445,6 +519,22 @@ public final class UiUtilsAutoduperScreen extends Screen {
 		protected void applyValue() {
 			onChange.accept(toInt());
 			UiUtilsSettings.save();
+		}
+
+		@Override
+		public void extractWidgetRenderState(GuiGraphicsExtractor graphics,
+			int mouseX, int mouseY, float partialTicks) {
+			Component original = getMessage();
+			setMessage(Component.empty());
+			super.extractWidgetRenderState(graphics, mouseX, mouseY,
+				partialTicks);
+			setMessage(original);
+			int textY = getY() + Math.max(1,
+				(getHeight() - Minecraft.getInstance().font.lineHeight) / 2);
+			UiUtils.renderScaledCenteredText(graphics,
+				Minecraft.getInstance().font, original,
+				getX() + getWidth() / 2, textY, getWidth() - 10,
+				getHeight() - 2, 0xFFFFFFFF, 0.35F);
 		}
 
 		private int toInt() {

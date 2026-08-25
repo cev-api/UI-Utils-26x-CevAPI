@@ -4,8 +4,10 @@ import com.ui_utils.uiutils.macro.UiUtilsMacroExecutor;
 import com.ui_utils.uiutils.macro.UiUtilsMacroManager;
 import com.google.gson.Gson;
 import com.mojang.blaze3d.platform.InputConstants;
+import org.joml.Matrix3x2fStack;
 import com.mojang.serialization.JsonOps;
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -355,8 +357,41 @@ public final class UiUtils {
 		graphics.text(mc.font, "Revision: " + menu.getStateId(), 200, 35, 0xFFFFFF, false);
 	}
 
-	public static int getUiWidgetRows() {
-		return 18;
+	public static float fitTextScale(Font font, String text, int maxWidth,
+		int maxHeight, float minScale) {
+		if (font == null || text == null || text.isEmpty())
+			return 1.0F;
+		float widthScale = maxWidth <= 0 ? 1.0F
+			: maxWidth / (float)Math.max(1, font.width(text));
+		float heightScale = maxHeight <= 0 ? 1.0F
+			: maxHeight / (float)Math.max(1, font.lineHeight);
+		return Math.max(minScale, Math.min(1.0F,
+			Math.min(widthScale, heightScale)));
+	}
+
+	public static void renderScaledCenteredText(GuiGraphicsExtractor graphics,
+		Font font, Component text, int centerX, int topY, int maxWidth,
+		int maxHeight, int color, float minScale) {
+		float scale = fitTextScale(font, text.getString(), maxWidth, maxHeight,
+			minScale);
+		Matrix3x2fStack pose = graphics.pose();
+		pose.pushMatrix();
+		pose.translate(centerX, topY);
+		pose.scale(scale, scale);
+		graphics.centeredText(font, text, 0, 0, color);
+		pose.popMatrix();
+	}
+
+	public static void renderScaledText(GuiGraphicsExtractor graphics, Font font,
+		String text, int x, int topY, int maxWidth, int maxHeight, int color,
+		float minScale) {
+		float scale = fitTextScale(font, text, maxWidth, maxHeight, minScale);
+		Matrix3x2fStack pose = graphics.pose();
+		pose.pushMatrix();
+		pose.translate(x, topY);
+		pose.scale(scale, scale);
+		graphics.text(font, text, 0, 0, color, false);
+		pose.popMatrix();
 	}
 
 	public static void toggleUiUtils(Minecraft mc) {
@@ -453,65 +488,54 @@ public final class UiUtils {
 		return false;
 	}
 
-	public static int addUiWidgets(Minecraft mc, int baseX, int baseY, int spacing,
-		Consumer<AbstractWidget> adder) {
-		final int fullWidth = 160;
-		final int halfWidth = (fullWidth - spacing) / 2;
+	public static UiWidgetLayout addUiWidgets(Minecraft mc, int baseX, int baseY,
+		int spacing, int maxHeight, int maxRight, Consumer<AbstractWidget> adder) {
+		final int naturalRowHeight = 20;
+		final int naturalSpacing = spacing;
+		final int naturalFullWidth = 160;
+		final int naturalChatHeight = 20;
+		final int rowCount = 20;
+		double scale = Math.min(1.0D, Math.min(
+			maxHeight / (double)(rowCount * naturalRowHeight
+				+ (rowCount - 1) * naturalSpacing + naturalChatHeight + naturalSpacing),
+			Math.max(naturalFullWidth, maxRight - baseX) / (double)naturalFullWidth));
+		scale *= 0.92D;
+		int rowHeight = Math.max(12, (int)Math.floor(naturalRowHeight * scale));
+		int compactSpacing = Math.max(1, (int)Math.floor(naturalSpacing * scale));
+		int fullWidth = Math.min(maxRight - baseX,
+			Math.max(88, (int)Math.floor(naturalFullWidth * scale)));
+		int chatHeight = Math.max(12, (int)Math.floor(naturalChatHeight * scale));
+		int halfWidth = Math.max(44, (fullWidth - compactSpacing) / 2);
+		int spamSideWidth = Math.max(16, (int)Math.floor(30 * scale));
+		int spamCenterWidth = Math.max(40, fullWidth - spamSideWidth * 2 - compactSpacing * 2);
 		final String defaultSlot = "default";
-
-		adder.accept(new UiUtilsTextLabel(baseX, baseY, fullWidth, 20,
-			Component.literal("UI-Utils by CevAPI")));
-		int y = baseY + 20 + spacing;
-
-		adder.accept(styledButton("Settings", b -> {
+		List<UiWidgetRow> rows = new ArrayList<>();
+		rows.add(UiWidgetRow.label("UI-Utils by CevAPI"));
+		rows.add(UiWidgetRow.single("Settings", b -> {
 			McCompat.setScreen(mc, new UiUtilsSettingsScreen(McCompat.getScreen(mc)));
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Command & Plugin Scanner", b -> {
+		}));
+		rows.add(UiWidgetRow.single("Command & Plugin Scanner", b -> {
 			McCompat.setScreen(mc, new UiUtilsCommandScannerScreen(McCompat.getScreen(mc)));
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Advanced Packet Tool", b -> {
+		}));
+		rows.add(UiWidgetRow.single("Advanced Packet Tool", b -> {
 			AdvancedPacketTool.openScreen(McCompat.getScreen(mc));
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Start Autoduper", b -> {
-			UiUtilsAutoduper.start();
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Autoduper Options", b -> {
+		}));
+		rows.add(UiWidgetRow.single("Start Autoduper", b -> UiUtilsAutoduper.start()));
+		rows.add(UiWidgetRow.single("Autoduper Options", b -> {
 			McCompat.setScreen(mc, new UiUtilsAutoduperScreen(McCompat.getScreen(mc)));
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Macros", b -> {
+		}));
+		rows.add(UiWidgetRow.single("Macros", b -> {
 			McCompat.setScreen(mc, new UiUtilsMacroLibraryScreen(McCompat.getScreen(mc)));
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Close Without Packet", b -> {
-			closeScreenWithConfiguredDelay(mc);
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("De-Sync", b -> {
-			sendClosePacketWithConfiguredDelay(mc);
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Send Packets: " + boolText(UiUtilsState.sendUiPackets), b -> {
+		}));
+		rows.add(UiWidgetRow.single("Close Without Packet", b -> closeScreenWithConfiguredDelay(mc)));
+		rows.add(UiWidgetRow.single("De-Sync", b -> sendClosePacketWithConfiguredDelay(mc)));
+		rows.add(UiWidgetRow.single("Send Packets: " + boolText(UiUtilsState.sendUiPackets), b -> {
 			UiUtilsState.sendUiPackets = !UiUtilsState.sendUiPackets;
 			b.setMessage(Component.literal("Send Packets: "
 				+ boolText(UiUtilsState.sendUiPackets)));
 			chatIfEnabled("Send packets: " + UiUtilsState.sendUiPackets);
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Delay Packets: " + boolText(UiUtilsState.delayUiPackets), b -> {
+		}));
+		rows.add(UiWidgetRow.single("Delay Packets: " + boolText(UiUtilsState.delayUiPackets), b -> {
 			UiUtilsState.delayUiPackets = !UiUtilsState.delayUiPackets;
 			b.setMessage(Component.literal("Delay Packets: "
 				+ boolText(UiUtilsState.delayUiPackets)));
@@ -524,31 +548,18 @@ public final class UiUtils {
 				refreshQueueCounterButtons();
 			}
 			chatIfEnabled("Delay packets: " + UiUtilsState.delayUiPackets);
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-
-		adder.accept(styledButton("Leave & Send Packets", b -> {
-			leaveAndSendPackets(mc);
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Disconnect & Send Packets", b -> {
-			disconnectAndSendPackets(mc);
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Fabricate Packet", b -> {
+		}));
+		rows.add(UiWidgetRow.single("Leave & Send Packets", b -> leaveAndSendPackets(mc)));
+		rows.add(UiWidgetRow.single("Disconnect & Send Packets", b -> disconnectAndSendPackets(mc)));
+		rows.add(UiWidgetRow.single("Fabricate Packet", b -> {
 			if (McCompat.getScreen(mc) instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen) {
 				UiUtilsState.fabricateOverlayOpen = !UiUtilsState.fabricateOverlayOpen;
 				chatIfEnabled("Fabricate overlay: " + (UiUtilsState.fabricateOverlayOpen ? "opened" : "closed"));
 			} else {
 				chatIfEnabled("Fabricate packet works inside container screens.");
 			}
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Copy GUI Title JSON", b -> {
+		}));
+		rows.add(UiWidgetRow.single("Copy GUI Title JSON", b -> {
 			try {
 				Screen screen = McCompat.getScreen(mc);
 				if (screen == null)
@@ -560,73 +571,100 @@ public final class UiUtils {
 				LOGGER.error("Error while copying title JSON to clipboard", e);
 				chatIfEnabled("Failed to copy GUI title JSON");
 			}
-		}, baseX, y, fullWidth, 20));
-		y += 20 + spacing;
+		}));
+		rows.add(UiWidgetRow.pair(
+			new UiWidgetButton("Save GUI", halfWidth, b -> {
+				if (saveCurrentGuiToSlot(mc, defaultSlot))
+					chatIfEnabled("Saved GUI to slot \"" + defaultSlot + "\"");
+			}),
+			new UiWidgetButton("Load GUI", halfWidth, b -> {
+				if (loadGuiFromSlot(mc, defaultSlot))
+					chatIfEnabled("Loaded GUI from slot \"" + defaultSlot + "\"");
+				else
+					chatIfEnabled("No saved GUI in slot \"" + defaultSlot + "\"");
+			})));
+		rows.add(UiWidgetRow.pair(
+			new UiWidgetButton("Clear Queue", halfWidth, b -> {
+				int cleared = clearQueuedPackets();
+				chatIfEnabled("Cleared queued packets (" + cleared + ")");
+			}),
+			new UiWidgetButton("Queue: " + UiUtilsState.delayedUiPackets.size(),
+				halfWidth, b -> b.setMessage(Component.literal("Queue: "
+					+ UiUtilsState.delayedUiPackets.size())))));
+		rows.add(UiWidgetRow.pair(
+			new UiWidgetButton("Resync Inv", halfWidth, b -> {
+				if (mc.player != null && tryResyncInventory(mc.player.containerMenu))
+					chatIfEnabled("Inventory resynced");
+				else
+					chatIfEnabled("Failed to resync inventory");
+			}),
+			new UiWidgetButton("Disconnect", halfWidth,
+				b -> UiUtilsDisconnect.disconnectWithConfiguredMethod(mc))));
+		rows.add(UiWidgetRow.triple(
+			new UiWidgetButton("-", spamSideWidth, b -> {
+				if (UiUtilsState.spamCount > 1)
+					UiUtilsState.spamCount--;
+				spamCountButtons().forEach(button -> button.setMessage(
+					Component.literal("Spam (X" + UiUtilsState.spamCount + ")")));
+			}),
+			new UiWidgetButton("Spam (X" + UiUtilsState.spamCount + ")",
+				spamCenterWidth, b -> {
+					int sent = sendQueuedPackets(mc, UiUtilsState.spamCount);
+					chatIfEnabled("Spammed queued packets (" + sent + ")");
+				}),
+			new UiWidgetButton("+", spamSideWidth, b -> {
+				if (UiUtilsState.spamCount < 100)
+					UiUtilsState.spamCount++;
+				spamCountButtons().forEach(button -> button.setMessage(
+					Component.literal("Spam (X" + UiUtilsState.spamCount + ")")));
+			})));
+		rows.add(UiWidgetRow.pair(
+			new UiWidgetButton("Send One", halfWidth, b -> {
+				boolean sent = sendOneQueuedPacket(mc);
+				chatIfEnabled(sent ? "Sent one queued packet" : "No queued packets to send");
+			}),
+			new UiWidgetButton("Pop Last", halfWidth, b -> {
+				boolean popped = popLastQueuedPacket();
+				chatIfEnabled(popped ? "Removed last queued packet" : "No queued packets to remove");
+			})));
 
-		adder.accept(styledButton("Save GUI", b -> {
-			if (saveCurrentGuiToSlot(mc, defaultSlot))
-				chatIfEnabled("Saved GUI to slot \"" + defaultSlot + "\"");
-		}, baseX, y, halfWidth, 20));
+		List<UiUtilsColoredButton> queueButtons = new ArrayList<>();
+		List<UiUtilsColoredButton> spamButtons = new ArrayList<>();
+		for (int i = 0; i < rows.size(); i++) {
+			int x = baseX;
+			int y = baseY + i * (rowHeight + compactSpacing);
+			UiWidgetRow row = rows.get(i);
+			if (row.labelText != null) {
+				adder.accept(new UiUtilsTextLabel(x, y, fullWidth, rowHeight,
+					Component.literal(row.labelText)));
+				continue;
+			}
+			int nextX = x;
+			int consumed = 0;
+			for (int buttonIndex = 0; buttonIndex < row.buttons.size(); buttonIndex++) {
+				UiWidgetButton button = row.buttons.get(buttonIndex);
+				int width = buttonIndex == row.buttons.size() - 1
+					? fullWidth - consumed - compactSpacing * buttonIndex
+					: Math.max(18, (int)Math.round(button.width
+						* (fullWidth / (double)naturalFullWidth)));
+				UiUtilsColoredButton widget = styledButton(button.text, button.action,
+					nextX, y, width, rowHeight);
+				adder.accept(widget);
+				if (button.text.startsWith("Queue: "))
+					queueButtons.add(widget);
+				if (button.text.startsWith("Spam (X"))
+					spamButtons.add(widget);
+				nextX += width + compactSpacing;
+				consumed += width;
+			}
+		}
+		queueCounterButtons.keySet().removeIf(button -> button == null);
+		for (UiUtilsColoredButton button : queueButtons)
+			queueCounterButtons.put(button, Boolean.TRUE);
+		setSpamCountButtons(spamButtons);
 
-		adder.accept(styledButton("Load GUI", b -> {
-			if (loadGuiFromSlot(mc, defaultSlot))
-				chatIfEnabled("Loaded GUI from slot \"" + defaultSlot + "\"");
-			else
-				chatIfEnabled("No saved GUI in slot \"" + defaultSlot + "\"");
-		}, baseX + halfWidth + spacing, y, halfWidth, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Clear Queue", b -> {
-			int cleared = clearQueuedPackets();
-			chatIfEnabled("Cleared queued packets (" + cleared + ")");
-		}, baseX, y, halfWidth, 20));
-
-		UiUtilsColoredButton queueButton = styledButton("Queue: " + UiUtilsState.delayedUiPackets.size(),
-			b -> b.setMessage(Component.literal("Queue: " + UiUtilsState.delayedUiPackets.size())),
-			baseX + halfWidth + spacing, y, halfWidth, 20);
-		adder.accept(queueButton);
-		queueCounterButtons.put(queueButton, Boolean.TRUE);
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Resync Inv", b -> {
-			if (mc.player != null && tryResyncInventory(mc.player.containerMenu))
-				chatIfEnabled("Inventory resynced");
-			else
-				chatIfEnabled("Failed to resync inventory");
-		}, baseX, y, halfWidth, 20));
-
-		adder.accept(styledButton("Disconnect", b -> {
-			UiUtilsDisconnect.disconnectWithConfiguredMethod(mc);
-		}, baseX + halfWidth + spacing, y, halfWidth, 20));
-		y += 20 + spacing;
-
-		UiUtilsColoredButton spamButton = styledButton("Spam (X" + UiUtilsState.spamCount + ")", b -> {
-			int sent = sendQueuedPackets(mc, UiUtilsState.spamCount);
-			chatIfEnabled("Spammed queued packets (" + sent + ")");
-		}, baseX + 32, y, fullWidth - 64, 20);
-		adder.accept(styledButton("-", b -> {
-			if (UiUtilsState.spamCount > 1)
-				UiUtilsState.spamCount--;
-			spamButton.setMessage(Component.literal("Spam (X" + UiUtilsState.spamCount + ")"));
-		}, baseX, y, 30, 20));
-		adder.accept(spamButton);
-		adder.accept(styledButton("+", b -> {
-			if (UiUtilsState.spamCount < 100)
-				UiUtilsState.spamCount++;
-			spamButton.setMessage(Component.literal("Spam (X" + UiUtilsState.spamCount + ")"));
-		}, baseX + fullWidth - 30, y, 30, 20));
-		y += 20 + spacing;
-
-		adder.accept(styledButton("Send One", b -> {
-			boolean sent = sendOneQueuedPacket(mc);
-			chatIfEnabled(sent ? "Sent one queued packet" : "No queued packets to send");
-		}, baseX, y, halfWidth, 20));
-
-		adder.accept(styledButton("Pop Last", b -> {
-			boolean popped = popLastQueuedPacket();
-			chatIfEnabled(popped ? "Removed last queued packet" : "No queued packets to remove");
-		}, baseX + halfWidth + spacing, y, halfWidth, 20));
-		return y + 20;
+		int chatY = baseY + rows.size() * (rowHeight + compactSpacing);
+		return new UiWidgetLayout(baseX, chatY, fullWidth, chatHeight);
 	}
 
 	public static UiUtilsColoredButton styledButton(String text,
@@ -651,10 +689,11 @@ public final class UiUtils {
 			int mouseX, int mouseY, float partialTicks) {
 			int textColor = 0xFF000000
 				| (UiUtilsSettings.get().uiButtonTextColor & 0xFFFFFF);
-			int textY = getY()
-				+ (getHeight() - Minecraft.getInstance().font.lineHeight) / 2;
-			graphics.centeredText(Minecraft.getInstance().font, getMessage(),
-				getX() + getWidth() / 2, textY, textColor);
+			int textY = getY() + Math.max(1, (getHeight()
+				- Minecraft.getInstance().font.lineHeight) / 2);
+			renderScaledCenteredText(graphics, Minecraft.getInstance().font,
+				getMessage(), getX() + getWidth() / 2, textY, getWidth() - 6,
+				getHeight() - 2, textColor, 0.4F);
 		}
 
 		@Override
@@ -662,8 +701,9 @@ public final class UiUtils {
 		}
 	}
 
-	public static EditBox createChatField(Minecraft mc, Font font, int x, int y) {
-		EditBox field = new EditBox(font, x, y, 160, 20, Component.literal("Chat ...")) {
+	public static EditBox createChatField(Minecraft mc, Font font, int x, int y,
+		int width, int height) {
+		EditBox field = new EditBox(font, x, y, width, height, Component.literal("Chat ...")) {
 			@Override
 			public boolean keyPressed(net.minecraft.client.input.KeyEvent keyEvent) {
 				if (keyEvent.key() == GLFW.GLFW_KEY_ENTER || keyEvent.key() == GLFW.GLFW_KEY_KP_ENTER) {
@@ -707,6 +747,55 @@ public final class UiUtils {
 		field.setMaxLength(256);
 		field.setHint(Component.literal("Chat ..."));
 		return field;
+	}
+
+	public record UiWidgetLayout(int chatX, int chatY, int chatWidth,
+		int chatHeight) {}
+
+	private static final WeakHashMap<UiUtilsColoredButton, Boolean> spamCountButtonMap = new WeakHashMap<>();
+
+	private static List<UiUtilsColoredButton> spamCountButtons() {
+		spamCountButtonMap.keySet().removeIf(button -> button == null);
+		return List.copyOf(spamCountButtonMap.keySet());
+	}
+
+	private static void setSpamCountButtons(List<UiUtilsColoredButton> buttons) {
+		spamCountButtonMap.clear();
+		for (UiUtilsColoredButton button : buttons)
+			spamCountButtonMap.put(button, Boolean.TRUE);
+	}
+
+	private record UiWidgetButton(String text, int width,
+		UiUtilsColoredButton.PressAction action) {}
+
+	private static final class UiWidgetRow {
+		private final String labelText;
+		private final List<UiWidgetButton> buttons;
+
+		private UiWidgetRow(String labelText, List<UiWidgetButton> buttons) {
+			this.labelText = labelText;
+			this.buttons = buttons;
+		}
+
+		private static UiWidgetRow label(String text) {
+			return new UiWidgetRow(text, List.of());
+		}
+
+		private static UiWidgetRow single(String text,
+			UiUtilsColoredButton.PressAction action) {
+			return new UiWidgetRow(null, List.of(
+				new UiWidgetButton(text, 160, action)));
+		}
+
+		private static UiWidgetRow pair(UiWidgetButton left,
+			UiWidgetButton right) {
+			return new UiWidgetRow(null, List.of(left, right));
+		}
+
+		private static UiWidgetRow triple(UiWidgetButton left,
+			UiWidgetButton center, UiWidgetButton right) {
+			return new UiWidgetRow(null, List.of(left, center, right));
+		}
 	}
 
 	public static Runnable getFabricatePacketRunnable(Minecraft mc, boolean delay, Packet<?> packet) {

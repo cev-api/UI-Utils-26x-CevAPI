@@ -190,6 +190,8 @@ public final class UiUtilsPluginScanner {
 			String pluginCandidate = text.trim();
 			String pluginKey = normalizePluginKey(pluginCandidate);
 			if (!isLikelyPluginNameCandidate(pluginCandidate, probe.kind)
+				|| UiUtilsCommandScanner.isVanillaOrDefaultCommand(pluginCandidate)
+				|| isDefaultFabricPlugin(pluginCandidate)
 				|| ROOT_COMMAND_PLUGIN_ALIASES.containsKey(pluginKey))
 				continue;
 
@@ -427,7 +429,12 @@ public final class UiUtilsPluginScanner {
 		return token.trim();
 	}
 
-	private static boolean isLikelyPluginNameCandidate(String candidate, PluginProbeKind kind) {
+	private static boolean isDefaultFabricPlugin(String candidate) {
+		String key = normalizePluginKey(candidate);
+		return key.equals("fabric") || key.equals("fabricloader") || key.startsWith("fabric-") || key.startsWith("fabric_");
+	}
+
+private static boolean isLikelyPluginNameCandidate(String candidate, PluginProbeKind kind) {
 		if (candidate == null)
 			return false;
 		String clean = candidate.trim();
@@ -488,6 +495,8 @@ public final class UiUtilsPluginScanner {
 					new ArrayList<>(entry.commands)));
 			}
 		}
+
+		UiUtilsScanHistory.recordPlugins(boundServerKey, "plugin", lastRows);
 
 		if (ordered.isEmpty()) {
 			lastStatus = "No plugins found or blocked.";

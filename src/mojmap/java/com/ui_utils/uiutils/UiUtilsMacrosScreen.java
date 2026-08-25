@@ -21,6 +21,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 
 public final class UiUtilsMacrosScreen extends Screen {
     private final Screen parent;
@@ -62,11 +63,16 @@ public final class UiUtilsMacrosScreen extends Screen {
             loaded = true;
         }
 
-        int left = this.width / 2 - 250;
-        int top = Math.max(8, this.height / 2 - 188);
-        int row = 18;
-        int gap = 3;
-        int width = 500;
+        int width = panelWidth();
+        int left = (this.width - width) / 2;
+        int row = rowHeight();
+        int gap = rowGap();
+        int visibleRows = visibleRows(row, gap);
+        int top = contentTop(row, gap, visibleRows);
+        int controlButtonWidth = width < 360 ? 18 : 22;
+        int controlGap = width < 360 ? 2 : 2;
+        int controlsWidth = 5 * controlButtonWidth + 4 * controlGap;
+        int rowWidth = Math.max(120, width - controlsWidth - 6);
         int half = (width - gap) / 2;
 
         nameField = new EditBox(this.font, left, top + row + gap, width, row, Component.literal("Macro Name"));
@@ -102,25 +108,38 @@ public final class UiUtilsMacrosScreen extends Screen {
         int listY = y;
         stepRows.clear();
         rowControls.clear();
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < visibleRows; i++) {
             int ry = listY + i * (row + gap);
-            StepRowWidget rw = addRenderableWidget(new StepRowWidget(left, ry, 374, row, i));
+            StepRowWidget rw = addRenderableWidget(new StepRowWidget(left, ry, rowWidth, row, i));
             stepRows.add(rw);
-            int bx = left + 378;
+            int bx = left + rowWidth + 4;
             int idx = i;
-            rowControls.add(addRenderableWidget(UiUtils.styledButton("^", b -> moveStep(stepOffset + idx, -1), bx, ry, 22, row))); bx += 24;
-            rowControls.add(addRenderableWidget(UiUtils.styledButton("v", b -> moveStep(stepOffset + idx, +1), bx, ry, 22, row))); bx += 24;
-            rowControls.add(addRenderableWidget(UiUtils.styledButton("D", b -> duplicateStep(stepOffset + idx), bx, ry, 22, row))); bx += 24;
-            rowControls.add(addRenderableWidget(UiUtils.styledButton("E", b -> editStep(stepOffset + idx), bx, ry, 22, row))); bx += 24;
-            rowControls.add(addRenderableWidget(UiUtils.styledButton("X", b -> deleteStep(stepOffset + idx), bx, ry, 22, row)));
+            rowControls.add(addRenderableWidget(UiUtils.styledButton("^", b -> moveStep(stepOffset + idx, -1), bx, ry, controlButtonWidth, row))); bx += controlButtonWidth + controlGap;
+            rowControls.add(addRenderableWidget(UiUtils.styledButton("v", b -> moveStep(stepOffset + idx, +1), bx, ry, controlButtonWidth, row))); bx += controlButtonWidth + controlGap;
+            rowControls.add(addRenderableWidget(UiUtils.styledButton("D", b -> duplicateStep(stepOffset + idx), bx, ry, controlButtonWidth, row))); bx += controlButtonWidth + controlGap;
+            rowControls.add(addRenderableWidget(UiUtils.styledButton("E", b -> editStep(stepOffset + idx), bx, ry, controlButtonWidth, row))); bx += controlButtonWidth + controlGap;
+            rowControls.add(addRenderableWidget(UiUtils.styledButton("X", b -> deleteStep(stepOffset + idx), bx, ry, controlButtonWidth, row)));
         }
 
-        int by = listY + (row + gap) * 8 + 7;
-        addRenderableWidget(UiUtils.styledButton("Save", b -> saveMacro(), left, by, 110, row));
-        addRenderableWidget(UiUtils.styledButton("Cancel", b -> McCompat.setScreen(minecraft, parent), left + 114, by, 110, row));
-        addRenderableWidget(UiUtils.styledButton("Undo", b -> undo(), left + 228, by, 86, row));
-        addRenderableWidget(UiUtils.styledButton("Redo", b -> redo(), left + 318, by, 86, row));
-        addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(minecraft, parent), left + 408, by, 92, row));
+        int by = listY + (row + gap) * visibleRows + 7;
+        int footerGap = width < 420 ? gap : 4;
+        int footerCols = width < 420 ? 2 : 5;
+        int footerWidth = footerCols == 5 ? 0 : (width - footerGap) / 2;
+        if (footerCols == 5) {
+            addRenderableWidget(UiUtils.styledButton("Save", b -> saveMacro(), left, by, 110, row));
+            addRenderableWidget(UiUtils.styledButton("Cancel", b -> McCompat.setScreen(minecraft, parent), left + 114, by, 110, row));
+            addRenderableWidget(UiUtils.styledButton("Undo", b -> undo(), left + 228, by, 86, row));
+            addRenderableWidget(UiUtils.styledButton("Redo", b -> redo(), left + 318, by, 86, row));
+            addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(minecraft, parent), left + 408, by, 92, row));
+        } else {
+            addRenderableWidget(UiUtils.styledButton("Save", b -> saveMacro(), left, by, footerWidth, row));
+            addRenderableWidget(UiUtils.styledButton("Cancel", b -> McCompat.setScreen(minecraft, parent), left + footerWidth + footerGap, by, footerWidth, row));
+            by += row + gap;
+            addRenderableWidget(UiUtils.styledButton("Undo", b -> undo(), left, by, footerWidth, row));
+            addRenderableWidget(UiUtils.styledButton("Redo", b -> redo(), left + footerWidth + footerGap, by, footerWidth, row));
+            by += row + gap;
+            addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(minecraft, parent), left, by, width, row));
+        }
 
         refreshRows();
     }
@@ -366,23 +385,31 @@ public final class UiUtilsMacrosScreen extends Screen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks) {
         super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
-        int left = this.width / 2 - 250;
-        int screenTop = Math.max(8, this.height / 2 - 188);
+        int width = panelWidth();
+        int left = (this.width - width) / 2;
+        int row = rowHeight();
+        int gap = rowGap();
+        int visibleRows = visibleRows(row, gap);
+        int screenTop = contentTop(row, gap, visibleRows);
         int top = screenTop - this.font.lineHeight - 3;
         graphics.text(this.font, "Create Macro (" + editing.actions.size() + " steps)", left, top, 0xFFE6EEF7, false);
-        graphics.text(this.font, status, left, top + (18 + 3) * 15 + 4, 0xFFFFC66D, false);
-        int listTop = screenTop + (18 + 3) * 4 + 2;
-        int listBottom = listTop + (18 + 3) * 8 - 3;
-        lastScrollbar = computeScrollbar(left + 505, listTop, listBottom, editing.actions.size(), stepRows.size(), stepOffset);
+        graphics.text(this.font, status, left, top + (row + gap) * (visibleRows + 7) + 4, 0xFFFFC66D, false);
+        int listTop = screenTop + (row + gap) * 4 + 2;
+        int listBottom = listTop + (row + gap) * visibleRows - 3;
+        lastScrollbar = computeScrollbar(left + width + 5, listTop, listBottom, editing.actions.size(), stepRows.size(), stepOffset);
         renderScrollbar(graphics, lastScrollbar);
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        int left = this.width / 2 - 250;
-        int listTop = Math.max(8, this.height / 2 - 188) + (18 + 3) * 4 + 2;
-        int listBottom = listTop + (18 + 3) * 8 - 3;
-        if (mouseX < left || mouseX > left + 500 || mouseY < listTop || mouseY > listBottom) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        int width = panelWidth();
+        int left = (this.width - width) / 2;
+        int row = rowHeight();
+        int gap = rowGap();
+        int visibleRows = visibleRows(row, gap);
+        int listTop = contentTop(row, gap, visibleRows) + (row + gap) * 4 + 2;
+        int listBottom = listTop + (row + gap) * visibleRows - 3;
+        if (mouseX < left || mouseX > left + width || mouseY < listTop || mouseY > listBottom) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         if (scrollY < 0) stepOffset = Math.min(maxStepOffset(), stepOffset + 1);
         else if (scrollY > 0) stepOffset = Math.max(0, stepOffset - 1);
         refreshRows();
@@ -488,8 +515,11 @@ public final class UiUtilsMacrosScreen extends Screen {
             if (hasContent)
                 graphics.fill(x, y, x + 3, y + h, selected ? 0xFFFFFFFF : (0xFF000000 | scaleRgb(baseRgb, 1.15F)));
             int textColor = 0xFF000000 | (UiUtilsSettings.get().uiButtonTextColor & 0xFFFFFF);
-            int textY = y + (h - Minecraft.getInstance().font.lineHeight) / 2;
-            graphics.text(Minecraft.getInstance().font, getMessage().getString(), x + 6, textY, textColor, false);
+            int textY = y + Math.max(1,
+                (h - Minecraft.getInstance().font.lineHeight) / 2);
+            UiUtils.renderScaledText(graphics, Minecraft.getInstance().font,
+                getMessage().getString(), x + 6, textY, w - 12, h - 2,
+                textColor, 0.35F);
         }
 
         @Override
@@ -510,6 +540,28 @@ public final class UiUtilsMacrosScreen extends Screen {
 
     private static int clamp(int value) {
         return Math.max(0, Math.min(255, value));
+    }
+
+    private int panelWidth() {
+        return Math.min(500, Math.max(220, this.width - 20));
+    }
+
+    private int rowHeight() {
+        return Mth.clamp((this.height - 140) / 18, 12, 18);
+    }
+
+    private int rowGap() {
+        return rowHeight() <= 14 ? 2 : 3;
+    }
+
+    private int visibleRows(int row, int gap) {
+        return Math.max(4, Math.min(10, (this.height - 190) / (row + gap)));
+    }
+
+    private int contentTop(int row, int gap, int visibleRows) {
+        int footerRows = panelWidth() < 420 ? 3 : 1;
+        int totalRows = visibleRows + 6 + footerRows;
+        return Math.max(8, (this.height - (totalRows * row + (totalRows - 1) * gap)) / 2);
     }
 
     private record ScrollbarMetrics(int x, int trackTop, int trackBottom, int thumbY, int thumbH, boolean hasScroll, int totalRows, int visibleRows) {

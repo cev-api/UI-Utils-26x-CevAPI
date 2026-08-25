@@ -32,48 +32,53 @@ public final class UiUtilsMacroTypePickerScreen extends Screen {
         this.mode = mode;
     }
 
-    @Override
-    protected void init() {
-        clearWidgets();
-        int left = this.width / 2 - 236;
-        int top = Math.max(8, this.height / 2 - 184);
-        int row = 16;
-        int gap = 3;
-        int half = 226;
-        int contentTop = top + row + 8;
+	@Override
+	protected void init() {
+		clearWidgets();
+		int panelWidth = Math.min(455, Math.max(250, this.width - 32));
+		int left = (this.width - panelWidth) / 2;
+		int top = Math.max(8, (this.height - Math.min(this.height - 16, 360)) / 2);
+		int row = 16;
+		int gap = 3;
+		boolean stacked = panelWidth < 360;
+		int half = stacked ? panelWidth : (panelWidth - gap) / 2;
+		int contentTop = top + row + 8;
 
-        List<RowEntry> rows = flattenRows(mode == Mode.ACTION ? actionSections() : conditionSections());
-        viewportRows = Math.min(18, Math.max(10, (this.height - contentTop - 44) / (row + gap)));
-        maxOffset = Math.max(0, rows.size() - viewportRows);
-        if (rowOffset > maxOffset) rowOffset = maxOffset;
+		List<RowEntry> rows = flattenRows(mode == Mode.ACTION ? actionSections() : conditionSections());
+		viewportRows = Math.min(18, Math.max(7, (this.height - contentTop - 52) / (row + gap)));
+		maxOffset = Math.max(0, rows.size() - viewportRows);
+		if (rowOffset > maxOffset) rowOffset = maxOffset;
 
         viewportTop = contentTop;
         int drawY = contentTop;
         for (int i = rowOffset; i < rows.size() && i < rowOffset + viewportRows; i++) {
             RowEntry entry = rows.get(i);
-            if (entry.header != null) {
-                addRenderableWidget(new UiUtilsSectionLabel(left, drawY, entry.header));
-            } else {
-                UiUtilsMacroActionType a = entry.left;
-                addRenderableWidget(UiUtils.styledButton(label(a), b -> {
-                    parent.addStepFromPicker(a);
-                }, left, drawY, half, row));
-                if (entry.right != null) {
-                    UiUtilsMacroActionType bType = entry.right;
-                    addRenderableWidget(UiUtils.styledButton(label(bType), b -> {
-                        parent.addStepFromPicker(bType);
-                    }, left + half + gap, drawY, half, row));
-                }
-            }
-            drawY += row + gap;
-        }
-        viewportBottom = drawY - gap;
-        lastScrollbar = computeScrollbar(left + half * 2 + gap + 8, viewportTop, viewportBottom,
-            rows.size(), viewportRows, rowOffset);
+			if (entry.header != null) {
+				addRenderableWidget(new UiUtilsSectionLabel(left, drawY, panelWidth, entry.header));
+			} else {
+				UiUtilsMacroActionType a = entry.left;
+				addRenderableWidget(UiUtils.styledButton(label(a), b -> {
+					parent.addStepFromPicker(a);
+				}, left, drawY, half, row));
+				if (entry.right != null) {
+					UiUtilsMacroActionType bType = entry.right;
+					addRenderableWidget(UiUtils.styledButton(label(bType), b -> {
+						parent.addStepFromPicker(bType);
+					}, stacked ? left : left + half + gap,
+						stacked ? drawY + row + gap : drawY, half, row));
+				}
+			}
+			drawY += row + gap;
+			if (stacked && entry.header == null && entry.right != null)
+				drawY += row + gap;
+		}
+		viewportBottom = drawY - gap;
+		lastScrollbar = computeScrollbar(left + panelWidth + 8, viewportTop, viewportBottom,
+			rows.size(), viewportRows, rowOffset);
 
-        int footerY = drawY + 6;
-        addRenderableWidget(UiUtils.styledButton("Cancel", b -> McCompat.setScreen(minecraft, parent), left, footerY, half * 2 + gap, row));
-    }
+		int footerY = drawY + 6;
+		addRenderableWidget(UiUtils.styledButton("Cancel", b -> McCompat.setScreen(minecraft, parent), left, footerY, panelWidth, row));
+	}
 
     private static String label(UiUtilsMacroActionType t) {
         String s = t.name().replace('_', ' ').toLowerCase(Locale.ROOT);
@@ -157,10 +162,10 @@ public final class UiUtilsMacroTypePickerScreen extends Screen {
     }
 
     private static final class UiUtilsSectionLabel extends AbstractWidget {
-        private UiUtilsSectionLabel(int x, int y, String title) {
-            super(x, y, 412, 20, Component.literal(title));
-            this.active = false;
-        }
+		private UiUtilsSectionLabel(int x, int y, int width, String title) {
+			super(x, y, width, 20, Component.literal(title));
+			this.active = false;
+		}
 
         @Override
         protected void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks) {
@@ -173,14 +178,16 @@ public final class UiUtilsMacroTypePickerScreen extends Screen {
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks) {
-        super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
-        int left = this.width / 2 - 236;
-        int top = Math.max(8, this.height / 2 - 184);
-        String head = mode == Mode.ACTION ? "Add Action" : "Add Conditional";
-        graphics.text(this.font, head, left, top + 6, 0xFFE6EEF7, false);
-        graphics.text(this.font, "Scroll " + (rowOffset + 1) + "/" + (maxOffset + 1), left + 124, top + 6, 0xFFC6D6E8, false);
-        renderScrollbar(graphics, lastScrollbar);
-    }
+		super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
+		int panelWidth = Math.min(455, Math.max(250, this.width - 32));
+		int left = (this.width - panelWidth) / 2;
+		int top = Math.max(8, (this.height - Math.min(this.height - 16, 360)) / 2);
+		String head = mode == Mode.ACTION ? "Add Action" : "Add Conditional";
+		graphics.text(this.font, head, left, top + 6, 0xFFE6EEF7, false);
+		graphics.text(this.font, "Scroll " + (rowOffset + 1) + "/" + (maxOffset + 1),
+			left + Math.min(panelWidth - 86, 124), top + 6, 0xFFC6D6E8, false);
+		renderScrollbar(graphics, lastScrollbar);
+	}
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {

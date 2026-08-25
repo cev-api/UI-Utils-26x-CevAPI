@@ -103,6 +103,7 @@ public final class UiUtilsLegacyPluginScanner {
 		}
 
 		if (foundPlugins.isEmpty()) {
+			UiUtilsScanHistory.recordPlugins(UiUtilsScanHistory.serverKey(mc), "legacy_plugin", List.of());
 			lastStatus = "Legacy: No plugins found or blocked.";
 			Component noPlugins = Component.literal("[UI-Utils] Legacy Plugins (0)")
 				.withColor(0x55CCFF);
@@ -132,6 +133,7 @@ public final class UiUtilsLegacyPluginScanner {
 				"LEGACY", plugin, 0, anticheat, List.of()));
 		}
 		mc.player.sendSystemMessage(line);
+		UiUtilsScanHistory.recordPlugins(UiUtilsScanHistory.serverKey(mc), "legacy_plugin", lastRows);
 		lastStatus = "Legacy: Detected " + foundPlugins.size() + " plugins.";
 		foundPlugins.clear();
 		dedupe.clear();

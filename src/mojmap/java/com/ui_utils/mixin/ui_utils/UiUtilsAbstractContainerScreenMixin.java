@@ -186,21 +186,21 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 		
 		Minecraft mc = Minecraft.getInstance();
 		int spacing = 4;
-		int buttonHeight = 20;
-		int buttonCount = UiUtils.getUiWidgetRows();
 		int chatHeight = 20;
-		int blockHeight = buttonCount * buttonHeight
-			+ (buttonCount - 1) * spacing + spacing + chatHeight;
 		// Keep the stack near top-left so it does not bury in-game chat.
 		// "UI-Utils by CevAPI" ends up just below common Wurst headers.
 		int preferredTop = 24;
 		int startY = Mth.clamp(preferredTop, 5, Math.max(5,
-			this.height - blockHeight - 5));
+			this.height - chatHeight - 5));
 		int baseX = 8;
-		int nextY = UiUtils.addUiWidgets(mc, baseX, startY, spacing,
+		int maxRight = Math.max(baseX + 160,
+			Math.min(this.leftPos - 8, this.width - 8));
+		UiUtils.UiWidgetLayout layout = UiUtils.addUiWidgets(mc, baseX, startY,
+			spacing, this.height - startY - chatHeight - 8, maxRight,
 			this::addRenderableWidget);
-		uiUtilsChatField =
-			UiUtils.createChatField(mc, this.font, baseX, nextY + spacing);
+		uiUtilsChatField = UiUtils.createChatField(mc, this.font,
+			layout.chatX(), layout.chatY(), layout.chatWidth(),
+			layout.chatHeight());
 		addRenderableWidget(uiUtilsChatField);
 		
 		initFabricateOverlay();

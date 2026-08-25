@@ -38,16 +38,19 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 
 	@Override
 	protected void init() {
-		panelWidth = 420;
-		int left = this.width / 2 - panelWidth / 2;
+		panelWidth = Math.min(420, Math.max(260, this.width - 32));
+		int left = (this.width - panelWidth) / 2;
 		panelLeft = left;
 		int rowH = 20;
 		int gap = 4;
+		boolean stacked = panelWidth < 360;
+		int splitWidth = stacked ? panelWidth : (panelWidth - 10) / 2;
 
-		int topRows = 6;
+		int topRows = stacked ? 10 : 6;
 		int controlsHeight = (rowH * topRows) + (gap * (topRows - 1));
 		int footerHeight = rowH + gap;
-		int desiredResultsHeight = Math.min(320, Math.max(180, this.height - 150));
+		int desiredResultsHeight = Math.min(320, Math.max(120,
+			this.height - controlsHeight - footerHeight - 52));
 		int totalBlockHeight = controlsHeight + 8 + desiredResultsHeight + 8 + footerHeight;
 		int blockTop = Math.max(8, (this.height - totalBlockHeight) / 2);
 		int y = blockTop;
@@ -57,12 +60,14 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 			UiUtilsSettings.get().commandScannerMode = packet ? "CLIENT_SIDE_ENUMERATION" : "PACKET_PROBING";
 			UiUtilsSettings.save();
 			refreshScannerModeLabel();
-		}, left, y, 205, rowH));
+		}, left, y, splitWidth, rowH));
 		refreshScannerModeLabel();
 
 		addRenderableWidget(UiUtils.styledButton("Run command scan", b -> UiUtilsCommandScanner.startScan(),
-			left + 215, y, 205, rowH));
+			stacked ? left : left + splitWidth + 10, y, splitWidth, rowH));
 		y += rowH + gap;
+		if(stacked)
+			y += rowH + gap;
 
 		addRenderableWidget(UiUtils.styledButton("Command debug: "
 			+ (UiUtilsSettings.get().commandScannerDebugProbe ? "ON" : "OFF"), b -> {
@@ -70,17 +75,19 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 				UiUtilsSettings.save();
 				b.setMessage(Component.literal("Command debug: "
 					+ (UiUtilsSettings.get().commandScannerDebugProbe ? "ON" : "OFF")));
-			}, left, y, 205, rowH));
+			}, left, y, splitWidth, rowH));
 
 		addRenderableWidget(UiUtils.styledButton("Run plugin scan", b -> UiUtilsPluginScanner.startScan(),
-			left + 215, y, 205, rowH));
+			stacked ? left : left + splitWidth + 10, y, splitWidth, rowH));
 		y += rowH + gap;
+		if(stacked)
+			y += rowH + gap;
 
 		addRenderableWidget(UiUtils.styledButton("Legacy Plugin Scan (Safer)", b -> UiUtilsLegacyPluginScanner.startScan(),
-			left, y, 420, rowH));
+			left, y, panelWidth, rowH));
 		y += rowH + gap;
 
-		searchField = new EditBox(this.font, left, y, 205, rowH, Component.literal("Search results"));
+		searchField = new EditBox(this.font, left, y, splitWidth, rowH, Component.literal("Search results"));
 		searchField.setMaxLength(64);
 		searchField.setHint(Component.literal("Search results..."));
 		addRenderableWidget(searchField);
@@ -91,10 +98,12 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 				UiUtilsSettings.save();
 				b.setMessage(Component.literal("Run found cmds: "
 					+ (UiUtilsSettings.get().commandScannerRunFoundCommands ? "ON" : "OFF")));
-			}, left + 215, y, 205, rowH));
+			}, stacked ? left : left + splitWidth + 10, y, splitWidth, rowH));
 		y += rowH + gap;
+		if(stacked)
+			y += rowH + gap;
 
-		packetCommandsField = new EditBox(this.font, left, y, 205, rowH, Component.literal("Packet commands"));
+		packetCommandsField = new EditBox(this.font, left, y, splitWidth, rowH, Component.literal("Packet commands"));
 		packetCommandsField.setMaxLength(256);
 		packetCommandsField.setValue(UiUtilsSettings.get().commandScannerPacketCommands);
 		addRenderableWidget(packetCommandsField);
@@ -102,17 +111,19 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 			UiUtilsSettings.get().commandScannerPacketCommands = packetCommandsField.getValue();
 			UiUtilsSettings.save();
 			UiUtilsCommandScanner.sendManualPacketCommands();
-		}, left + 215, y, 205, rowH));
+		}, stacked ? left : left + splitWidth + 10, y, splitWidth, rowH));
 		y += rowH + gap;
+		if(stacked)
+			y += rowH + gap;
 
 		resultsTop = y + 4;
 		resultsBottom = resultsTop + desiredResultsHeight;
 
 		int footerY = resultsBottom + 8;
 		addRenderableWidget(UiUtils.styledButton("Clear results", b -> clearResults(),
-			left, footerY, 205, rowH));
+			left, footerY, splitWidth, rowH));
 		addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(this.minecraft, parent),
-			left + 215, footerY, 205, rowH));
+			stacked ? left : left + splitWidth + 10, footerY, splitWidth, rowH));
 	}
 
 	private void refreshScannerModeLabel() {

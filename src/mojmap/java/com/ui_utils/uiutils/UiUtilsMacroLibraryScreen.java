@@ -18,6 +18,7 @@ import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
 public final class UiUtilsMacroLibraryScreen extends Screen {
@@ -44,11 +45,14 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
         clearWidgets();
         rows.clear();
         ensureDefaultDirectories();
-        int left = this.width / 2 - 230;
-        int top = Math.max(18, this.height / 2 - 136);
-        int rowH = 18;
-        int gap = 3;
-        int width = 460;
+        int width = panelWidth();
+        int left = (this.width - width) / 2;
+        int rowH = rowHeight();
+        int gap = rowGap();
+        int visibleRows = visibleRows(rowH, gap);
+        int top = contentTop(rowH, gap, visibleRows);
+        boolean stacked = width < 420;
+        int half = (width - gap) / 2;
 
         searchField = new EditBox(this.font, left, top, width, rowH, Component.literal("Search"));
         searchField.setHint(Component.literal("Search macros..."));
@@ -57,39 +61,48 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
 
         addRenderableWidget(UiUtils.styledButton("Create New", b -> {
             McCompat.setScreen(minecraft, new UiUtilsMacrosScreen(this));
-        }, left, top, 110, rowH));
-        addRenderableWidget(UiUtils.styledButton("Edit Selected", b -> openSelected(), left + 114, top, 110, rowH));
-        addRenderableWidget(UiUtils.styledButton("Run Selected", b -> runSelected(), left + 228, top, 110, rowH));
-        addRenderableWidget(UiUtils.styledButton("Stop", b -> UiUtilsMacroExecutor.stop(), left + 342, top, 118, rowH));
+        }, left, top, stacked ? half : 110, rowH));
+        addRenderableWidget(UiUtils.styledButton("Edit Selected", b -> openSelected(),
+            stacked ? left + half + gap : left + 114, top, stacked ? half : 110, rowH));
+        top += rowH + gap;
+        addRenderableWidget(UiUtils.styledButton("Run Selected", b -> runSelected(),
+            left, top, stacked ? half : 110, rowH));
+        addRenderableWidget(UiUtils.styledButton("Stop", b -> UiUtilsMacroExecutor.stop(),
+            stacked ? left + half + gap : left + 342, top, stacked ? half : 118, rowH));
         top += rowH + gap;
 
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < visibleRows; i++) {
             MacroRow r = addRenderableWidget(new MacroRow(left, top + i * (rowH + gap), width, rowH, i));
             rows.add(r);
         }
 
-        int ioTop = top + (rowH + gap) * 8 + gap;
-        importField = new EditBox(this.font, left, ioTop, 300, rowH, Component.literal("Import path"));
+        int ioTop = top + (rowH + gap) * visibleRows + gap;
+        int fieldWidth = stacked ? width : Math.max(180, width - 160);
+        importField = new EditBox(this.font, left, ioTop, fieldWidth, rowH, Component.literal("Import path"));
         importField.setMaxLength(1024);
         importField.setHint(Component.literal("Import path (NBT)"));
         importField.setValue(defaultImportDirectory().toString());
         addRenderableWidget(importField);
-        addRenderableWidget(UiUtils.styledButton("...", b -> openFilePicker(importField, true), left + 304, ioTop, 28, rowH));
+        addRenderableWidget(UiUtils.styledButton("...", b -> openFilePicker(importField, true),
+            stacked ? left : left + fieldWidth + 4, ioTop, stacked ? half : 28, rowH));
         addRenderableWidget(UiUtils.styledButton("Import", b -> {
             status = UiUtilsMacroIo.importMacro(importField.getValue().trim(), "");
             refreshRows();
-        }, left + 334, ioTop, 126, rowH));
+        }, stacked ? left + half + gap : left + fieldWidth + 36, ioTop,
+            stacked ? half : width - fieldWidth - 36, rowH));
 
-        exportField = new EditBox(this.font, left, ioTop + rowH + gap, 300, rowH, Component.literal("Export folder"));
+        exportField = new EditBox(this.font, left, ioTop + rowH + gap, fieldWidth, rowH, Component.literal("Export folder"));
         exportField.setMaxLength(1024);
         exportField.setHint(Component.literal("Export folder"));
         exportField.setValue(defaultExportDirectory().toString());
         addRenderableWidget(exportField);
-        addRenderableWidget(UiUtils.styledButton("...", b -> openFilePicker(exportField, false), left + 304, ioTop + rowH + gap, 28, rowH));
+        addRenderableWidget(UiUtils.styledButton("...", b -> openFilePicker(exportField, false),
+            stacked ? left : left + fieldWidth + 4, ioTop + rowH + gap, stacked ? half : 28, rowH));
         addRenderableWidget(UiUtils.styledButton("Export", b -> {
             UiUtilsMacro m = selectedMacro();
             status = m == null ? "No macro selected." : UiUtilsMacroIo.exportMacro(m.name, exportField.getValue().trim());
-        }, left + 334, ioTop + rowH + gap, 126, rowH));
+        }, stacked ? left + half + gap : left + fieldWidth + 36, ioTop + rowH + gap,
+            stacked ? half : width - fieldWidth - 36, rowH));
 
         addRenderableWidget(UiUtils.styledButton("Delete Selected", b -> {
             UiUtilsMacro m = selectedMacro();
@@ -97,8 +110,10 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
             UiUtilsMacroManager.get().remove(m.name);
             selected = -1;
             refreshRows();
-        }, left, ioTop + (rowH + gap) * 2, 220, rowH));
-        addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(minecraft, parent), left + 224, ioTop + (rowH + gap) * 2, 236, rowH));
+        }, left, ioTop + (rowH + gap) * 2, stacked ? half : 220, rowH));
+        addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(minecraft, parent),
+            stacked ? left + half + gap : left + 224, ioTop + (rowH + gap) * 2,
+            stacked ? half : width - 224, rowH));
 
         refreshRows();
     }
@@ -148,24 +163,32 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks) {
         super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
-        int left = this.width / 2 - 230;
-        int top = Math.max(18, this.height / 2 - 136) - this.font.lineHeight - 3;
+        int width = panelWidth();
+        int left = (this.width - width) / 2;
+        int rowH = rowHeight();
+        int gap = rowGap();
+        int visibleRows = visibleRows(rowH, gap);
+        int top = contentTop(rowH, gap, visibleRows) - this.font.lineHeight - 3;
         String running = UiUtilsMacroExecutor.isRunning() ? UiUtilsMacroExecutor.currentName() : "none";
         graphics.text(this.font, "Macro Library [" + filtered.size() + "]", left, top, 0xFFE6EEF7, false);
-        graphics.text(this.font, "Running: " + running, left + 175, top, 0xFFC6D6E8, false);
-        graphics.text(this.font, status, left, top + (18 + 3) * 14 + 4, 0xFFFFC66D, false);
-        int listTop = Math.max(18, this.height / 2 - 136) + (18 + 3) * 2;
-        int listBottom = listTop + (18 + 3) * 8 - 3;
-        lastScrollbar = computeScrollbar(left + 465, listTop, listBottom, filtered.size(), rows.size(), offset);
+        graphics.text(this.font, "Running: " + running, left + Math.min(175, width / 2), top, 0xFFC6D6E8, false);
+        graphics.text(this.font, status, left, top + (rowH + gap) * (visibleRows + 6) + 4, 0xFFFFC66D, false);
+        int listTop = contentTop(rowH, gap, visibleRows) + (rowH + gap) * 2;
+        int listBottom = listTop + (rowH + gap) * visibleRows - 3;
+        lastScrollbar = computeScrollbar(left + width + 5, listTop, listBottom, filtered.size(), rows.size(), offset);
         renderScrollbar(graphics, lastScrollbar);
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        int left = this.width / 2 - 230;
-        int listTop = Math.max(18, this.height / 2 - 136) + (18 + 3) * 2;
-        int listBottom = listTop + (18 + 3) * 8 - 3;
-        if (mouseX < left || mouseX > left + 460 || mouseY < listTop || mouseY > listBottom) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        int width = panelWidth();
+        int left = (this.width - width) / 2;
+        int rowH = rowHeight();
+        int gap = rowGap();
+        int visibleRows = visibleRows(rowH, gap);
+        int listTop = contentTop(rowH, gap, visibleRows) + (rowH + gap) * 2;
+        int listBottom = listTop + (rowH + gap) * visibleRows - 3;
+        if (mouseX < left || mouseX > left + width || mouseY < listTop || mouseY > listBottom) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         if (scrollY < 0) offset = Math.min(Math.max(0, filtered.size() - rows.size()), offset + 1);
         else if (scrollY > 0) offset = Math.max(0, offset - 1);
         refreshRows();
@@ -239,8 +262,11 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
             if (hasContent)
                 graphics.fill(x, y, x + 3, y + h, selectedRow ? 0xFFFFFFFF : (0xFF000000 | scaleRgb(baseRgb, 1.15F)));
             int textColor = 0xFF000000 | (UiUtilsSettings.get().uiButtonTextColor & 0xFFFFFF);
-            int textY = y + (h - Minecraft.getInstance().font.lineHeight) / 2;
-            graphics.text(Minecraft.getInstance().font, getMessage().getString(), x + 6, textY, textColor, false);
+            int textY = y + Math.max(1,
+                (h - Minecraft.getInstance().font.lineHeight) / 2);
+            UiUtils.renderScaledText(graphics, Minecraft.getInstance().font,
+                getMessage().getString(), x + 6, textY, w - 12, h - 2,
+                textColor, 0.5F);
         }
 
         @Override
@@ -357,5 +383,26 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
         private boolean contains(double mx, double my) {
             return mx >= x && mx <= x + 3 && my >= trackTop && my <= trackBottom;
         }
+    }
+
+    private int panelWidth() {
+        return Math.min(460, Math.max(200, this.width - 20));
+    }
+
+    private int rowHeight() {
+        return Mth.clamp((this.height - 110) / 19, 12, 17);
+    }
+
+    private int rowGap() {
+        return rowHeight() <= 15 ? 2 : 3;
+    }
+
+    private int visibleRows(int rowH, int gap) {
+        return Math.max(4, Math.min(10, (this.height - 170) / (rowH + gap)));
+    }
+
+    private int contentTop(int rowH, int gap, int visibleRows) {
+        int totalHeight = rowH * (visibleRows + 5) + gap * (visibleRows + 4);
+        return Math.max(12, (this.height - totalHeight) / 2);
     }
 }
