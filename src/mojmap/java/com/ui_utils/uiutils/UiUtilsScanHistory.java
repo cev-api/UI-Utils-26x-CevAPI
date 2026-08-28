@@ -22,7 +22,7 @@ import java.util.Set;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 
-/** Persists scan snapshots and annotates each new snapshot against the previous one. */
+/** Persists one latest snapshot per scan type and annotates it against the prior result. */
 public final class UiUtilsScanHistory {
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 	private static final String DIRECTORY = "ui-utils-scan-history";
@@ -55,6 +55,27 @@ public final class UiUtilsScanHistory {
 		record(serverKey, scanType, current);
 	}
 
+	// ### ADDED ### Compact verbose fingerprint history; no raw packet or NBT data is persisted.
+	public static void recordVerboseFingerprint(String serverKey,
+		UiUtilsServerFingerprintCollector.Snapshot snapshot) {
+		Map<String, Entry> current = new LinkedHashMap<>();
+		for (UiUtilsServerFingerprintCollector.KnownPackInfo pack : snapshot.knownPacks())
+			current.put("pack:" + normalize(pack.namespace() + ":" + pack.id()),
+				new Entry("Known Pack " + pack.namespace() + ":" + pack.id() + " " + pack.version(),
+					"KNOWN_PACK", List.of()));
+		for (UiUtilsServerFingerprintCollector.ChannelInfo channel : snapshot.payloads())
+			current.put("channel:" + normalize(channel.id()),
+				new Entry("Server channel " + channel.id(), "SERVER_CUSTOM_PAYLOAD", List.of()));
+		for (String dimension : snapshot.dimensions())
+			current.put("dimension:" + normalize(dimension), new Entry("Dimension " + dimension, "DIMENSION", List.of()));
+		for (UiUtilsServerFingerprintCollector.RegistryInfo registry : snapshot.registries())
+			for (UiUtilsServerFingerprintCollector.RegistryEntryInfo entry : registry.entries())
+				current.put("registry:" + normalize(registry.registry() + "/" + entry.id()),
+					new Entry("Registry " + registry.registry() + " " + entry.id(), "CUSTOM_REGISTRY", List.of()));
+		if (!snapshot.brand().isBlank())
+			current.put("brand", new Entry("Platform / Brand " + snapshot.brand(), "SERVER_BRAND", List.of()));
+		record(serverKey, "verbose_server", current);
+	}
 	public static void recordCommands(String serverKey, String scanType, List<String> commands) {
 		Map<String, Entry> current = new LinkedHashMap<>();
 		for (String command : commands) {
@@ -77,6 +98,13 @@ public final class UiUtilsScanHistory {
 		Set<String> allKeys = new LinkedHashSet<>(previous.keySet());
 		allKeys.addAll(current.keySet());
 
+		// ### MODIFIED ### Keep one bounded result per scan type instead of appending every scan.
+		JsonArray retained = new JsonArray();
+		for (JsonElement element : history) {
+			if (!element.isJsonObject() || !scanType.equals(getString(element.getAsJsonObject(), "type")))
+				retained.add(element);
+		}
+
 		JsonArray snapshotEntries = new JsonArray();
 		List<String> orderedKeys = new ArrayList<>(allKeys);
 		Collections.sort(orderedKeys);
@@ -84,6 +112,7 @@ public final class UiUtilsScanHistory {
 			Entry entry = current.get(key);
 			Entry old = previous.get(key);
 			JsonObject item = new JsonObject();
+			item.addProperty("key", key);
 			if (entry != null) {
 				item.addProperty("name", entry.name());
 				if (entry.evidence() != null)
@@ -105,9 +134,9 @@ public final class UiUtilsScanHistory {
 		snapshot.addProperty("timestamp", Instant.now().toString());
 		snapshot.addProperty("type", scanType);
 		snapshot.add("entries", snapshotEntries);
-		history.add(snapshot);
+		retained.add(snapshot);
 		root.addProperty("server", resolvedServerKey);
-		root.add("scans", history);
+		root.add("scans", retained);
 		try {
 			Files.createDirectories(path.getParent());
 			Files.writeString(path, GSON.toJson(root), StandardCharsets.UTF_8);
@@ -132,7 +161,9 @@ public final class UiUtilsScanHistory {
 				List<String> commands = new ArrayList<>();
 				if (object.has("commands") && object.get("commands").isJsonArray())
 					for (JsonElement command : object.getAsJsonArray("commands")) commands.add(command.getAsString());
-				result.put(normalize(name), new Entry(name, getString(object, "evidence"), commands));
+				String storedKey = getString(object, "key");
+				result.put(storedKey == null || storedKey.isBlank() ? normalize(name) : storedKey,
+					new Entry(name, getString(object, "evidence"), commands));
 			}
 			return result;
 		}

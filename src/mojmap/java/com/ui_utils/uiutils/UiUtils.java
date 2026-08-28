@@ -58,6 +58,7 @@ public final class UiUtils {
 
 	public static void onClientTick(Minecraft mc) {
 		refreshQueueCounterButtons();
+		UiUtilsServerFingerprintCollector.onClientTick(mc);
 		UiUtilsPluginScanner.onTick();
 		UiUtilsLegacyPluginScanner.onTick();
 		UiUtilsCommandScanner.onTick();

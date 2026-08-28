@@ -101,6 +101,7 @@ public final class UiUtilsPluginScanner {
 		lastStatus = "Scanning plugins...";
 		boundServerKey = currentServerKey(mc);
 		parseCommandTree(mc.player.connection);
+		mergePassiveKnownPacks();
 		queueProbeBatch(buildPluginProbes());
 		print("Plugin scan started. Probes: " + queuedProbes.size() + ".");
 		sendNextProbeIfReady(mc.player.connection);
@@ -246,6 +247,18 @@ public final class UiUtilsPluginScanner {
 		inferPluginsFromObservedCommands();
 	}
 
+	// ### ADDED ### Configuration-phase Known Packs outlive an active scan reset.
+	private static void mergePassiveKnownPacks() {
+		for (UiUtilsServerFingerprintCollector.KnownPackInfo pack
+			: UiUtilsServerFingerprintCollector.snapshot().knownPacks()) {
+			if ("minecraft".equalsIgnoreCase(pack.namespace()) && "core".equalsIgnoreCase(pack.id()))
+				continue;
+			String product = UiUtilsServerFingerprintCollector.friendlyName(pack.id());
+			String display = pack.version() == null || pack.version().isBlank()
+				? product : product + " " + pack.version();
+			mergePluginEntry(display, List.of(), false, PluginEvidence.KNOWN_PACK);
+		}
+	}
 	private static void queueProbeBatch(Map<Integer, PluginProbeSpec> probes) {
 		for (Map.Entry<Integer, PluginProbeSpec> entry : probes.entrySet()) {
 			pendingProbeIds.add(entry.getKey());
@@ -408,6 +421,7 @@ public final class UiUtilsPluginScanner {
 		if (evidence == null)
 			return 99;
 		return switch (evidence) {
+			case KNOWN_PACK -> -1;
 			case COMMAND_TREE -> 0;
 			case NAMESPACE -> 1;
 			case ROOT_HINT -> 2;
@@ -474,7 +488,7 @@ private static boolean isLikelyPluginNameCandidate(String candidate, PluginProbe
 			grouped.get(entry.evidence == null ? PluginEvidence.UNKNOWN : entry.evidence).add(entry);
 
 		List<String> ordered = new ArrayList<>();
-		for (PluginEvidence evidence : List.of(PluginEvidence.COMMAND_TREE,
+		for (PluginEvidence evidence : List.of(PluginEvidence.KNOWN_PACK, PluginEvidence.COMMAND_TREE,
 			PluginEvidence.NAMESPACE, PluginEvidence.ROOT_HINT, PluginEvidence.HELP_HINT,
 			PluginEvidence.PLUGIN_LIST, PluginEvidence.VERSION_HINT, PluginEvidence.UNKNOWN)) {
 			List<PluginScanEntry> list = grouped.get(evidence);
@@ -505,7 +519,7 @@ private static boolean isLikelyPluginNameCandidate(String candidate, PluginProbe
 			Component line = Component.literal("[UI-Utils] Plugins (" + ordered.size() + "): ")
 				.withColor(0x55CCFF);
 			boolean first = true;
-			for (PluginEvidence evidence : List.of(PluginEvidence.COMMAND_TREE,
+			for (PluginEvidence evidence : List.of(PluginEvidence.KNOWN_PACK, PluginEvidence.COMMAND_TREE,
 				PluginEvidence.NAMESPACE, PluginEvidence.ROOT_HINT, PluginEvidence.HELP_HINT,
 				PluginEvidence.PLUGIN_LIST, PluginEvidence.VERSION_HINT, PluginEvidence.UNKNOWN)) {
 				List<PluginScanEntry> list = grouped.get(evidence);
@@ -583,6 +597,9 @@ private static boolean isLikelyPluginNameCandidate(String candidate, PluginProbe
 		return lastStatus;
 	}
 
+	public static boolean hasResultsForCurrentServer() {
+		return !lastRows.isEmpty() && boundServerKey.equals(currentServerKey(Minecraft.getInstance()));
+	}
 	public static boolean isActive() {
 		return scanning;
 	}
@@ -612,6 +629,7 @@ private static boolean isLikelyPluginNameCandidate(String candidate, PluginProbe
 	}
 
 	private enum PluginEvidence {
+		KNOWN_PACK,
 		COMMAND_TREE,
 		NAMESPACE,
 		ROOT_HINT,

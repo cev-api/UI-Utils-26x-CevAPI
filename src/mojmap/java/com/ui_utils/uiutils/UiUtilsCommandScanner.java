@@ -454,6 +454,9 @@ private static ScanMode getScanMode() {
 		return lastStatus;
 	}
 
+	public static boolean hasResultsForCurrentServer() {
+		return !lastFoundCommands.isEmpty() && boundServerKey.equals(currentServerKey(Minecraft.getInstance()));
+	}
 	public static boolean isActive() {
 		return active;
 	}

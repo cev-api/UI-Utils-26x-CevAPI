@@ -46,7 +46,7 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		boolean stacked = panelWidth < 360;
 		int splitWidth = stacked ? panelWidth : (panelWidth - 10) / 2;
 
-		int topRows = stacked ? 10 : 6;
+		int topRows = stacked ? 11 : 7;
 		int controlsHeight = (rowH * topRows) + (gap * (topRows - 1));
 		int footerHeight = rowH + gap;
 		int desiredResultsHeight = Math.min(320, Math.max(120,
@@ -82,6 +82,13 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		y += rowH + gap;
 		if(stacked)
 			y += rowH + gap;
+
+		addRenderableWidget(UiUtils.styledButton("Verbose Server Scan", b -> {
+			UiUtilsScanHistory.recordVerboseFingerprint(UiUtilsScanHistory.serverKey(this.minecraft),
+				UiUtilsServerFingerprintCollector.snapshot());
+			McCompat.setScreen(this.minecraft, new UiUtilsVerboseServerScanScreen(this));
+		}, left, y, panelWidth, rowH));
+		y += rowH + gap;
 
 		addRenderableWidget(UiUtils.styledButton("Legacy Plugin Scan (Safer)", b -> UiUtilsLegacyPluginScanner.startScan(),
 			left, y, panelWidth, rowH));
@@ -329,8 +336,12 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 			lines.add(new Line(caret + flag + row.plugin() + " (" + row.commandCount() + " cmds)",
 				vulnerable ? 0xFFFF7A7A : (row.anticheatFlagged() ? 0xFFFFA8A8 : 0xFF93F7A4), pluginKey));
 			if (expanded) {
+				List<String> details = UiUtilsServerFingerprintCollector.detailsForSoftware(row.plugin());
+				for (String detail : details)
+					lines.add(new Line("    " + detail, 0xFFB8D8FF));
 				if (row.commands().isEmpty()) {
-					lines.add(new Line("    (no commands captured)", 0xFF909090));
+					if (details.isEmpty())
+						lines.add(new Line("    (no commands or cached details)", 0xFF909090));
 				} else {
 					for (String cmd : row.commands())
 						lines.add(new Line("    /" + cmd, 0xFFAEEBFF));
