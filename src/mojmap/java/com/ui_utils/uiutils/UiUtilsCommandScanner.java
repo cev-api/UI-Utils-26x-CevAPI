@@ -4,6 +4,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.suggestion.Suggestion;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.tree.CommandNode;
+import com.mojang.brigadier.tree.ArgumentCommandNode;
 import com.mojang.brigadier.tree.LiteralCommandNode;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -56,6 +57,12 @@ public final class UiUtilsCommandScanner {
 	private static final List<String> recentEvents = new ArrayList<>();
 	private static List<String> lastFoundCommands = List.of();
 	private static String boundServerKey = "";
+	private static final List<String> manualCommandOutput = new ArrayList<>();
+	private static int manualOutputCaptureTicks;
+	private static final Set<String> unavailableCommands = new HashSet<>();
+	private static final Set<String> pendingManualCommands = new HashSet<>();
+	private static final Set<String> visibleCommandRoots = new HashSet<>();
+	private static final Set<String> packetDiscoveredRoots = new HashSet<>();
 
 	private UiUtilsCommandScanner() {}
 
@@ -69,6 +76,8 @@ public final class UiUtilsCommandScanner {
 		active = true;
 		scannedCommands.clear();
 		commandsToExecute.clear();
+		unavailableCommands.clear();
+		pendingManualCommands.clear();
 		awaitingResponse = false;
 		waitTicks = 0;
 		cooldownTicks = 0;
@@ -82,6 +91,9 @@ public final class UiUtilsCommandScanner {
 		lastFoundCommands = List.of();
 		boundServerKey = currentServerKey(mc);
 
+		// The synced Brigadier tree is available in both scanner modes.
+		collectClientCommandTree(mc.player.connection);
+
 		if (activeMode == ScanMode.CLIENT_SIDE_ENUMERATION) {
 			runClientSideEnumerationScan();
 			return "[UI-Utils] Command scanner started (CLIENT_SIDE_ENUMERATION).";
@@ -92,6 +104,8 @@ public final class UiUtilsCommandScanner {
 	}
 
 	public static void onTick() {
+		if (manualOutputCaptureTicks > 0)
+			manualOutputCaptureTicks--;
 		Minecraft mc = Minecraft.getInstance();
 		String currentServer = currentServerKey(mc);
 		if (!boundServerKey.isEmpty() && !currentServer.equals(boundServerKey)) {
@@ -190,6 +204,8 @@ public final class UiUtilsCommandScanner {
 		if (raw == null || raw.isBlank())
 			return "[UI-Utils] Packet commands list is empty.";
 
+		manualCommandOutput.clear();
+		manualOutputCaptureTicks = 200; // Ten seconds of post-send chat/system output.
 		String[] parts = raw.split(",");
 		int sent = 0;
 		for (String part : parts) {
@@ -198,10 +214,57 @@ public final class UiUtilsCommandScanner {
 				continue;
 			if (cmd.startsWith("/"))
 				cmd = cmd.substring(1);
+			manualCommandOutput.add("> /" + cmd);
 			mc.player.connection.sendCommand(cmd);
 			sent++;
 		}
+		if (sent == 0)
+			manualCommandOutput.add("No command was sent.");
 		return "[UI-Utils] Sent " + sent + " packet command(s).";
+	}
+
+	public static void onChatMessage(String message) {
+		if (manualOutputCaptureTicks <= 0 || message == null || message.isBlank())
+			return;
+		if (manualCommandOutput.size() >= 40)
+			manualCommandOutput.remove(0);
+		String trimmed = message.trim();
+		manualCommandOutput.add(trimmed);
+		if (isUnavailableResponse(trimmed))
+			unavailableCommands.addAll(pendingManualCommands);
+	}
+
+	public static List<String> getManualCommandOutputSnapshot() {
+		return List.copyOf(manualCommandOutput);
+	}
+
+	public static boolean isCommandHiddenToUser(String command) {
+		String root = normalizeCommandPath(command);
+		return packetDiscoveredRoots.contains(root) && !visibleCommandRoots.contains(root);
+	}
+
+	public static boolean isCommandUnavailable(String command) {
+		return unavailableCommands.contains(normalizeCommandPath(command));
+	}
+
+	private static String normalizeCommandPath(String command) {
+		if (command == null) return "";
+		String normalized = command.trim().toLowerCase(Locale.ROOT);
+		if (normalized.startsWith("/")) normalized = normalized.substring(1);
+		int argument = normalized.indexOf(' ');
+		return argument < 0 ? normalized : normalized.substring(0, argument);
+	}
+
+	private static boolean isUnavailableResponse(String message) {
+		String lower = message.toLowerCase(Locale.ROOT);
+		return lower.contains("unknown command") || lower.contains("incomplete command")
+			|| lower.contains("do not have permission") || lower.contains("don't have permission")
+			|| lower.contains("no permission") || lower.contains("not permitted")
+			|| lower.contains("not allowed") || lower.contains("not authorized");
+	}
+	public static void clearManualCommandOutput() {
+		manualCommandOutput.clear();
+		manualOutputCaptureTicks = 0;
 	}
 
 	private static void sendNextRequest() {
@@ -255,8 +318,10 @@ public final class UiUtilsCommandScanner {
 			return;
 		for (Suggestion suggestion : suggestions.getList()) {
 			String command = extractRootCommand(suggestion.getText());
-			if (command != null && !command.equalsIgnoreCase("trigger") && !isVanillaOrDefaultCommand(command))
+			if (command != null && !command.equalsIgnoreCase("trigger") && !isVanillaOrDefaultCommand(command)) {
 				scannedCommands.add(command);
+				packetDiscoveredRoots.add(normalizeCommandPath(command));
+			}
 		}
 	}
 
@@ -277,26 +342,55 @@ public final class UiUtilsCommandScanner {
 	}
 
 	private static void runClientSideEnumerationScan() {
-		Minecraft mc = Minecraft.getInstance();
-		ClientPacketListener connection = mc.player.connection;
+		// The dispatcher was collected when this scan started.  This mode does not send packets.
+		print("Enumerated " + scannedCommands.size() + " command-tree paths.");
+		finishScan();
+	}
+
+	private static void collectClientCommandTree(ClientPacketListener connection) {
 		CommandDispatcher<ClientSuggestionProvider> dispatcher = connection.getCommands();
 		if (dispatcher == null || dispatcher.getRoot() == null) {
 			print("No command tree available yet.");
-			finish();
 			return;
 		}
-
-		for (CommandNode<ClientSuggestionProvider> node : dispatcher.getRoot().getChildren()) {
-			if (node instanceof LiteralCommandNode<ClientSuggestionProvider>) {
-				String name = node.getName();
-				if (name != null && !name.isBlank() && !name.equalsIgnoreCase("trigger") && !isVanillaOrDefaultCommand(name))
-					scannedCommands.add(name);
-			}
-		}
-
-		requestTriggerValues();
+		// A node can be reached through more than one alias.  Include the path in the
+		// visit key so redirects are expanded under every visible command name while
+		// still preventing redirect cycles from looping forever.
+		Set<String> visitedPaths = new HashSet<>();
+		collectCommandChildren(dispatcher.getRoot(), "", visitedPaths, 0);
 	}
 
+	private static void collectCommandChildren(CommandNode<ClientSuggestionProvider> node,
+		String prefix, Set<String> visitedPaths, int depth) {
+		if (node == null || depth > 12)
+			return;
+		String visitKey = System.identityHashCode(node) + "|" + prefix;
+		if (!visitedPaths.add(visitKey))
+			return;
+
+		for (CommandNode<ClientSuggestionProvider> child : node.getChildren()) {
+			String path = prefix;
+			if (child instanceof LiteralCommandNode<ClientSuggestionProvider>) {
+				String name = child.getName();
+				if (name == null || name.isBlank())
+					continue;
+				path = prefix.isEmpty() ? name : prefix + " " + name;
+				if (!path.equalsIgnoreCase("trigger") && !isVanillaOrDefaultCommand(path)) {
+					scannedCommands.add(path);
+					visibleCommandRoots.add(normalizeCommandPath(path));
+				}
+			} else if (child instanceof ArgumentCommandNode<ClientSuggestionProvider, ?>) {
+				path = prefix.isEmpty() ? "<" + child.getName() + ">"
+					: prefix + " <" + child.getName() + ">";
+			}
+			collectCommandChildren(child, path, visitedPaths, depth + 1);
+		}
+
+		// Brigadier aliases commonly keep their actual child tree in a redirect,
+		// rather than in getChildren().  Follow it using the current visible path.
+		if (node.getRedirect() != null)
+			collectCommandChildren(node.getRedirect(), prefix, visitedPaths, depth + 1);
+	}
 	private static void finishScan() {
 		List<String> results = new ArrayList<>(scannedCommands);
 		for (String value : triggerValues) results.add("trigger (" + value + ")");
@@ -311,6 +405,8 @@ public final class UiUtilsCommandScanner {
 
 		if (UiUtilsSettings.get().commandScannerRunFoundCommands) {
 			commandsToExecute.clear();
+		unavailableCommands.clear();
+		pendingManualCommands.clear();
 			Set<String> denyTerms = parseDenyTerms(UiUtilsSettings.get().commandScannerDontSendFilter);
 			for (String cmd : scannedCommands) {
 				String lower = cmd.toLowerCase(Locale.ROOT);
@@ -424,6 +520,8 @@ private static ScanMode getScanMode() {
 		requestId = 1;
 		scannedCommands.clear();
 		commandsToExecute.clear();
+		unavailableCommands.clear();
+		pendingManualCommands.clear();
 		lastFoundCommands = List.of();
 		recentEvents.clear();
 		lastStatus = "Cleared due to server change.";
@@ -476,6 +574,8 @@ private static ScanMode getScanMode() {
 		phase = Phase.IDLE;
 		scannedCommands.clear();
 		commandsToExecute.clear();
+		unavailableCommands.clear();
+		pendingManualCommands.clear();
 		lastFoundCommands = List.of();
 		recentEvents.clear();
 		lastStatus = "Cleared.";

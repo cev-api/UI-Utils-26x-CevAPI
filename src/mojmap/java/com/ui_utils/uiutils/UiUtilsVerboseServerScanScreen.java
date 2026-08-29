@@ -14,6 +14,12 @@ import net.minecraft.network.chat.Component;
 public final class UiUtilsVerboseServerScanScreen extends Screen {
 	private final Screen parent;
 	private int scroll;
+	private int scrollbarX;
+	private int scrollbarTop;
+	private int scrollbarBottom;
+	private int scrollbarThumbY;
+	private int scrollbarThumbHeight;
+	private int scrollbarMaxScroll;
 
 	public UiUtilsVerboseServerScanScreen(Screen parent) {
 		super(Component.literal("Verbose Server Scan"));
@@ -55,6 +61,20 @@ public final class UiUtilsVerboseServerScanScreen extends Screen {
 			int color = line.startsWith("[") ? 0xFFFFDE7A : line.startsWith("  ") ? 0xFFB8D8FF : 0xFFEAEAEA;
 			graphics.text(this.font, line, left + 6, y, color, false);
 		}
+		// ### ADDED ### Visible scrollbar for long verbose reports.
+		scrollbarX = left + width - 5;
+		scrollbarTop = top + 2;
+		scrollbarBottom = bottom - 2;
+		scrollbarMaxScroll = Math.max(0, lines.size() - visible);
+		int trackHeight = Math.max(1, scrollbarBottom - scrollbarTop);
+		scrollbarThumbHeight = scrollbarMaxScroll == 0 ? trackHeight
+			: Math.max(12, (int)Math.round(trackHeight * (visible / (double)lines.size())));
+		int travel = Math.max(1, trackHeight - scrollbarThumbHeight);
+		scrollbarThumbY = scrollbarTop + (scrollbarMaxScroll == 0 ? 0
+			: (int)Math.round((scroll / (double)scrollbarMaxScroll) * travel));
+		graphics.fill(scrollbarX, scrollbarTop, scrollbarX + 3, scrollbarBottom, 0xFF353535);
+		graphics.fill(scrollbarX, scrollbarThumbY, scrollbarX + 3,
+			scrollbarThumbY + scrollbarThumbHeight, 0xFFCFCFCF);
 	}
 
 	@Override
@@ -63,8 +83,22 @@ public final class UiUtilsVerboseServerScanScreen extends Screen {
 		return true;
 	}
 
-	@Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) { return super.mouseClicked(event, doubleClick); }
-	@Override public void onClose() { McCompat.setScreen(this.minecraft, parent); }
+	@Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+		if (event.button() == 0 && event.x() >= scrollbarX && event.x() <= scrollbarX + 4
+			&& event.y() >= scrollbarTop && event.y() <= scrollbarBottom && scrollbarMaxScroll > 0) {
+			int travel = Math.max(1, scrollbarBottom - scrollbarTop - scrollbarThumbHeight);
+			double ratio = Math.max(0.0D, Math.min(1.0D,
+				(event.y() - scrollbarTop - scrollbarThumbHeight / 2.0D) / travel));
+			scroll = (int)Math.round(ratio * scrollbarMaxScroll);
+			return true;
+		}
+		return super.mouseClicked(event, doubleClick);
+	}
+	@Override public void onClose() {
+		UiUtilsScanHistory.recordVerboseFingerprint(UiUtilsScanHistory.serverKey(this.minecraft),
+			UiUtilsServerFingerprintCollector.snapshot());
+		McCompat.setScreen(this.minecraft, parent);
+	}
 
 	public static String buildReport() { return String.join("\n", reportLines()); }
 

@@ -74,6 +74,24 @@ public final class UiUtilsScanHistory {
 					new Entry("Registry " + registry.registry() + " " + entry.id(), "CUSTOM_REGISTRY", List.of()));
 		if (!snapshot.brand().isBlank())
 			current.put("brand", new Entry("Platform / Brand " + snapshot.brand(), "SERVER_BRAND", List.of()));
+		for (UiUtilsPluginScanner.PluginResultRow row : UiUtilsPluginScanner.getResultsSnapshot())
+			current.put("software:" + normalize(row.plugin()), new Entry("Software " + row.plugin(),
+				"PLUGIN_" + row.evidence(), new ArrayList<>(row.commands())));
+		for (String advancement : snapshot.advancements())
+			current.put("advancement:" + normalize(advancement), new Entry("Advancement " + advancement,
+				"ADVANCEMENT_NAMESPACE", List.of()));
+		for (String objective : snapshot.objectives())
+			current.put("objective:" + normalize(objective), new Entry("Scoreboard objective " + objective,
+				"SCOREBOARD_SIGNATURE", List.of()));
+		for (String tab : snapshot.tabText())
+			current.put("tab:" + normalize(tab), new Entry("Tab text " + tab, "TAB_TEXT_HINT", List.of()));
+		for (Map.Entry<String, String> config : snapshot.serverConfig().entrySet())
+			current.put("config:" + normalize(config.getKey()), new Entry("Configuration " + config.getKey()
+				+ " = " + config.getValue(), "SERVER_CONFIGURATION", List.of()));
+		if (snapshot.chatCompletionCount() > 0)
+			current.put("chat-completions", new Entry("Chat completions total=" + snapshot.chatCompletionCount()
+				+ ", emoji=" + snapshot.emojiCompletionCount() + ", formatting/action="
+				+ snapshot.formattingCompletionCount(), "CHAT_COMPLETION_METADATA", List.of()));
 		record(serverKey, "verbose_server", current);
 	}
 	public static void recordCommands(String serverKey, String scanType, List<String> commands) {

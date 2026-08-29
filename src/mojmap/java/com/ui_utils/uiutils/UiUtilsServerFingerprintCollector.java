@@ -12,6 +12,10 @@ import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.RegistrySynchronization.PackedRegistryEntry;
 import net.minecraft.network.Connection;
+import net.minecraft.network.PacketListener;
+import net.minecraft.network.protocol.configuration.ClientConfigurationPacketListener;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.login.ClientLoginPacketListener;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
@@ -77,7 +81,13 @@ public final class UiUtilsServerFingerprintCollector {
 	public static void onIncomingPacket(Connection connection, Packet<?> packet) {
 		if (packet == null)
 			return;
-		// ### ADDED ### A new Netty Connection is an unambiguous server boundary.
+		// ### MODIFIED ### Ignore server-list/status connections entirely; they are not joined-server evidence.
+		PacketListener listener = connection.getPacketListener();
+		if (!(listener instanceof ClientLoginPacketListener
+			|| listener instanceof ClientConfigurationPacketListener
+			|| listener instanceof ClientGamePacketListener))
+			return;
+		// ### ADDED ### A new joined-server Netty Connection is an unambiguous cache boundary.
 		if (activeConnection != connection) {
 			synchronized (LOCK) {
 				if (activeConnection != connection) {

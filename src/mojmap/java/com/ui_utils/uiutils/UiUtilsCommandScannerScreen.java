@@ -21,6 +21,9 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 	private int resultsScroll;
 	private int resultsTop;
 	private int resultsBottom;
+	private int outputTop;
+	private int outputBottom;
+	private boolean commandOutputVisible;
 	private int panelLeft;
 	private int panelWidth;
 	private final Set<String> expandedPlugins = new HashSet<>();
@@ -49,9 +52,11 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		int topRows = stacked ? 11 : 7;
 		int controlsHeight = (rowH * topRows) + (gap * (topRows - 1));
 		int footerHeight = rowH + gap;
-		int desiredResultsHeight = Math.min(320, Math.max(120,
-			this.height - controlsHeight - footerHeight - 52));
-		int totalBlockHeight = controlsHeight + 8 + desiredResultsHeight + 8 + footerHeight;
+		int outputHeight = commandOutputVisible ? 58 : 0;
+		int outputGap = commandOutputVisible ? 8 : 0;
+		int desiredResultsHeight = Math.min(260, Math.max(90,
+			this.height - controlsHeight - footerHeight - outputHeight - 68));
+		int totalBlockHeight = controlsHeight + 8 + desiredResultsHeight + 8 + footerHeight + outputGap + outputHeight;
 		int blockTop = Math.max(8, (this.height - totalBlockHeight) / 2);
 		int y = blockTop;
 
@@ -118,6 +123,8 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 			UiUtilsSettings.get().commandScannerPacketCommands = packetCommandsField.getValue();
 			UiUtilsSettings.save();
 			UiUtilsCommandScanner.sendManualPacketCommands();
+			commandOutputVisible = true;
+			rebuildWidgets();
 		}, stacked ? left : left + splitWidth + 10, y, splitWidth, rowH));
 		y += rowH + gap;
 		if(stacked)
@@ -127,6 +134,8 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		resultsBottom = resultsTop + desiredResultsHeight;
 
 		int footerY = resultsBottom + 8;
+		outputTop = footerY + rowH + outputGap;
+		outputBottom = outputTop + outputHeight;
 		addRenderableWidget(UiUtils.styledButton("Clear results", b -> clearResults(),
 			left, footerY, splitWidth, rowH));
 		addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(this.minecraft, parent),
@@ -144,11 +153,14 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		UiUtilsCommandScanner.clearResultsForUi();
 		UiUtilsPluginScanner.clearResultsForUi();
 		UiUtilsLegacyPluginScanner.clearResultsForUi();
+		UiUtilsCommandScanner.clearManualCommandOutput();
 		expandedPlugins.clear();
 		expandedCommandLetters.clear();
 		vulnerableListExpanded = false;
 		resultsScroll = 0;
 		draggingScrollbar = false;
+		commandOutputVisible = false;
+		rebuildWidgets();
 	}
 
 	@Override
@@ -186,6 +198,8 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		lastScrollbar = computeScrollbar(left + panelWidth - 5, top + 2, bottom - 2,
 			lines.size(), visibleRows, resultsScroll);
 		renderScrollbar(graphics, lastScrollbar);
+		if (commandOutputVisible)
+			renderCommandOutput(graphics);
 	}
 
 	@Override
@@ -230,6 +244,8 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 						expandedCommandLetters.remove(row.clickKey);
 					else
 						expandedCommandLetters.add(row.clickKey);
+				} else if (row.clickKey.startsWith("command:")) {
+					selectCommand(row.clickKey.substring("command:".length()));
 				} else if ("vuln:list".equals(row.clickKey)) {
 					vulnerableListExpanded = !vulnerableListExpanded;
 				}
@@ -252,6 +268,8 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 	public boolean mouseReleased(MouseButtonEvent context) {
 		if (context.button() == 0 && draggingScrollbar) {
 			draggingScrollbar = false;
+		commandOutputVisible = false;
+		rebuildWidgets();
 			return true;
 		}
 		return super.mouseReleased(context);
@@ -299,11 +317,11 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 					+ "] (" + entry.getValue().size() + ")", 0xFFFFFFFF, key));
 				if (expanded)
 					for (String cmd : entry.getValue())
-						lines.add(new Line("    /" + cmd, 0xFFAEEBFF));
+						lines.add(new Line("    /" + cmd, commandColor(cmd), "command:" + cmd));
 			}
 		} else {
 			for (String cmd : commands)
-				lines.add(new Line("  /" + cmd, 0xFFAEEBFF));
+				lines.add(new Line("  /" + cmd, commandColor(cmd), "command:" + cmd));
 		}
 
 		lines.add(new Line("", 0xFFFFFFFF));
@@ -344,7 +362,7 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 						lines.add(new Line("    (no commands or cached details)", 0xFF909090));
 				} else {
 					for (String cmd : row.commands())
-						lines.add(new Line("    /" + cmd, 0xFFAEEBFF));
+						lines.add(new Line("    /" + cmd, commandColor(cmd), "command:" + cmd));
 				}
 			}
 		}
@@ -385,6 +403,42 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		return filtered;
 	}
 
+	private static int commandColor(String command) {
+		return UiUtilsCommandScanner.isCommandHiddenToUser(command) ? 0xFFFF5555 : 0xFFAEEBFF;
+	}
+
+	private void selectCommand(String command) {
+		if (packetCommandsField == null)
+			return;
+		String value = command;
+		if (value.startsWith("trigger (") && value.endsWith(")"))
+			value = "trigger " + value.substring("trigger (".length(), value.length() - 1);
+		packetCommandsField.setValue("/" + value);
+		UiUtilsSettings.get().commandScannerPacketCommands = packetCommandsField.getValue();
+		UiUtilsSettings.save();
+		UiUtilsCommandScanner.clearManualCommandOutput();
+		commandOutputVisible = false;
+		rebuildWidgets();
+	}
+
+	private void renderCommandOutput(GuiGraphicsExtractor graphics) {
+		graphics.fill(panelLeft, outputTop, panelLeft + panelWidth, outputBottom, 0xB0000000);
+		graphics.fill(panelLeft, outputTop, panelLeft + panelWidth, outputTop + 1, 0xFF2A2A2A);
+		graphics.text(this.font, "Command output (after Send packet cmds)", panelLeft + 6, outputTop + 4, 0xFFFFDE7A, false);
+		List<String> output = UiUtilsCommandScanner.getManualCommandOutputSnapshot();
+		if (output.isEmpty()) {
+			graphics.text(this.font, "Select a command, then press Send packet cmds.", panelLeft + 6,
+				outputTop + 4 + this.font.lineHeight + 2, 0xFF909090, false);
+			return;
+		}
+		int y = outputTop + 4 + this.font.lineHeight + 2;
+		int first = Math.max(0, output.size() - 3);
+		for (int i = first; i < output.size() && y + this.font.lineHeight <= outputBottom - 3; i++) {
+			String line = this.font.plainSubstrByWidth(output.get(i), panelWidth - 12);
+			graphics.text(this.font, line, panelLeft + 6, y, 0xFFEAEAEA, false);
+			y += this.font.lineHeight + 1;
+		}
+	}
 	private ScrollbarMetrics computeScrollbar(int x, int top, int bottom, int totalRows,
 		int visibleRows, int scroll) {
 		int trackH = Math.max(1, bottom - top);
