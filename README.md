@@ -42,18 +42,19 @@ If you want to compile specifically against `26.1.2`, you can still override the
   - De‑sync tricks (close packet only)
   - Send/Delay queue for UI packets, with flush on demand
   - Copy GUI title JSON
-### Command (and Plugin) Scanner
-  - Enumerate server side commands that are typically unavailable to the player by sending specialised packets
-  - Optionally elicit only 'unknown' commands. Scans via packets then compares via client commands, whichever isn't available to the user is shown.
-  - Your command list probing won't appear in server side logs
-  - Can also run each command, run specific commands via packets or enumerate via client side commands 
-  - Great replacement for when the UI-Utils plugin scanner fails
-  - Supports parsing commands for each plugin
-  - Completed plugin and command scans are saved automatically as per-server JSON logs under <gameDir>/config/ui-utils-scan-history/.
-  - Separate scan types include normal/legacy plugin scans and packet/client-side command scans.
-  - Each snapshot marks entries as added, removed, changed, or unchanged so server changes can be tracked over time.
-  - A command such as trigger is only logged when autocomplete returns a value, formatted as trigger (value).
-  - Supports parsing each plugin for vulnerabilities pursuant to the latest cache of [DupeDB](https://dupedb.net/)
+### Command, Plugin, and Server Scanner
+  - Passively caches joined-server packet evidence (configuration, known packs, payload channels, registries, dimensions, advancements, tab/scoreboard text, and chat-completion metadata) per connected server. Server-list/status traffic is excluded.
+  - Command scans offer two modes:
+    - **Packet** probes command suggestions and can discover roots beyond the immediately visible command list.
+    - **Client** recursively enumerates the synced Brigadier command tree, including literal subcommands, argument paths, and redirect/alias branches, without sending probe packets.
+  - Packet-discovered roots that are absent from the current player's synced command tree are highlighted red: they are permission-hidden for that player and should not be assumed executable.
+  - Discovered command rows are clickable. Selecting one fills the packet-command field; execution still requires the explicit **Send packet cmds** button.
+  - After a manual packet-command send, a temporary output panel records the sent command and system command responses. It does not capture player chat.
+  - Supports packet execution of selected/manual commands, optional execution of discovered commands, and `trigger` value discovery (logged as `trigger (value)`).
+  - Plugin results merge packet evidence, known packs, custom payloads, command-tree roots, plugin-list evidence, and root hints. Expand plugin rows for associated commands and cached server evidence.
+  - A Verbose Server Scan combines the current server fingerprint with plugin and command scans, starting missing scans for the current server when needed. Its report is scrollable and copyable.
+  - Completed plugin, command, and verbose scans are stored as compact per-server JSON history under `<gameDir>/config/ui-utils-scan-history/`. Each scan overwrites its latest snapshot and records only added, removed, changed, or unchanged findings to avoid unbounded duplicate logs.
+  - Supports parsing plugins for vulnerabilities pursuant to the latest cache of [DupeDB](https://dupedb.net/).
 ### AntiCheat Detector
   - Reads packets on server join to determine the current AntiCheat, if any.
   - Disable/Enable in settings.
