@@ -1,11 +1,8 @@
 package com.ui_utils.uiutils;
 
-import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.suggestion.Suggestion;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.tree.CommandNode;
-import com.mojang.brigadier.tree.ArgumentCommandNode;
-import com.mojang.brigadier.tree.LiteralCommandNode;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -15,7 +12,6 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.TreeSet;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.multiplayer.ClientSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundCommandSuggestionsPacket;
@@ -61,8 +57,7 @@ public final class UiUtilsCommandScanner {
 	private static int manualOutputCaptureTicks;
 	private static final Set<String> unavailableCommands = new HashSet<>();
 	private static final Set<String> pendingManualCommands = new HashSet<>();
-	private static final Set<String> visibleCommandRoots = new HashSet<>();
-	private static final Set<String> packetDiscoveredRoots = new HashSet<>();
+	private static final Set<String> permissionDeniedPaths = new HashSet<>();
 
 	private UiUtilsCommandScanner() {}
 
@@ -78,6 +73,7 @@ public final class UiUtilsCommandScanner {
 		commandsToExecute.clear();
 		unavailableCommands.clear();
 		pendingManualCommands.clear();
+		permissionDeniedPaths.clear();
 		awaitingResponse = false;
 		waitTicks = 0;
 		cooldownTicks = 0;
@@ -90,9 +86,6 @@ public final class UiUtilsCommandScanner {
 		recentEvents.clear();
 		lastFoundCommands = List.of();
 		boundServerKey = currentServerKey(mc);
-
-		// The synced Brigadier tree is available in both scanner modes.
-		collectClientCommandTree(mc.player.connection);
 
 		if (activeMode == ScanMode.CLIENT_SIDE_ENUMERATION) {
 			runClientSideEnumerationScan();
@@ -239,8 +232,13 @@ public final class UiUtilsCommandScanner {
 	}
 
 	public static boolean isCommandHiddenToUser(String command) {
-		String root = normalizeCommandPath(command);
-		return packetDiscoveredRoots.contains(root) && !visibleCommandRoots.contains(root);
+		return permissionDeniedPaths.contains(normalizeFullCommandPath(command));
+	}
+
+	private static String normalizeFullCommandPath(String command) {
+		if (command == null) return "";
+		String normalized = command.trim().toLowerCase(Locale.ROOT);
+		return normalized.startsWith("/") ? normalized.substring(1) : normalized;
 	}
 
 	public static boolean isCommandUnavailable(String command) {
@@ -320,9 +318,27 @@ public final class UiUtilsCommandScanner {
 			String command = extractRootCommand(suggestion.getText());
 			if (command != null && !command.equalsIgnoreCase("trigger") && !isVanillaOrDefaultCommand(command)) {
 				scannedCommands.add(command);
-				packetDiscoveredRoots.add(normalizeCommandPath(command));
+				updateCommandVisibility(command);
 			}
 		}
+	}
+
+	private static void updateCommandVisibility(String command) {
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.player == null || mc.player.connection == null)
+			return;
+
+		// This lookup only classifies a command already returned by the server. It
+		// deliberately never enumerates or adds commands from the merged dispatcher.
+		var dispatcher = mc.player.connection.getCommands();
+		if (dispatcher == null || dispatcher.getRoot() == null) {
+			permissionDeniedPaths.add(normalizeFullCommandPath(command));
+			return;
+		}
+		CommandNode<ClientSuggestionProvider> node = dispatcher.getRoot()
+			.getChild(normalizeCommandPath(command));
+		if (node == null || !node.canUse(mc.player.connection.getSuggestionsProvider()))
+			permissionDeniedPaths.add(normalizeFullCommandPath(command));
 	}
 
 	private static String extractRootCommand(String raw) {
@@ -342,54 +358,10 @@ public final class UiUtilsCommandScanner {
 	}
 
 	private static void runClientSideEnumerationScan() {
-		// The dispatcher was collected when this scan started.  This mode does not send packets.
-		print("Enumerated " + scannedCommands.size() + " command-tree paths.");
+		// Intentionally removed: the client dispatcher is merged and cannot distinguish
+		// server-synchronized commands from commands registered by client-side mods.
+		print("Client-side command enumeration is disabled; no local commands were added.");
 		finishScan();
-	}
-
-	private static void collectClientCommandTree(ClientPacketListener connection) {
-		CommandDispatcher<ClientSuggestionProvider> dispatcher = connection.getCommands();
-		if (dispatcher == null || dispatcher.getRoot() == null) {
-			print("No command tree available yet.");
-			return;
-		}
-		// A node can be reached through more than one alias.  Include the path in the
-		// visit key so redirects are expanded under every visible command name while
-		// still preventing redirect cycles from looping forever.
-		Set<String> visitedPaths = new HashSet<>();
-		collectCommandChildren(dispatcher.getRoot(), "", visitedPaths, 0);
-	}
-
-	private static void collectCommandChildren(CommandNode<ClientSuggestionProvider> node,
-		String prefix, Set<String> visitedPaths, int depth) {
-		if (node == null || depth > 12)
-			return;
-		String visitKey = System.identityHashCode(node) + "|" + prefix;
-		if (!visitedPaths.add(visitKey))
-			return;
-
-		for (CommandNode<ClientSuggestionProvider> child : node.getChildren()) {
-			String path = prefix;
-			if (child instanceof LiteralCommandNode<ClientSuggestionProvider>) {
-				String name = child.getName();
-				if (name == null || name.isBlank())
-					continue;
-				path = prefix.isEmpty() ? name : prefix + " " + name;
-				if (!path.equalsIgnoreCase("trigger") && !isVanillaOrDefaultCommand(path)) {
-					scannedCommands.add(path);
-					visibleCommandRoots.add(normalizeCommandPath(path));
-				}
-			} else if (child instanceof ArgumentCommandNode<ClientSuggestionProvider, ?>) {
-				path = prefix.isEmpty() ? "<" + child.getName() + ">"
-					: prefix + " <" + child.getName() + ">";
-			}
-			collectCommandChildren(child, path, visitedPaths, depth + 1);
-		}
-
-		// Brigadier aliases commonly keep their actual child tree in a redirect,
-		// rather than in getChildren().  Follow it using the current visible path.
-		if (node.getRedirect() != null)
-			collectCommandChildren(node.getRedirect(), prefix, visitedPaths, depth + 1);
 	}
 	private static void finishScan() {
 		List<String> results = new ArrayList<>(scannedCommands);
@@ -407,6 +379,7 @@ public final class UiUtilsCommandScanner {
 			commandsToExecute.clear();
 		unavailableCommands.clear();
 		pendingManualCommands.clear();
+		permissionDeniedPaths.clear();
 			Set<String> denyTerms = parseDenyTerms(UiUtilsSettings.get().commandScannerDontSendFilter);
 			for (String cmd : scannedCommands) {
 				String lower = cmd.toLowerCase(Locale.ROOT);
@@ -522,6 +495,7 @@ private static ScanMode getScanMode() {
 		commandsToExecute.clear();
 		unavailableCommands.clear();
 		pendingManualCommands.clear();
+		permissionDeniedPaths.clear();
 		lastFoundCommands = List.of();
 		recentEvents.clear();
 		lastStatus = "Cleared due to server change.";
