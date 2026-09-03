@@ -191,6 +191,7 @@ public final class UiUtilsPluginScanner {
 			String pluginCandidate = text.trim();
 			String pluginKey = normalizePluginKey(pluginCandidate);
 			if (!isLikelyPluginNameCandidate(pluginCandidate, probe.kind)
+				|| isOnlinePlayerName(pluginCandidate)
 				|| UiUtilsCommandScanner.isVanillaOrDefaultCommand(pluginCandidate)
 				|| isDefaultFabricPlugin(pluginCandidate)
 				|| ROOT_COMMAND_PLUGIN_ALIASES.containsKey(pluginKey))
@@ -348,6 +349,11 @@ public final class UiUtilsPluginScanner {
 		return names;
 	}
 
+	private static boolean isOnlinePlayerName(String candidate) {
+		String key = normalizePluginKey(candidate);
+		return !key.isEmpty() && getOnlinePlayerNames().contains(key);
+	}
+
 	private static String normalizeCommandToken(String raw) {
 		if (raw == null)
 			return "";
@@ -448,7 +454,7 @@ public final class UiUtilsPluginScanner {
 		return key.equals("fabric") || key.equals("fabricloader") || key.startsWith("fabric-") || key.startsWith("fabric_");
 	}
 
-private static boolean isLikelyPluginNameCandidate(String candidate, PluginProbeKind kind) {
+	private static boolean isLikelyPluginNameCandidate(String candidate, PluginProbeKind kind) {
 		if (candidate == null)
 			return false;
 		String clean = candidate.trim();

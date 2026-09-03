@@ -20,8 +20,709 @@ import net.minecraft.network.protocol.game.ServerboundCommandSuggestionPacket;
 public final class UiUtilsCommandScanner {
 	private static final int RESPONSE_TIMEOUT_TICKS = 20;
 	private static final int REQUEST_COOLDOWN_TICKS = 2;
-	private static final int EXECUTE_COOLDOWN_TICKS = 4;
+	private static final int EXECUTE_COOLDOWN_TICKS = 40;
+	private static final int MAX_SUGGESTIONS_PER_RESPONSE = 1000;
+	private static final int MAX_ADAPTIVE_PROBES = 128;
+	private static final int MAX_ADAPTIVE_PREFIX_LENGTH = 4;
 	private static final char[] LETTERS = "abcdefghijklmnopqrstuvwxyz".toCharArray();
+	private static final char[] PROBE_SUFFIXES =
+		"abcdefghijklmnopqrstuvwxyz0123456789_-.".toCharArray();
+	private static final Set<String> ESSENTIALS_COMMANDS = new HashSet<>(Arrays.asList(
+		"about",
+		"ac",
+		"action",
+		"adventure",
+		"adventuremode",
+		"afk",
+		"alts",
+		"amsg",
+		"antioch",
+		"anvil",
+		"away",
+		"back",
+		"backup",
+		"bal",
+		"balance",
+		"balancetop",
+		"baltop",
+		"ban",
+		"banip",
+		"bc",
+		"bcast",
+		"bcastw",
+		"bcw",
+		"beecannon",
+		"beezooka",
+		"bigtree",
+		"blocks",
+		"book",
+		"bottom",
+		"break",
+		"broadcast",
+		"broadcastworld",
+		"burn",
+		"butcher",
+		"call",
+		"cartographytable",
+		"carttable",
+		"changems",
+		"ci",
+		"ck",
+		"clean",
+		"clear",
+		"clearconfirm",
+		"clearconfirmoff",
+		"clearconfirmon",
+		"clearinvent",
+		"clearinventory",
+		"clearinventoryconfirmoff",
+		"clearinventoryconfirmtoggle",
+		"compact",
+		"compass",
+		"condense",
+		"coords",
+		"craft",
+		"createhome",
+		"createjail",
+		"createk",
+		"createkit",
+		"createwarp",
+		"creative",
+		"creativemode",
+		"customtext",
+		"day",
+		"deletekit",
+		"delhome",
+		"delignore",
+		"deljail",
+		"delkit",
+		"delwarp",
+		"depth",
+		"describe",
+		"direction",
+		"disposal",
+		"dura",
+		"durability",
+		"eabout",
+		"eac",
+		"eaction",
+		"eadventure",
+		"eadventuremode",
+		"eafk",
+		"ealts",
+		"eamsg",
+		"eantioch",
+		"eanvil",
+		"eat",
+		"eaway",
+		"eback",
+		"ebackup",
+		"ebal",
+		"ebalance",
+		"ebalancetop",
+		"ebaltop",
+		"eban",
+		"ebanip",
+		"ebc",
+		"ebcast",
+		"ebcastw",
+		"ebcw",
+		"ebeecannon",
+		"ebeezooka",
+		"ebigtree",
+		"eblocks",
+		"ebook",
+		"ebottom",
+		"ebreak",
+		"ebroadcast",
+		"ebroadcastworld",
+		"eburn",
+		"ebutcher",
+		"ec",
+		"ecall",
+		"ecartographytable",
+		"ecarttable",
+		"echangems",
+		"echest",
+		"echo",
+		"eci",
+		"eclean",
+		"eclear",
+		"eclearconfirm",
+		"eclearconfirmoff",
+		"eclearconfirmon",
+		"eclearinvent",
+		"eclearinventory",
+		"eclearinventoryconfirmoff",
+		"eclearinventoryconfirmtoggle",
+		"eco",
+		"ecompact",
+		"ecompass",
+		"econdense",
+		"economy",
+		"ecraft",
+		"ecreatehome",
+		"ecreatejail",
+		"ecreatewarp",
+		"ecreative",
+		"ecreativemode",
+		"eday",
+		"edeletekit",
+		"edelhome",
+		"edelignore",
+		"edeljail",
+		"edelkit",
+		"edelwarp",
+		"edepth",
+		"edescribe",
+		"edirection",
+		"edisposal",
+		"editsign",
+		"edura",
+		"edurability",
+		"eeat",
+		"eec",
+		"eechest",
+		"eecho",
+		"eeco",
+		"eeconomy",
+		"eecreative",
+		"eeditsign",
+		"eelixer",
+		"eemail",
+		"eenchant",
+		"eenchantment",
+		"eenderchest",
+		"eendersee",
+		"eentities",
+		"eess",
+		"eessentials",
+		"eexp",
+		"eext",
+		"eextinguish",
+		"efeed",
+		"efireball",
+		"efireentity",
+		"efireskull",
+		"efirework",
+		"efix",
+		"efly",
+		"eflyspeed",
+		"eformula",
+		"efreeze",
+		"efspeed",
+		"egamemode",
+		"egc",
+		"egetloc",
+		"egetlocation",
+		"egetpos",
+		"egive",
+		"egm",
+		"egma",
+		"egmc",
+		"egms",
+		"egmsp",
+		"egmt",
+		"egod",
+		"egodmode",
+		"egrenade",
+		"egrindstone",
+		"ehat",
+		"ehead",
+		"eheal",
+		"eheight",
+		"ehelp",
+		"ehelpop",
+		"ehome",
+		"ehomes",
+		"ei",
+		"eice",
+		"eifo",
+		"eignore",
+		"eilore",
+		"einame",
+		"einfo",
+		"einform",
+		"einvsee",
+		"eirename",
+		"eitem",
+		"eitemdb",
+		"eitemlore",
+		"eitemname",
+		"eitemno",
+		"eitemrename",
+		"ej",
+		"ejail",
+		"ejailed",
+		"ejailedplayers",
+		"ejails",
+		"ejp",
+		"ejump",
+		"ejumpto",
+		"ekick",
+		"ekickall",
+		"ekill",
+		"ekillall",
+		"ekit",
+		"ekitr",
+		"ekitreset",
+		"ekits",
+		"ekittycannon",
+		"elag",
+		"elargetree",
+		"elightning",
+		"elist",
+		"elixer",
+		"eloom",
+		"elore",
+		"email",
+		"eme",
+		"emem",
+		"ememo",
+		"ememory",
+		"emethod",
+		"emob",
+		"emobkill",
+		"emobspawner",
+		"emoney",
+		"emore",
+		"emotd",
+		"emsg",
+		"emsgtoggle",
+		"emute",
+		"enchant",
+		"enchantment",
+		"enderchest",
+		"endersee",
+		"enear",
+		"enearby",
+		"enews",
+		"enick",
+		"enickname",
+		"enight",
+		"entities",
+		"enuke",
+		"eonline",
+		"epardon",
+		"epardonip",
+		"epay",
+		"epayconfirm",
+		"epayconfirmoff",
+		"epayconfirmon",
+		"epayconfirmtoggle",
+		"epayoff",
+		"epayon",
+		"epaytoggle",
+		"eping",
+		"eplayerlist",
+		"eplayerskull",
+		"eplayertime",
+		"eplayerweather",
+		"eplaytime",
+		"eplist",
+		"epm",
+		"epong",
+		"eposition",
+		"epotion",
+		"epowertool",
+		"epowertoollist",
+		"epowertooltoggle",
+		"eprice",
+		"ept",
+		"eptime",
+		"eptlist",
+		"eptt",
+		"epttoggle",
+		"epweather",
+		"er",
+		"erain",
+		"erealname",
+		"erecipe",
+		"erecipes",
+		"eremhome",
+		"eremignore",
+		"eremjail",
+		"eremkit",
+		"eremove",
+		"eremwarp",
+		"erenamehome",
+		"erepair",
+		"ereply",
+		"ereplytoggle",
+		"eresetkit",
+		"erest",
+		"ereturn",
+		"ermhome",
+		"ermignore",
+		"ermjail",
+		"ermkit",
+		"ermwarp",
+		"ertoggle",
+		"erules",
+		"eseen",
+		"esell",
+		"esethome",
+		"esetjail",
+		"esettpr",
+		"esettprandom",
+		"esetwarp",
+		"esetworth",
+		"eshock",
+		"eshout",
+		"eshoutworld",
+		"esign",
+		"esilence",
+		"eskull",
+		"esky",
+		"esmite",
+		"esmithingtable",
+		"esmithtable",
+		"esocialspy",
+		"espawnentity",
+		"espawner",
+		"espawnmob",
+		"espeed",
+		"ess",
+		"essentials",
+		"essversion",
+		"estonecutter",
+		"estorm",
+		"estrike",
+		"esudo",
+		"esuicide",
+		"esun",
+		"esurvival",
+		"esurvivalmode",
+		"etele",
+		"eteleport",
+		"etell",
+		"etempban",
+		"etempbanip",
+		"etgm",
+		"ethor",
+		"ethunder",
+		"etime",
+		"etjail",
+		"etnt",
+		"etoblocks",
+		"etogglejail",
+		"etop",
+		"etp",
+		"etp2p",
+		"etpa",
+		"etpaall",
+		"etpacancel",
+		"etpaccept",
+		"etpahere",
+		"etpall",
+		"etpask",
+		"etpauto",
+		"etpdeny",
+		"etphere",
+		"etpno",
+		"etpo",
+		"etpoffline",
+		"etpohere",
+		"etppos",
+		"etpr",
+		"etprandom",
+		"etps",
+		"etptoggle",
+		"etpyes",
+		"etrash",
+		"etree",
+		"eul",
+		"eunban",
+		"eunbanip",
+		"eunignore",
+		"eunjail",
+		"eunl",
+		"eunlimited",
+		"eunmute",
+		"euptime",
+		"ev",
+		"evanish",
+		"ewalkspeed",
+		"ewarp",
+		"ewarpinfo",
+		"ewarps",
+		"ewb",
+		"ewbench",
+		"eweather",
+		"ewhereami",
+		"ewhisper",
+		"ewho",
+		"ewhois",
+		"eworkbench",
+		"eworld",
+		"eworth",
+		"ewspeed",
+		"exp",
+		"ext",
+		"extinguish",
+		"feed",
+		"fireball",
+		"fireentity",
+		"fireskull",
+		"firework",
+		"fix",
+		"fly",
+		"flyspeed",
+		"formula",
+		"fspeed",
+		"gamemode",
+		"gc",
+		"getloc",
+		"getlocation",
+		"getpos",
+		"give",
+		"gm",
+		"gma",
+		"gmc",
+		"gms",
+		"gmsp",
+		"gmt",
+		"god",
+		"godmode",
+		"grenade",
+		"grindstone",
+		"hat",
+		"head",
+		"heal",
+		"height",
+		"help",
+		"helpop",
+		"home",
+		"homes",
+		"i",
+		"ice",
+		"ifo",
+		"ignore",
+		"ilore",
+		"iname",
+		"info",
+		"inform",
+		"invsee",
+		"irename",
+		"item",
+		"itemdb",
+		"itemlore",
+		"itemname",
+		"itemno",
+		"itemrename",
+		"j",
+		"jail",
+		"jailedplayers",
+		"jails",
+		"jump",
+		"jumpto",
+		"kc",
+		"kick",
+		"kickall",
+		"kill",
+		"killall",
+		"kit",
+		"kitcreate",
+		"kitpreview",
+		"kitr",
+		"kitreset",
+		"kits",
+		"kitshow",
+		"kittycannon",
+		"lag",
+		"largetree",
+		"lightning",
+		"list",
+		"loom",
+		"lore",
+		"m",
+		"mail",
+		"me",
+		"mem",
+		"memo",
+		"memory",
+		"method",
+		"mob",
+		"mobkill",
+		"mobspawner",
+		"money",
+		"more",
+		"motd",
+		"msg",
+		"msgtoggle",
+		"mute",
+		"near",
+		"nearby",
+		"news",
+		"nick",
+		"nickname",
+		"night",
+		"nuke",
+		"offlinetp",
+		"online",
+		"otp",
+		"pardon",
+		"pardonip",
+		"pay",
+		"payconfirm",
+		"payconfirmoff",
+		"payconfirmon",
+		"payconfirmtoggle",
+		"payoff",
+		"payon",
+		"paytoggle",
+		"ping",
+		"playerlist",
+		"playerskull",
+		"playertime",
+		"playerweather",
+		"playtime",
+		"plist",
+		"pm",
+		"pong",
+		"position",
+		"potion",
+		"powertool",
+		"powertoollist",
+		"powertooltoggle",
+		"preview",
+		"price",
+		"pt",
+		"ptime",
+		"ptlist",
+		"ptt",
+		"pttoggle",
+		"pweather",
+		"r",
+		"rain",
+		"realname",
+		"recipe",
+		"recipes",
+		"remhome",
+		"remignore",
+		"remjail",
+		"remkit",
+		"remove",
+		"remwarp",
+		"renamehome",
+		"repair",
+		"reply",
+		"replytoggle",
+		"resetkit",
+		"rest",
+		"return",
+		"rmhome",
+		"rmignore",
+		"rmjail",
+		"rmkit",
+		"rmwarp",
+		"rtoggle",
+		"rules",
+		"s",
+		"seen",
+		"sell",
+		"sethome",
+		"setjail",
+		"settpr",
+		"settprandom",
+		"setwarp",
+		"setworth",
+		"shock",
+		"shout",
+		"shoutworld",
+		"showkit",
+		"sign",
+		"silence",
+		"skull",
+		"sky",
+		"smite",
+		"smithingtable",
+		"smithtable",
+		"socialspy",
+		"sp",
+		"spawnentity",
+		"spawner",
+		"spawnmob",
+		"spec",
+		"spectator",
+		"speed",
+		"stonecutter",
+		"storm",
+		"strike",
+		"sudo",
+		"suicide",
+		"sun",
+		"survival",
+		"survivalmode",
+		"t",
+		"tele",
+		"teleport",
+		"tell",
+		"tempban",
+		"tempbanip",
+		"tgm",
+		"thor",
+		"thunder",
+		"time",
+		"tjail",
+		"tnt",
+		"toblocks",
+		"togglejail",
+		"top",
+		"tp",
+		"tp2p",
+		"tpa",
+		"tpaall",
+		"tpacancel",
+		"tpaccept",
+		"tpahere",
+		"tpall",
+		"tpask",
+		"tpauto",
+		"tpdeny",
+		"tphere",
+		"tpno",
+		"tpo",
+		"tpoff",
+		"tpoffline",
+		"tpohere",
+		"tppos",
+		"tpr",
+		"tprandom",
+		"tps",
+		"tptoggle",
+		"tpyes",
+		"trash",
+		"tree",
+		"ul",
+		"unban",
+		"unbanip",
+		"unignore",
+		"unjail",
+		"unl",
+		"unlimited",
+		"unmute",
+		"uptime",
+		"v",
+		"vanish",
+		"w",
+		"walkspeed",
+		"warp",
+		"warpinfo",
+		"warps",
+		"wb",
+		"wbench",
+		"weather",
+		"whereami",
+		"whisper",
+		"who",
+		"whois",
+		"workbench",
+		"world",
+		"worth",
+		"wspeed",
+		"xp"
+	));
 
 	private static final Set<String> VANILLA_COMMANDS = new HashSet<>(Arrays.asList(
 		"advancement", "attribute", "ban", "ban-ip", "banlist", "bossbar", "clear", "clone",
@@ -37,15 +738,18 @@ public final class UiUtilsCommandScanner {
 
 	private static final Set<String> scannedCommands = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 	private static final Set<String> triggerValues = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+	private static final Set<Character> truncatedCommandLetters = new HashSet<>();
+	private static final Set<String> scheduledProbePrefixes = new HashSet<>();
+	private static final ArrayDeque<String> commandProbeQueue = new ArrayDeque<>();
 	private static final ArrayDeque<String> commandsToExecute = new ArrayDeque<>();
 
 	private static boolean awaitingResponse;
 	private static boolean triggerProbePending;
 	private static int waitTicks;
 	private static int cooldownTicks;
-	private static int letterIndex;
 	private static int requestId;
 	private static int awaitingRequestId;
+	private static int probesSent;
 	private static boolean active;
 	private static Phase phase = Phase.IDLE;
 	private static ScanMode activeMode = ScanMode.PACKET_PROBING;
@@ -58,6 +762,7 @@ public final class UiUtilsCommandScanner {
 	private static final Set<String> unavailableCommands = new HashSet<>();
 	private static final Set<String> pendingManualCommands = new HashSet<>();
 	private static final Set<String> permissionDeniedPaths = new HashSet<>();
+	private static String awaitingProbe = "";
 
 	private UiUtilsCommandScanner() {}
 
@@ -70,6 +775,10 @@ public final class UiUtilsCommandScanner {
 
 		active = true;
 		scannedCommands.clear();
+		triggerValues.clear();
+		truncatedCommandLetters.clear();
+		scheduledProbePrefixes.clear();
+		commandProbeQueue.clear();
 		commandsToExecute.clear();
 		unavailableCommands.clear();
 		pendingManualCommands.clear();
@@ -77,15 +786,18 @@ public final class UiUtilsCommandScanner {
 		awaitingResponse = false;
 		waitTicks = 0;
 		cooldownTicks = 0;
-		letterIndex = 0;
 		requestId = 1;
 		awaitingRequestId = -1;
+		probesSent = 0;
+		awaitingProbe = "";
 		phase = Phase.SCANNING;
 		activeMode = getScanMode();
 		lastStatus = "Scanning commands (" + activeMode.name() + ")...";
 		recentEvents.clear();
 		lastFoundCommands = List.of();
 		boundServerKey = currentServerKey(mc);
+		for (char letter : LETTERS)
+			queueProbe(String.valueOf(letter), false);
 
 		if (activeMode == ScanMode.CLIENT_SIDE_ENUMERATION) {
 			runClientSideEnumerationScan();
@@ -128,10 +840,11 @@ public final class UiUtilsCommandScanner {
 					return;
 				}
 				if (UiUtilsSettings.get().commandScannerDebugProbe)
-					print("Probe timeout: /" + LETTERS[letterIndex] + " (id=" + requestId + ")");
-				lastStatus = "Scanning commands... timed out on /" + LETTERS[letterIndex];
+					print("Probe timeout: /" + awaitingProbe + " (id=" + awaitingRequestId + ")");
+				lastStatus = "Scanning commands... timed out on /" + awaitingProbe;
 				awaitingResponse = false;
-				letterIndex++;
+				awaitingRequestId = -1;
+				awaitingProbe = "";
 				cooldownTicks = REQUEST_COOLDOWN_TICKS;
 			}
 			return;
@@ -178,13 +891,19 @@ public final class UiUtilsCommandScanner {
 		}
 
 		int count = suggestions == null ? 0 : suggestions.getList().size();
+		String probe = awaitingProbe;
+		if (count >= MAX_SUGGESTIONS_PER_RESPONSE) {
+			if (!probe.isEmpty())
+				truncatedCommandLetters.add(probe.charAt(0));
+			queueAdaptiveProbes(probe);
+		}
 		if (UiUtilsSettings.get().commandScannerDebugProbe)
-			print("Probe response: /" + LETTERS[letterIndex] + " (id=" + awaitingRequestId + ", suggestions=" + count + ")");
+			print("Probe response: /" + probe + " (id=" + awaitingRequestId + ", suggestions=" + count + ")");
 
 		readSuggestions(suggestions);
 		awaitingResponse = false;
 		awaitingRequestId = -1;
-		letterIndex++;
+		awaitingProbe = "";
 		cooldownTicks = REQUEST_COOLDOWN_TICKS;
 	}
 
@@ -272,14 +991,16 @@ public final class UiUtilsCommandScanner {
 			return;
 		}
 
-		if (letterIndex >= LETTERS.length) {
+		String probe = commandProbeQueue.pollFirst();
+		if (probe == null) {
 			requestTriggerValues();
 			return;
 		}
 
-		char c = LETTERS[letterIndex];
-		String input = "/" + c;
+		String input = "/" + probe;
 		int id = requestId++;
+		probesSent++;
+		awaitingProbe = probe;
 		if (UiUtilsSettings.get().commandScannerDebugProbe)
 			print("Probe sent: " + input + " (id=" + id + ")");
 
@@ -296,6 +1017,7 @@ public final class UiUtilsCommandScanner {
 			return;
 		}
 		triggerProbePending = true;
+		awaitingProbe = "";
 		int id = requestId++;
 		awaitingRequestId = id;
 		awaitingResponse = true;
@@ -316,7 +1038,9 @@ public final class UiUtilsCommandScanner {
 			return;
 		for (Suggestion suggestion : suggestions.getList()) {
 			String command = extractRootCommand(suggestion.getText());
-			if (command != null && !command.equalsIgnoreCase("trigger") && !isVanillaOrDefaultCommand(command)) {
+			if (command != null && !command.equalsIgnoreCase("trigger")
+				&& !isIgnoredEssentialsCommand(command)
+				&& !isVanillaOrDefaultCommand(command)) {
 				scannedCommands.add(command);
 				updateCommandVisibility(command);
 			}
@@ -480,6 +1204,45 @@ private static ScanMode getScanMode() {
 		phase = Phase.IDLE;
 		cooldownTicks = 0;
 		waitTicks = 0;
+		awaitingProbe = "";
+	}
+
+	private static void queueProbe(String rawPrefix, boolean prioritize) {
+		if (rawPrefix == null || rawPrefix.isBlank())
+			return;
+		String prefix = rawPrefix.trim().toLowerCase(Locale.ROOT);
+		if (prefix.length() > MAX_ADAPTIVE_PREFIX_LENGTH
+			|| !scheduledProbePrefixes.add(prefix))
+			return;
+		if (scheduledProbePrefixes.size() > MAX_ADAPTIVE_PROBES) {
+			scheduledProbePrefixes.remove(prefix);
+			return;
+		}
+		if (prioritize)
+			commandProbeQueue.addFirst(prefix);
+		else
+			commandProbeQueue.addLast(prefix);
+	}
+
+	private static void queueAdaptiveProbes(String prefix) {
+		if (prefix == null || prefix.isEmpty()
+			|| prefix.length() >= MAX_ADAPTIVE_PREFIX_LENGTH)
+			return;
+		for (int i = PROBE_SUFFIXES.length - 1; i >= 0; i--)
+			queueProbe(prefix + PROBE_SUFFIXES[i], true);
+	}
+
+	private static boolean isIgnoredEssentialsCommand(String value) {
+		if (value == null)
+			return false;
+		String command = value.trim().toLowerCase(Locale.ROOT);
+		if (command.startsWith("/"))
+			command = command.substring(1);
+		int colon = command.indexOf(':');
+		if (colon > 0 && (command.startsWith("essentials:")
+			|| command.startsWith("essentialsx:")))
+			return true;
+		return ESSENTIALS_COMMANDS.contains(command);
 	}
 
 	private static void resetForServerChange() {
@@ -489,9 +1252,12 @@ private static ScanMode getScanMode() {
 		phase = Phase.IDLE;
 		cooldownTicks = 0;
 		waitTicks = 0;
-		letterIndex = 0;
 		requestId = 1;
 		scannedCommands.clear();
+		triggerValues.clear();
+		truncatedCommandLetters.clear();
+		scheduledProbePrefixes.clear();
+		commandProbeQueue.clear();
 		commandsToExecute.clear();
 		unavailableCommands.clear();
 		pendingManualCommands.clear();
@@ -499,6 +1265,8 @@ private static ScanMode getScanMode() {
 		lastFoundCommands = List.of();
 		recentEvents.clear();
 		lastStatus = "Cleared due to server change.";
+		probesSent = 0;
+		awaitingProbe = "";
 		boundServerKey = currentServerKey(Minecraft.getInstance());
 	}
 
@@ -519,8 +1287,7 @@ private static ScanMode getScanMode() {
 
 	public static String getStatusLine() {
 		if (active && phase == Phase.SCANNING)
-			return lastStatus + " [probe " + Math.min(letterIndex + 1, LETTERS.length)
-				+ "/" + LETTERS.length + "]";
+			return lastStatus + " [probes " + probesSent + ", queued " + commandProbeQueue.size() + "]";
 		if (active && phase == Phase.EXECUTING)
 			return lastStatus + " [remaining " + commandsToExecute.size() + "]";
 		return lastStatus;
@@ -541,22 +1308,35 @@ private static ScanMode getScanMode() {
 		return new ArrayList<>(recentEvents);
 	}
 
+	public static boolean hasTruncatedResponses() {
+		return !truncatedCommandLetters.isEmpty();
+	}
+
+	public static boolean wasResponseTruncated(char letter) {
+		return truncatedCommandLetters.contains(Character.toLowerCase(letter));
+	}
+
 	public static void clearResultsForUi() {
 		active = false;
 		awaitingResponse = false;
 		awaitingRequestId = -1;
 		phase = Phase.IDLE;
 		scannedCommands.clear();
+		triggerValues.clear();
+		truncatedCommandLetters.clear();
+		scheduledProbePrefixes.clear();
+		commandProbeQueue.clear();
 		commandsToExecute.clear();
 		unavailableCommands.clear();
 		pendingManualCommands.clear();
 		lastFoundCommands = List.of();
 		recentEvents.clear();
 		lastStatus = "Cleared.";
-		letterIndex = 0;
 		requestId = 1;
 		cooldownTicks = 0;
 		waitTicks = 0;
+		probesSent = 0;
+		awaitingProbe = "";
 	}
 
 	public enum ScanMode {

@@ -296,7 +296,12 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		lines.add(new Line("Command Scanner", 0xFF8CC8FF));
 		lines.add(new Line("Status: " + UiUtilsCommandScanner.getStatusLine(), 0xFFEAEAEA));
 		List<String> commands = UiUtilsCommandScanner.getFoundCommandsSnapshot();
-		lines.add(new Line("Found commands: " + commands.size(), 0xFFB8B8B8));
+		boolean commandResultsTruncated = UiUtilsCommandScanner.hasTruncatedResponses();
+		lines.add(new Line("Found commands: " + commands.size()
+			+ (commandResultsTruncated ? "+" : ""), 0xFFB8B8B8));
+		lines.add(new Line("Essentials commands/aliases skipped; other e... commands retained.", 0xFF909090));
+		if (commandResultsTruncated)
+			lines.add(new Line("! Some responses hit the server limit; counts are lower bounds.", 0xFFFFA8A8));
 		if (commands.size() > 50) {
 			Map<Character, List<String>> byLetter = new LinkedHashMap<>();
 			for (char c = 'a'; c <= 'z'; c++)
@@ -313,8 +318,10 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 					continue;
 				String key = "letter:" + entry.getKey();
 				boolean expanded = expandedCommandLetters.contains(key);
+				String count = String.valueOf(entry.getValue().size())
+					+ (UiUtilsCommandScanner.wasResponseTruncated(entry.getKey()) ? "+" : "");
 				lines.add(new Line((expanded ? "v " : "> ") + "[" + Character.toUpperCase(entry.getKey())
-					+ "] (" + entry.getValue().size() + ")", 0xFFFFFFFF, key));
+					+ "] (" + count + ")", 0xFFFFFFFF, key));
 				if (expanded)
 					for (String cmd : entry.getValue())
 						lines.add(new Line("    /" + cmd, commandColor(cmd), "command:" + cmd));
