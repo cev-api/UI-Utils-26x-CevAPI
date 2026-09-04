@@ -201,10 +201,19 @@ public final class UiUtils {
 	public static void setKeybind(String id, String keyName) {
 		if(UiUtilsSettings.get().keyBinds == null)
 			UiUtilsSettings.get().keyBinds = new HashMap<>();
-		if(keyName == null || keyName.isBlank())
-			UiUtilsSettings.get().keyBinds.put(id, "");
-		else
-			UiUtilsSettings.get().keyBinds.put(id, keyName);
+		String value = keyName == null || keyName.isBlank() ? "" : keyName;
+		UiUtilsSettings.get().keyBinds.put(id, value);
+
+		// Keep the original fields in sync with the map used by the keybind
+		// screen. Older settings screens still read these fields directly.
+		switch(id) {
+			case "restore_gui" -> UiUtilsSettings.get().restoreKey = value;
+			case "packet_tool" -> UiUtilsSettings.get().packetToolsKey = value;
+			case "delay_packets_toggle" -> UiUtilsSettings.get().delayToggleKey = value;
+			case "macro_run_last" -> UiUtilsSettings.get().macroRunLastKey = value;
+			case "macro_stop" -> UiUtilsSettings.get().macroStopKey = value;
+			default -> {}
+		}
 		UiUtilsSettings.save();
 	}
 

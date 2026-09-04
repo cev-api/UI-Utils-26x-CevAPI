@@ -226,17 +226,16 @@ public final class UiUtilsSettingsScreen extends Screen {
 		String name = key.getName();
 		switch(keyCaptureMode) {
 			case RESTORE -> {
-				UiUtilsSettings.get().restoreKey = name;
+				UiUtils.setKeybind("restore_gui", name);
 			}
 			case PACKET_TOOL -> {
-				UiUtilsSettings.get().packetToolsKey = name;
+				UiUtils.setKeybind("packet_tool", name);
 			}
 			case DELAY_TOGGLE -> {
-				UiUtilsSettings.get().delayToggleKey = name;
+				UiUtils.setKeybind("delay_packets_toggle", name);
 			}
 			case NONE -> {}
 		}
-		UiUtilsSettings.save();
 		keyCaptureMode = KeyCaptureMode.NONE;
 		refreshKeyBindLabels();
 		return true;

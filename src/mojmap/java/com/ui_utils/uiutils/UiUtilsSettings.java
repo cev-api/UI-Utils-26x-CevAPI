@@ -40,6 +40,9 @@ public final class UiUtilsSettings {
 				loaded.packetHudPosition = PacketHudPosition.OFF;
 			}
 			if (loaded != null) {
+				if (loaded.keyBinds == null)
+					loaded.keyBinds = new HashMap<>();
+				synchronizeLegacyKeybindFields(loaded);
 				loaded.packetHudEnabled = loaded.packetHudPosition.isEnabled();
 			}
 			data = loaded != null ? loaded : new Data();
@@ -47,6 +50,25 @@ public final class UiUtilsSettings {
 			LOGGER.warn("Failed to load UI Utils settings, using defaults.", e);
 			data = new Data();
 		}
+	}
+
+	private static void synchronizeLegacyKeybindFields(Data settings) {
+		settings.restoreKey = valueFromKeybinds(settings.keyBinds, "restore_gui",
+			settings.restoreKey);
+		settings.packetToolsKey = valueFromKeybinds(settings.keyBinds, "packet_tool",
+			settings.packetToolsKey);
+		settings.delayToggleKey = valueFromKeybinds(settings.keyBinds,
+			"delay_packets_toggle", settings.delayToggleKey);
+		settings.macroRunLastKey = valueFromKeybinds(settings.keyBinds,
+			"macro_run_last", settings.macroRunLastKey);
+		settings.macroStopKey = valueFromKeybinds(settings.keyBinds, "macro_stop",
+			settings.macroStopKey);
+	}
+
+	private static String valueFromKeybinds(Map<String, String> keyBinds,
+		String id, String fallback) {
+		String value = keyBinds.get(id);
+		return value == null ? fallback : value;
 	}
 
 	public static void save() {

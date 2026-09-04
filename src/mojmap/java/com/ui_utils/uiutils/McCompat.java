@@ -17,6 +17,15 @@ public final class McCompat {
 
 		Object gui = mc.gui;
 		if (gui != null) {
+			// In current Minecraft versions the active screen lives on Gui, not
+			// Minecraft. Use the mapped accessor so this also works after remapping.
+			try {
+				Screen screen = mc.gui.screen();
+				if (screen != null)
+					return screen;
+			} catch (Throwable ignored) {
+			}
+
 			try {
 				Method method = gui.getClass().getMethod("screen");
 				Object result = method.invoke(gui);
@@ -58,6 +67,12 @@ public final class McCompat {
 		Object gui = mc.gui;
 		if (gui == null)
 			return;
+
+		try {
+			mc.gui.setScreen(screen);
+			return;
+		} catch (Throwable ignored) {
+		}
 
 		try {
 			Method method = gui.getClass().getMethod("setScreen", Screen.class);
