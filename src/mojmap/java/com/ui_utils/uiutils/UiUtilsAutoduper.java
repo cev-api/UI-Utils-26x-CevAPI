@@ -893,7 +893,7 @@ public final class UiUtilsAutoduper {
 		}
 		InputConstants.Key key = parseKey(UiUtilsSettings.get().autoduperAbortKey,
 			"key.keyboard.space");
-		if(key != null && InputConstants.isKeyDown(mc.getWindow(), key.getValue())) {
+		if(McCompat.isKeyDown(mc, key)) {
 			abortHoldTicks++;
 			if(abortHoldTicks >= 60)
 				abort();

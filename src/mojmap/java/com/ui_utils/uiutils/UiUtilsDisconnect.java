@@ -2,6 +2,7 @@ package com.ui_utils.uiutils;
 
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import java.time.Instant;
+import java.lang.reflect.Field;
 import java.util.Locale;
 import java.util.Random;
 import net.minecraft.client.Minecraft;
@@ -17,7 +18,6 @@ import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
-import net.minecraft.network.protocol.game.ServerboundSwingPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
@@ -257,11 +257,29 @@ public final class UiUtilsDisconnect {
 	}
 
 	private static void sendSwingSpam(Minecraft mc, int count) {
-		if(mc.getConnection() == null)
+		if(mc.getConnection() == null || mc.player == null)
 			return;
 		for(int i = 0; i < count; i++)
-			mc.getConnection()
-				.send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+			swingCompat(mc);
+	}
+
+	private static void swingCompat(Minecraft mc) {
+		try {
+			for (java.lang.reflect.Method method : mc.player.getClass().getMethods()) {
+				if (!method.getName().equals("swing")) continue;
+				if (method.getParameterCount() == 1) {
+					method.invoke(mc.player, InteractionHand.MAIN_HAND);
+					return;
+				}
+				if (method.getParameterCount() == 3) {
+					Class<?> animationType = method.getParameterTypes()[1];
+					Field defaultAnimation = animationType.getField("DEFAULT");
+					method.invoke(mc.player, InteractionHand.MAIN_HAND, defaultAnimation.get(null), true);
+					return;
+				}
+			}
+		} catch (ReflectiveOperationException ignored) {
+		}
 	}
 
 	private static void sendDigSpam(Minecraft mc, int count) {

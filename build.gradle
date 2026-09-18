@@ -21,6 +21,9 @@ dependencies {
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 	implementation "net.fabricmc.fabric-api:fabric-rendering-v1:${project.fabric_version}"
+	// Minecraft provides the native libraries at runtime; keep the APIs available to javac.
+	compileOnly "org.lwjgl:lwjgl-glfw:3.4.1"
+	compileOnly "org.lwjgl:lwjgl-tinyfd:3.4.1"
 }
 
 sourceSets {

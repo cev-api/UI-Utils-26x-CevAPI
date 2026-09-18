@@ -6,6 +6,7 @@ import java.lang.reflect.Method;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.components.ChatComponent;
+import com.mojang.blaze3d.platform.InputConstants;
 
 public final class McCompat {
 	private McCompat() {
@@ -19,13 +20,6 @@ public final class McCompat {
 		if (gui != null) {
 			// In current Minecraft versions the active screen lives on Gui, not
 			// Minecraft. Use the mapped accessor so this also works after remapping.
-			try {
-				Screen screen = mc.gui.screen();
-				if (screen != null)
-					return screen;
-			} catch (Throwable ignored) {
-			}
-
 			try {
 				Method method = gui.getClass().getMethod("screen");
 				Object result = method.invoke(gui);
@@ -69,12 +63,6 @@ public final class McCompat {
 			return;
 
 		try {
-			mc.gui.setScreen(screen);
-			return;
-		} catch (Throwable ignored) {
-		}
-
-		try {
 			Method method = gui.getClass().getMethod("setScreen", Screen.class);
 			method.invoke(gui, screen);
 		} catch (ReflectiveOperationException ignored) {
@@ -88,6 +76,25 @@ public final class McCompat {
 		ChatComponent chat = getChatComponent(mc);
 		if (chat != null)
 			chat.addRecentChat(message);
+	}
+
+	/** Handles the InputConstants signature change between 26.1/26.2 and 26.3. */
+	public static boolean isKeyDown(Minecraft mc, InputConstants.Key key) {
+		if (mc == null || key == null)
+			return false;
+		try {
+			Method current = InputConstants.class.getMethod("isKeyDown", int.class);
+			return (boolean) current.invoke(null, key.getValue());
+		} catch (ReflectiveOperationException ignored) {
+		}
+		try {
+			for (Method method : InputConstants.class.getMethods()) {
+				if (method.getName().equals("isKeyDown") && method.getParameterCount() == 2)
+					return (boolean) method.invoke(null, mc.getWindow(), key.getValue());
+			}
+		} catch (ReflectiveOperationException ignored) {
+		}
+		return false;
 	}
 
 	private static ChatComponent getChatComponent(Minecraft mc) {

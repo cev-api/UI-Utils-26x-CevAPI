@@ -78,8 +78,7 @@ public final class UiUtils {
 	private static void updateKeybindEdges(Minecraft mc, boolean execute) {
 		for(KeybindAction action : keybindActions()) {
 			InputConstants.Key key = parseKey(getKeybind(action.id, action.defaultKey));
-			boolean down = key != null && mc.getWindow() != null
-				&& InputConstants.isKeyDown(mc.getWindow(), key.getValue());
+			boolean down = McCompat.isKeyDown(mc, key);
 			boolean wasDown = keyActionDown.getOrDefault(action.id, false);
 			if(execute && down && !wasDown
 				&& (action.alwaysAvailable || UiUtilsState.isUiEnabled()))

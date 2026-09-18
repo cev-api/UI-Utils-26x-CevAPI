@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.lang.reflect.Method;
 import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.RegistrySynchronization.PackedRegistryEntry;
@@ -125,7 +126,7 @@ public final class UiUtilsServerFingerprintCollector {
 			return;
 		}
 		if (packet instanceof ClientboundUpdateAdvancementsPacket advancementsPacket) {
-			captureAdvancements(advancementsPacket.getAdded());
+			captureAdvancements(advancementsPacket);
 			return;
 		}
 		if (packet instanceof ClientboundCustomChatCompletionsPacket completions) {
@@ -250,7 +251,7 @@ public final class UiUtilsServerFingerprintCollector {
 			serverConfig.put("maxPlayers", Integer.toString(packet.maxPlayers()));
 			serverConfig.put("chunkRadius", Integer.toString(packet.chunkRadius()));
 			serverConfig.put("simulationDistance", Integer.toString(packet.simulationDistance()));
-			serverConfig.put("onlineMode", Boolean.toString(packet.onlineMode()));
+			serverConfig.put("onlineMode", Boolean.toString(loginBoolean(packet, "onlineMode", "isOnlineMode")));
 			serverConfig.put("enforcesSecureChat", Boolean.toString(packet.enforcesSecureChat()));
 			serverConfig.put("gameMode", packet.commonPlayerSpawnInfo().gameType().getName());
 			serverConfig.put("seaLevel", Integer.toString(packet.commonPlayerSpawnInfo().seaLevel()));
@@ -259,12 +260,48 @@ public final class UiUtilsServerFingerprintCollector {
 		}
 	}
 
-	private static void captureAdvancements(Collection<AdvancementHolder> added) {
+	private static void captureAdvancements(ClientboundUpdateAdvancementsPacket packet) {
+		Object added = null;
+		try {
+			Method method = packet.getClass().getMethod("added");
+			added = method.invoke(packet);
+		} catch (ReflectiveOperationException ignored) {
+			try {
+				Method method = packet.getClass().getMethod("getAdded");
+				added = method.invoke(packet);
+			} catch (ReflectiveOperationException ignoredAgain) {
+			}
+		}
+		if (!(added instanceof Iterable<?> entries)) return;
 		synchronized (LOCK) {
-			for (AdvancementHolder holder : added) {
+			for (Object entry : entries) {
+				AdvancementHolder holder = entry instanceof AdvancementHolder direct ? direct : advancementHolder(entry);
+				if (holder == null) continue;
 				Identifier id = holder.id();
 				if (!"minecraft".equals(id.getNamespace())) addBounded(advancements, id.toString());
 			}
+		}
+	}
+
+	private static boolean loginBoolean(ClientboundLoginPacket packet, String... names) {
+		for (String name : names) {
+			try {
+				Method method = packet.getClass().getMethod(name);
+				Object value = method.invoke(packet);
+				if (value instanceof Boolean result) return result;
+			} catch (ReflectiveOperationException ignored) {
+			}
+		}
+		return false;
+	}
+
+	private static AdvancementHolder advancementHolder(Object positioned) {
+		try {
+			Method method = positioned.getClass().getMethod("advancement");
+			Object result = method.invoke(positioned);
+			return result instanceof AdvancementHolder holder ? holder : null;
+		} catch (ReflectiveOperationException ignored) {
+			return null;
 		}
 	}
 

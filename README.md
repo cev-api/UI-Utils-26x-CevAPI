@@ -20,9 +20,9 @@ Build with Gradle (Java 25+):
 ```
 
 Artifacts land in `build/libs/`.
-The default artifact version label is `26.1-26.2` to reflect the shared jar support range.
+The default artifact version label is `26.3_v0.10`.
 
-Default build target is Minecraft `26.2`, and the runtime compatibility layer keeps the jar working across `26.1.x` and `26.2.x`.
+Default build target is Minecraft `26.3`, and the runtime compatibility layer keeps the jar working across Minecraft `26.x` releases.
 If you want to compile specifically against `26.1.2`, you can still override the versions at build time:
 
 ```powershell
@@ -31,7 +31,7 @@ If you want to compile specifically against `26.1.2`, you can still override the
 
 ## Getting Started
 
-1. Install Fabric Loader and Fabric API for your Minecraft `26.1.x` or `26.2.x` installation.
+1. Install Fabric Loader and Fabric API for your Minecraft `26.x` installation.
 2. Drop the built jar from `build/libs/` into your `mods/` folder.
 3. Launch Minecraft. Open any container — the UI‑Utils toolbox appears on the left.
 
@@ -226,7 +226,7 @@ Path behavior:
 ## Notes on the Mojmap Migration
 
 - Entire codebase uses Mojang mappings for clarity and forward‑compat.
-- The current jar is built against 26.2 and includes runtime shims for 26.1.x screen/chat API differences.
+- The current jar is built against 26.3 and includes runtime shims for 26.x screen/chat API differences.
 - Packet types are discovered at runtime with a reflective catalog for resilience across dot‑releases.
 - APT’s UI is intentionally external for now to avoid churn in the in‑game widget APIs and keep the dual‑list UX snappy. May become internalised in the future.
 
