@@ -593,7 +593,7 @@ public final class UiUtilsSettingsScreen extends Screen {
 		@Override
 		public boolean mouseClicked(MouseButtonEvent context,
 			boolean doubleClick) {
-			if(!active || !visible || context.button() != 0)
+			if(!active || !visible || context.button() != McCompat.LEFT_BUTTON)
 				return false;
 			return updateFromMouse(context.x(), context.y());
 		}
@@ -601,7 +601,7 @@ public final class UiUtilsSettingsScreen extends Screen {
 		@Override
 		public boolean mouseDragged(MouseButtonEvent context, double dragX,
 			double dragY) {
-			if(!active || !visible || context.button() != 0)
+			if(!active || !visible || context.button() != McCompat.LEFT_BUTTON)
 				return false;
 			return updateFromMouse(context.x(), context.y());
 		}

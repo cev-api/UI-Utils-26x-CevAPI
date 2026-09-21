@@ -20,7 +20,7 @@ Build with Gradle (Java 25+):
 ```
 
 Artifacts land in `build/libs/`.
-The default artifact version label is `26.3_v0.10`.
+The default artifact version label is `26.3_v0.11`.
 
 Default build target is Minecraft `26.3`, and the runtime compatibility layer keeps the jar working across Minecraft `26.x` releases.
 If you want to compile specifically against `26.1.2`, you can still override the versions at build time:
@@ -73,19 +73,27 @@ If you want to compile specifically against `26.1.2`, you can still override the
   - Toggles for enabling modes as well as cycling through packet edit list
   - Delay is tick based
   - Searchable dual-list UI with select all/none controls
+  - Runs entirely in-game, with the full control set on one screen (modes, output, packet selection and delay)
   - Optional ```Show Unknown Packets``` feature to allow ```class_####``` packets
+  - Verbose mode dumps monitored packets with full per-field detail, including recursively expanded packet bundles
+  - Detailed decoding for item stacks and their data components, block states, registries and data values where available
+  - Decode coverage tracking reports which packet types are fully decoded, partially decoded or reflection-only
+  - Entity lifecycle tracking correlates spawn, motion, teleport, metadata, equipment and removal packets
+  - Batched log writes with a configurable flush interval, written as JSONL alongside an optional human-readable log
+  - Enabling logging reports the monitored type counts and log location to chat
   - Inspired by [HelixCraft's Packet Logger](https://github.com/HelixCraft/Fabric-Packet-Logger)
-  - Runs in an external desktop window for now (Swing)
-  - Open from the UI‑Utils overlay or by keybind (configurable in Settings)
+  - Open from the UI‑Utils overlay, by keybind (configurable in Settings) or via `.uiutils apt`
 ### Macro System (Beta)
   - A macro is a named automation script made of ordered steps (actions and wait conditions).
+  - The Macro Library provides Create New, Edit Selected, Delete Selected, Run Selected and Stop, plus import/export fields.
   - Macros can be saved, edited, duplicated, reordered, deleted, exported and imported.
+  - Actions include ```SEND_CHAT``` and ```SEND_COMMAND```; a leading ```/``` in ```SEND_CHAT``` is routed as a command.
   - The macro editor supports:
     - Add Action and Add Conditional pickers
     - Per-step controls: move up/down, duplicate, edit, delete
     - Scrollable step list with draggable scrollbar
     - Undo/redo for editor changes
-    - Run Once (temporary) and Run (saved macro)
+    - Loop toggle, plus Once (temporary) and Run (saved macro)
     - Optional keybind assignment per macro
   - The step options screen supports:
     - Context-aware fields per action type
@@ -226,9 +234,9 @@ Path behavior:
 ## Notes on the Mojmap Migration
 
 - Entire codebase uses Mojang mappings for clarity and forward‑compat.
-- The current jar is built against 26.3 and includes runtime shims for 26.x screen/chat API differences.
+- The current jar is built against 26.3 and includes runtime shims for 26.x input, screen and chat API differences.
 - Packet types are discovered at runtime with a reflective catalog for resilience across dot‑releases.
-- APT’s UI is intentionally external for now to avoid churn in the in‑game widget APIs and keep the dual‑list UX snappy. May become internalised in the future.
+- APT is fully in-game: a custom dual-list widget backs the packet pickers, and the packet dumping engine is ported from [Wurst7-CevAPI](https://github.com/cev-api/Wurst7-CevAPI).
 
 ## Credits
 

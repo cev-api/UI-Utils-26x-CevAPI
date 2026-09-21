@@ -217,7 +217,7 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent context, boolean doubleClick) {
-		if (context.button() == 0) {
+		if (context.button() == McCompat.LEFT_BUTTON) {
 			double mouseX = context.x();
 			double mouseY = context.y();
 
@@ -257,7 +257,7 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 
 	@Override
 	public boolean mouseDragged(MouseButtonEvent context, double dragX, double dragY) {
-		if (draggingScrollbar && context.button() == 0 && lastScrollbar.hasScroll) {
+		if (draggingScrollbar && context.button() == McCompat.LEFT_BUTTON && lastScrollbar.hasScroll) {
 			jumpScrollToMouse((int)Math.round(context.y()), scrollbarGrabOffset);
 			return true;
 		}
@@ -266,7 +266,7 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 
 	@Override
 	public boolean mouseReleased(MouseButtonEvent context) {
-		if (context.button() == 0 && draggingScrollbar) {
+		if (context.button() == McCompat.LEFT_BUTTON && draggingScrollbar) {
 			draggingScrollbar = false;
 		commandOutputVisible = false;
 		rebuildWidgets();

@@ -202,7 +202,7 @@ public final class UiUtilsMacroTypePickerScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent context, boolean doubleClick) {
-        if (context.button() == 0 && lastScrollbar.hasScroll && lastScrollbar.contains(context.x(), context.y())) {
+        if (context.button() == McCompat.LEFT_BUTTON && lastScrollbar.hasScroll && lastScrollbar.contains(context.x(), context.y())) {
             if (context.y() >= lastScrollbar.thumbY && context.y() <= lastScrollbar.thumbY + lastScrollbar.thumbH) {
                 draggingScrollbar = true;
                 scrollbarGrabOffset = (int)Math.max(0, Math.round(context.y()) - lastScrollbar.thumbY);
@@ -217,7 +217,7 @@ public final class UiUtilsMacroTypePickerScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent context, double dragX, double dragY) {
-        if (draggingScrollbar && context.button() == 0 && lastScrollbar.hasScroll) {
+        if (draggingScrollbar && context.button() == McCompat.LEFT_BUTTON && lastScrollbar.hasScroll) {
             jumpScrollToMouse((int)Math.round(context.y()), scrollbarGrabOffset);
             init();
             return true;
@@ -227,7 +227,7 @@ public final class UiUtilsMacroTypePickerScreen extends Screen {
 
     @Override
     public boolean mouseReleased(MouseButtonEvent context) {
-        if (context.button() == 0 && draggingScrollbar) {
+        if (context.button() == McCompat.LEFT_BUTTON && draggingScrollbar) {
             draggingScrollbar = false;
             return true;
         }

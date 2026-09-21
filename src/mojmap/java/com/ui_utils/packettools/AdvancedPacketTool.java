@@ -26,6 +26,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
+import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
 
 public final class AdvancedPacketTool {
 	private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
@@ -61,6 +64,32 @@ public final class AdvancedPacketTool {
 	private static boolean lastLoggingState;
 	private static Path currentLogFile;
 
+	// ---- Verbose mode (engine ported from Wurst's packet tools) ----
+	// Dumps the selected packet types at full detail. On by default; the per-type
+	// Log selection decides which types are monitored.
+	private static boolean verboseEnabled = true;
+	private static boolean verboseHumanReadable;
+	private static boolean verboseOutsideGame = true;
+	private static int verboseFlushInterval = 20;
+
+	private static final PacketDecodeCoverage decodeCoverage = new PacketDecodeCoverage();
+	private static final EntityLifecycleTracker lifecycleTracker = new EntityLifecycleTracker();
+	private static final PacketFilter packetFilter = new PacketFilter();
+	private static PacketDumper packetDumper;
+
+	private static Path currentVerboseJsonlFile;
+	private static Path currentVerboseHumanFile;
+
+	private static final List<String> verboseJsonlBuffer = new ArrayList<>(512);
+	private static final List<String> verboseHumanBuffer = new ArrayList<>(512);
+	private static int verboseFlushTickCounter;
+
+	/**
+	 * Handle for {@link PacketToolsScreen}. All tool state is static; this exists
+	 * so the ported screen keeps its original constructor shape.
+	 */
+	public static final AdvancedPacketTool INSTANCE = new AdvancedPacketTool();
+
 	private AdvancedPacketTool() {}
 
 	public static void init() {
@@ -72,10 +101,11 @@ public final class AdvancedPacketTool {
 		initialized = true;
 	}
 
+	/** Opens the in-game packet tool screen. */
 	public static void openScreen(net.minecraft.client.gui.screens.Screen parent) {
-		// Prefer an external Swing UI to avoid version-specific rendering issues
-		// and allow a more flexible layout matching the requested design.
-		AdvancedPacketToolFrame.open();
+		Minecraft mc = Minecraft.getInstance();
+		mc.execute(() -> com.ui_utils.uiutils.McCompat.setScreen(mc,
+			new PacketToolsScreen(parent, INSTANCE)));
 	}
 
 	public static void onTick() {
@@ -90,9 +120,36 @@ public final class AdvancedPacketTool {
 
 		lastDelayEnabledState = delayEnabled;
 
-		if (lastLoggingState && !loggingEnabled)
+		if (lastLoggingState != loggingEnabled) {
 			currentLogFile = null;
+			// Start a fresh verbose log next time logging is switched on, and drop
+			// anything buffered when it is switched off.
+			currentVerboseJsonlFile = null;
+			currentVerboseHumanFile = null;
+			discardVerboseBuffers();
+		}
 		lastLoggingState = loggingEnabled;
+
+		updateVerbose();
+	}
+
+	private static void updateVerbose() {
+		if (!loggingEnabled)
+			return;
+		lifecycleTracker.tick();
+		if (++verboseFlushTickCounter >= Math.max(1, verboseFlushInterval)) {
+			verboseFlushTickCounter = 0;
+			flushVerboseBuffers();
+		}
+	}
+
+	private static void discardVerboseBuffers() {
+		synchronized (verboseJsonlBuffer) {
+			verboseJsonlBuffer.clear();
+		}
+		synchronized (verboseHumanBuffer) {
+			verboseHumanBuffer.clear();
+		}
 	}
 
 	public static boolean onOutgoing(Packet<?> packet) {
@@ -110,6 +167,10 @@ public final class AdvancedPacketTool {
 
 		if (loggingEnabled && logC2S.contains(name))
 			logPacket(name, "C2S", packet);
+
+		if (loggingEnabled && verboseEnabled
+			&& (logC2S.contains(name) || (verboseOutsideGame && isOutsideGame())))
+			verboseDump("C2S", packet);
 
 		if (denyEnabled && denyC2S.contains(name))
 			return false;
@@ -134,6 +195,13 @@ public final class AdvancedPacketTool {
 
 		if (loggingEnabled && logS2C.contains(name))
 			logPacket(name, "S2C", packet);
+
+		if (loggingEnabled) {
+			if (verboseEnabled && (logS2C.contains(name)
+				|| (verboseOutsideGame && isOutsideGame())))
+				verboseDump("S2C", packet);
+			trackEntityPacket(packet);
+		}
 
 		if (denyEnabled && denyS2C.contains(name))
 			return false;
@@ -173,6 +241,24 @@ public final class AdvancedPacketTool {
 	public static void setLoggingEnabled(boolean value) {
 		loggingEnabled = value;
 		saveSelectionConfig();
+		if (value) {
+			// Surfaces the two common reasons a verbose log looks empty: nothing
+			// selected, and verbose switched off.
+			UiUtils.chatIfEnabled("Packet logging ON - " + logS2C.size() + " S2C / "
+				+ logC2S.size() + " C2S types selected, verbose=" + verboseEnabled
+				+ ", logs: " + LOG_DIR);
+		}
+	}
+
+	public static boolean isVerboseEnabled() {
+		return verboseEnabled;
+	}
+
+	public static void setVerboseEnabled(boolean value) {
+		if (!value)
+			discardVerboseBuffers();
+		verboseEnabled = value;
+		saveSelectionConfig();
 	}
 
 	public static void setDenyEnabled(boolean value) {
@@ -198,6 +284,45 @@ public final class AdvancedPacketTool {
 	public static void setDelayTicks(int value) {
 		delayTicks = Math.max(0, Math.min(9999, value));
 		saveSelectionConfig();
+	}
+
+	public static boolean isVerboseHumanReadable() {
+		return verboseHumanReadable;
+	}
+
+	public static void setVerboseHumanReadable(boolean value) {
+		verboseHumanReadable = value;
+		saveSelectionConfig();
+	}
+
+	public static boolean isVerboseOutsideGame() {
+		return verboseOutsideGame;
+	}
+
+	public static void setVerboseOutsideGame(boolean value) {
+		verboseOutsideGame = value;
+		saveSelectionConfig();
+	}
+
+	public static int getVerboseFlushInterval() {
+		return verboseFlushInterval;
+	}
+
+	public static void setVerboseFlushInterval(int value) {
+		verboseFlushInterval = Math.max(1, Math.min(200, value));
+		saveSelectionConfig();
+	}
+
+	public static PacketDecodeCoverage getDecodeCoverage() {
+		return decodeCoverage;
+	}
+
+	public static EntityLifecycleTracker getLifecycleTracker() {
+		return lifecycleTracker;
+	}
+
+	public static PacketFilter getPacketFilter() {
+		return packetFilter;
 	}
 
 	public static Set<String> getLogSet(PacketDirection direction) {
@@ -382,6 +507,139 @@ public final class AdvancedPacketTool {
 		return System.currentTimeMillis() / 50L;
 	}
 
+	/**
+	 * True while the client is connecting or before the world/player exists.
+	 */
+	private static boolean isOutsideGame() {
+		Minecraft mc = Minecraft.getInstance();
+		return mc.level == null || mc.player == null;
+	}
+
+	private static void verboseDump(String direction, Packet<?> packet) {
+		try {
+			if (packetDumper == null)
+				packetDumper = new PacketDumper(decodeCoverage, packetFilter, lifecycleTracker);
+			List<String> lines = packetDumper.dumpRecursive(packet, direction, null);
+			if (lines == null || lines.isEmpty())
+				return;
+			synchronized (verboseJsonlBuffer) {
+				verboseJsonlBuffer.addAll(lines);
+			}
+			if (verboseHumanReadable)
+				synchronized (verboseHumanBuffer) {
+					for (String line : lines)
+						verboseHumanBuffer.add(toHumanReadable(line));
+				}
+		} catch (Throwable t) {
+			UiUtils.LOGGER.warn("Verbose packet dump failed for {}",
+				packet.getClass().getSimpleName(), t);
+		}
+	}
+
+	/** Flattens a dumped JSON line into a readable "Time DIR Class key=value ..." line. */
+	private static String toHumanReadable(String jsonLine) {
+		try {
+			JsonObject obj = JsonParser.parseString(jsonLine).getAsJsonObject();
+			StringBuilder sb = new StringBuilder();
+			if (obj.has("timestamp"))
+				sb.append(obj.get("timestamp").getAsString()).append(' ');
+			if (obj.has("direction"))
+				sb.append(obj.get("direction").getAsString()).append(' ');
+			sb.append(obj.has("simpleName")
+				? obj.get("simpleName").getAsString() : "Packet");
+			if (obj.has("packetId"))
+				sb.append(" [").append(obj.get("packetId").getAsString()).append(']');
+			if (obj.has("bundlePath"))
+				sb.append(" bundle=").append(obj.get("bundlePath").getAsString());
+			if (obj.has("fields") && obj.get("fields").isJsonObject())
+				for (var entry : obj.getAsJsonObject("fields").entrySet())
+					sb.append(' ').append(entry.getKey()).append('=')
+						.append(entry.getValue());
+			return sb.toString();
+		} catch (Exception e) {
+			return jsonLine;
+		}
+	}
+
+	private static void flushVerboseBuffers() {
+		// Defensive: never write verbose output while logging is switched off.
+		if (!loggingEnabled) {
+			discardVerboseBuffers();
+			return;
+		}
+		try {
+			List<String> jsonl;
+			synchronized (verboseJsonlBuffer) {
+				jsonl = new ArrayList<>(verboseJsonlBuffer);
+				verboseJsonlBuffer.clear();
+			}
+			if (!jsonl.isEmpty()) {
+				if (currentVerboseJsonlFile == null)
+					currentVerboseJsonlFile = LOG_DIR.resolve("verbose-"
+						+ LocalDateTime.now().format(FILE_TIME_FORMAT) + ".jsonl");
+				Files.createDirectories(LOG_DIR);
+				writeLines(currentVerboseJsonlFile, jsonl);
+			}
+
+			if (verboseHumanReadable) {
+				List<String> human;
+				synchronized (verboseHumanBuffer) {
+					human = new ArrayList<>(verboseHumanBuffer);
+					verboseHumanBuffer.clear();
+				}
+				if (!human.isEmpty()) {
+					if (currentVerboseHumanFile == null)
+						currentVerboseHumanFile = LOG_DIR.resolve("verbose-"
+							+ LocalDateTime.now().format(FILE_TIME_FORMAT) + ".log");
+					Files.createDirectories(LOG_DIR);
+					writeLines(currentVerboseHumanFile, human);
+				}
+			}
+		} catch (IOException e) {
+			UiUtils.LOGGER.warn("Failed to flush verbose packet log", e);
+		}
+	}
+
+	private static void writeLines(Path file, List<String> lines) throws IOException {
+		try (Writer writer = Files.newBufferedWriter(file,
+			StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
+			for (String line : lines) {
+				writer.write(line);
+				writer.write("\n");
+			}
+		}
+	}
+
+	private static void trackEntityPacket(Packet<?> packet) {
+		try {
+			if (packet instanceof ClientboundAddEntityPacket add) {
+				lifecycleTracker.onAddEntity(add);
+				return;
+			}
+			if (packet instanceof ClientboundRemoveEntitiesPacket remove) {
+				lifecycleTracker.onRemoveEntities(remove);
+				return;
+			}
+			if (packet instanceof ClientboundPlayerInfoUpdatePacket info) {
+				lifecycleTracker.onPlayerInfoUpdate(info);
+				return;
+			}
+			String simple = packet.getClass().getSimpleName();
+			if (simple.startsWith("Clientbound") && simple.contains("Entity"))
+				lifecycleTracker.onEntityPacket(packet, simple);
+		} catch (Throwable ignored) {
+		}
+	}
+
+	public static void printCoverageReport() {
+		for (String line : decodeCoverage.buildReport().split("\n"))
+			UiUtils.chatIfEnabled(line);
+	}
+
+	public static void printEntitySummary() {
+		UiUtils.chatIfEnabled(lifecycleTracker.buildSummary());
+	}
+
 	public static synchronized void saveSelectionConfig() {
 		JsonObject root = new JsonObject();
 		root.addProperty("loggingEnabled", loggingEnabled);
@@ -390,6 +648,10 @@ public final class AdvancedPacketTool {
 		root.addProperty("fileOutput", fileOutput);
 		root.addProperty("showUnknownPackets", showUnknownPackets);
 		root.addProperty("delayTicks", delayTicks);
+		root.addProperty("verboseEnabled", verboseEnabled);
+		root.addProperty("verboseHumanReadable", verboseHumanReadable);
+		root.addProperty("verboseOutsideGame", verboseOutsideGame);
+		root.addProperty("verboseFlushInterval", verboseFlushInterval);
 		root.add("logS2C", toJsonArray(logS2C));
 		root.add("logC2S", toJsonArray(logC2S));
 		root.add("denyS2C", toJsonArray(denyS2C));
@@ -409,8 +671,11 @@ public final class AdvancedPacketTool {
 	}
 
 	private static synchronized void loadSelectionConfig() {
-		if (!Files.exists(CONFIG_FILE))
+		if (!Files.exists(CONFIG_FILE)) {
+			// First run: monitor every packet type by default.
+			seedLogSelection();
 			return;
+		}
 
 		try {
 			JsonObject root = JsonParser.parseReader(Files.newBufferedReader(CONFIG_FILE)).getAsJsonObject();
@@ -420,6 +685,10 @@ public final class AdvancedPacketTool {
 			fileOutput = getBoolean(root, "fileOutput", false);
 			showUnknownPackets = getBoolean(root, "showUnknownPackets", false);
 			delayTicks = Math.max(0, Math.min(9999, getInt(root, "delayTicks", 5)));
+			verboseEnabled = getBoolean(root, "verboseEnabled", true);
+			verboseHumanReadable = getBoolean(root, "verboseHumanReadable", false);
+			verboseOutsideGame = getBoolean(root, "verboseOutsideGame", true);
+			verboseFlushInterval = Math.max(1, Math.min(200, getInt(root, "verboseFlushInterval", 20)));
 			loadSet(root, "logS2C", logS2C);
 			loadSet(root, "logC2S", logC2S);
 			loadSet(root, "denyS2C", denyS2C);
@@ -429,6 +698,16 @@ public final class AdvancedPacketTool {
 		} catch (Exception e) {
 			UiUtils.LOGGER.warn("Failed to load packet tool config", e);
 		}
+	}
+
+	/**
+	 * Defaults the Log selection to every known packet type. Deny and Delay are
+	 * deliberately left empty - defaulting those to "all" would block or hold
+	 * every packet.
+	 */
+	private static void seedLogSelection() {
+		logS2C.addAll(PacketCatalog.getS2CNames());
+		logC2S.addAll(PacketCatalog.getC2SNames());
 	}
 
 	private static boolean getBoolean(JsonObject root, String key, boolean fallback) {

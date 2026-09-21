@@ -26,6 +26,13 @@ public final class McCompat {
 	private static final int GLFW_KEY_BACKSPACE = 259;
 	private static final int GLFW_KEY_DELETE = 261;
 
+	/**
+	 * Left mouse button id for the running version. 26.3's SDL backend reports 1
+	 * (vanilla's own isValidClickButton compares against 1), whereas the older
+	 * GLFW-based versions reported 0.
+	 */
+	public static final int LEFT_BUTTON = InputConstants.MOUSE_BUTTON_LEFT;
+
 	private McCompat() {
 	}
 

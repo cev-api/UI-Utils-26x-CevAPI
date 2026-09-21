@@ -84,7 +84,7 @@ public final class UiUtilsVerboseServerScanScreen extends Screen {
 	}
 
 	@Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-		if (event.button() == 0 && event.x() >= scrollbarX && event.x() <= scrollbarX + 4
+		if (event.button() == McCompat.LEFT_BUTTON && event.x() >= scrollbarX && event.x() <= scrollbarX + 4
 			&& event.y() >= scrollbarTop && event.y() <= scrollbarBottom && scrollbarMaxScroll > 0) {
 			int travel = Math.max(1, scrollbarBottom - scrollbarTop - scrollbarThumbHeight);
 			double ratio = Math.max(0.0D, Math.min(1.0D,

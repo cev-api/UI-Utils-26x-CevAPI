@@ -69,10 +69,10 @@ public final class UiUtilsMacrosScreen extends Screen {
         int gap = rowGap();
         int visibleRows = visibleRows(row, gap);
         int top = contentTop(row, gap, visibleRows);
-        int controlButtonWidth = width < 360 ? 18 : 22;
-        int controlGap = width < 360 ? 2 : 2;
+        int controlButtonWidth = controlButtonWidth();
+        int controlGap = CONTROL_GAP;
         int controlsWidth = 5 * controlButtonWidth + 4 * controlGap;
-        int rowWidth = Math.max(120, width - controlsWidth - 6);
+        int rowWidth = stepRowWidth();
         int half = (width - gap) / 2;
 
         nameField = new EditBox(this.font, left, top + row + gap, width, row, Component.literal("Macro Name"));
@@ -81,20 +81,28 @@ public final class UiUtilsMacrosScreen extends Screen {
         addRenderableWidget(nameField);
 
         int y = top + (row + gap) * 2;
+        // Five controls span the panel width, matching the footer row and the
+        // Add Action / Add Conditional row.
+        int topGap = width < 420 ? gap : 4;
+        int fifth = (width - topGap * 4) / 5;
+
         addRenderableWidget(UiUtils.styledButton(bindLabel(), b -> {
             waitingForBindKey = true;
             status = "Press a key (ESC clears)";
-        }, left, y, 84, row));
+        }, left, y, fifth, row));
 
         addRenderableWidget(UiUtils.styledButton(loopToggleLabel(), b -> {
             pushUndo();
             editing.loop = !editing.loop;
             rebuild();
-        }, left + 88, y, 64, row));
+        }, left + (fifth + topGap), y, fifth, row));
 
-        addRenderableWidget(UiUtils.styledButton("Once", b -> runOnce(), left + 156, y, 56, row));
-        addRenderableWidget(UiUtils.styledButton("Run", b -> runEditing(), left + 216, y, 56, row));
-        addRenderableWidget(UiUtils.styledButton("Stop", b -> UiUtilsMacroExecutor.stop(), left + 276, y, 56, row));
+        addRenderableWidget(UiUtils.styledButton("Once", b -> runOnce(),
+            left + (fifth + topGap) * 2, y, fifth, row));
+        addRenderableWidget(UiUtils.styledButton("Run", b -> runEditing(),
+            left + (fifth + topGap) * 3, y, fifth, row));
+        addRenderableWidget(UiUtils.styledButton("Stop", b -> UiUtilsMacroExecutor.stop(),
+            left + (fifth + topGap) * 4, y, fifth, row));
 
         y += row + gap + 2;
         addRenderableWidget(UiUtils.styledButton("Add Action", b ->
@@ -428,7 +436,7 @@ public final class UiUtilsMacrosScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent context, boolean doubleClick) {
-        if (context.button() == 0 && lastScrollbar.hasScroll && lastScrollbar.contains(context.x(), context.y())) {
+        if (context.button() == McCompat.LEFT_BUTTON && lastScrollbar.hasScroll && lastScrollbar.contains(context.x(), context.y())) {
             if (context.y() >= lastScrollbar.thumbY && context.y() <= lastScrollbar.thumbY + lastScrollbar.thumbH) {
                 draggingScrollbar = true;
                 scrollbarGrabOffset = (int)Math.max(0, Math.round(context.y()) - lastScrollbar.thumbY);
@@ -438,12 +446,39 @@ public final class UiUtilsMacrosScreen extends Screen {
             }
             return true;
         }
+        // Hit-test the step list here rather than relying on getChildAt() dispatch.
+        if (context.button() == McCompat.LEFT_BUTTON && handleStepClick(context.x(), context.y(), doubleClick))
+            return true;
         return super.mouseClicked(context, doubleClick);
+    }
+
+    private boolean handleStepClick(double mouseX, double mouseY, boolean doubleClick) {
+        int width = panelWidth();
+        int left = (this.width - width) / 2;
+        int row = rowHeight();
+        int gap = rowGap();
+        int visibleRows = visibleRows(row, gap);
+        int listTop = contentTop(row, gap, visibleRows) + (row + gap) * 4 + 2;
+        // Bound to the step row only. The ^ v D E X buttons sit to the right of it
+        // inside the panel, so a wider bound would swallow their clicks.
+        if (mouseX < left || mouseX > left + stepRowWidth() || mouseY < listTop)
+            return false;
+        int rowIndex = (int)((mouseY - listTop) / (row + gap));
+        if (rowIndex < 0 || rowIndex >= visibleRows)
+            return false;
+        int idx = stepOffset + rowIndex;
+        if (idx < 0 || idx >= editing.actions.size())
+            return false;
+        selectedStep = idx;
+        refreshRows();
+        if (doubleClick)
+            editStep(idx);
+        return true;
     }
 
     @Override
     public boolean mouseDragged(MouseButtonEvent context, double dragX, double dragY) {
-        if (draggingScrollbar && context.button() == 0 && lastScrollbar.hasScroll) {
+        if (draggingScrollbar && context.button() == McCompat.LEFT_BUTTON && lastScrollbar.hasScroll) {
             jumpScrollToMouse((int)Math.round(context.y()), scrollbarGrabOffset);
             refreshRows();
             return true;
@@ -453,7 +488,7 @@ public final class UiUtilsMacrosScreen extends Screen {
 
     @Override
     public boolean mouseReleased(MouseButtonEvent context) {
-        if (context.button() == 0 && draggingScrollbar) {
+        if (context.button() == McCompat.LEFT_BUTTON && draggingScrollbar) {
             draggingScrollbar = false;
             return true;
         }
@@ -502,7 +537,7 @@ public final class UiUtilsMacrosScreen extends Screen {
         public boolean mouseClicked(MouseButtonEvent context, boolean doubleClick) {
             // 26.3 resolves clicks through getChildAt(), but keep the hit test so the
             // row still behaves like a normal widget if the dispatch model changes.
-            if (!active || !visible || context.button() != 0) return false;
+            if (!active || !visible || context.button() != McCompat.LEFT_BUTTON) return false;
             if (!isMouseOver(context.x(), context.y())) return false;
             int idx = stepOffset + row;
             if (idx < 0 || idx >= editing.actions.size()) return false;
@@ -557,6 +592,18 @@ public final class UiUtilsMacrosScreen extends Screen {
 
     private int panelWidth() {
         return Math.min(500, Math.max(220, this.width - 20));
+    }
+
+    private static final int CONTROL_GAP = 2;
+
+    private int controlButtonWidth() {
+        return panelWidth() < 360 ? 18 : 22;
+    }
+
+    /** Width of one step row; the row controls occupy the space to its right. */
+    private int stepRowWidth() {
+        return Math.max(120, panelWidth()
+            - (5 * controlButtonWidth() + 4 * CONTROL_GAP) - 6);
     }
 
     private int rowHeight() {
