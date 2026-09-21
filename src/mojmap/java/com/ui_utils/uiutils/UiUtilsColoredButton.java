@@ -14,6 +14,7 @@ public final class UiUtilsColoredButton extends AbstractButton {
 	}
 
 	private final PressAction onPress;
+	private int tint;
 
 	public UiUtilsColoredButton(int x, int y, int width, int height,
 		Component message, PressAction onPress) {
@@ -25,6 +26,16 @@ public final class UiUtilsColoredButton extends AbstractButton {
 		String label, PressAction onPress) {
 		return new UiUtilsColoredButton(x, y, width, height,
 			Component.literal(label), onPress);
+	}
+
+	/** Overrides the configured button colour with a state-specific tint. */
+	public UiUtilsColoredButton tint(int rgb) {
+		this.tint = rgb & 0xFFFFFF;
+		return this;
+	}
+
+	public int tint() {
+		return tint;
 	}
 
 	@Override
@@ -40,7 +51,8 @@ public final class UiUtilsColoredButton extends AbstractButton {
 		int w = getWidth();
 		int h = getHeight();
 
-		int baseRgb = UiUtilsSettings.get().uiButtonColor & 0xFFFFFF;
+		int baseRgb = tint != 0 ? tint
+			: (UiUtilsSettings.get().uiButtonColor & 0xFFFFFF);
 		float mult = !active ? 0.45F : (isHoveredOrFocused() ? 1.15F : 1.0F);
 		int fill = 0xFF000000 | scaleRgb(baseRgb, mult);
 		int border = 0xFF000000 | scaleRgb(baseRgb, active ? 0.60F : 0.35F);

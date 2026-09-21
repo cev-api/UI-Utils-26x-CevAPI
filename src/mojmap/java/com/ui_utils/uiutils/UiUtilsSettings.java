@@ -42,6 +42,8 @@ public final class UiUtilsSettings {
 			if (loaded != null) {
 				if (loaded.keyBinds == null)
 					loaded.keyBinds = new HashMap<>();
+				if (loaded.guiPacketModes == null)
+					loaded.guiPacketModes = new HashMap<>();
 				synchronizeLegacyKeybindFields(loaded);
 				loaded.packetHudEnabled = loaded.packetHudPosition.isEnabled();
 			}
@@ -115,6 +117,16 @@ public final class UiUtilsSettings {
 		public int uiButtonTextColor = 0xFFFFFF;
 
 		public int fabricateOverlayBgAlpha = 120;
+
+		// Focused GUI (container) packet logger + per-packet Allow/Drop/Delay rules
+		public boolean guiPacketLogEnabled = true;
+		public boolean guiPacketLogToFile = true;
+		public int guiPacketDelayTicks = 1;
+		public Map<String, String> guiPacketModes = new HashMap<>();
+
+		//Wurst-style Steal / Store / Dump buttons on container screens.
+		public boolean showStealDumpButtons = true;
+		public int stealStoreDumpDelayMs = 100;
 
 		// Wurst-style command scanner options
 		public String commandScannerMode = "PACKET_PROBING";

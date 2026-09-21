@@ -55,7 +55,7 @@ public final class UiUtilsScanHistory {
 		record(serverKey, scanType, current);
 	}
 
-	// ### ADDED ### Compact verbose fingerprint history; no raw packet or NBT data is persisted.
+	// Compact verbose fingerprint history; no raw packet or NBT data is persisted.
 	public static void recordVerboseFingerprint(String serverKey,
 		UiUtilsServerFingerprintCollector.Snapshot snapshot) {
 		Map<String, Entry> current = new LinkedHashMap<>();
@@ -116,7 +116,7 @@ public final class UiUtilsScanHistory {
 		Set<String> allKeys = new LinkedHashSet<>(previous.keySet());
 		allKeys.addAll(current.keySet());
 
-		// ### MODIFIED ### Keep one bounded result per scan type instead of appending every scan.
+		// Keep one bounded result per scan type instead of appending every scan.
 		JsonArray retained = new JsonArray();
 		for (JsonElement element : history) {
 			if (!element.isJsonObject() || !scanType.equals(getString(element.getAsJsonObject(), "type")))

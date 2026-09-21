@@ -52,6 +52,7 @@ public final class UiUtils {
 		UiUtilsPluginScanner.init();
 		UiUtilsLegacyPluginScanner.init();
 		UiUtilsMacroManager.get();
+		UiUtilsGuiPacketControl.loadFromSettings();
 		initialized = true;
 	}
 
@@ -63,6 +64,11 @@ public final class UiUtils {
 		UiUtilsCommandScanner.onTick();
 		UiUtilsDisconnect.onClientTick(mc);
 		UiUtilsAutoduper.onClientTick(mc);
+		UiUtilsTimedClickSlot.onClientTick(mc);
+		UiUtilsContainerTransfer.onClientTick(mc);
+		UiUtilsPanels.onClientTick(mc);
+		UiUtilsVersionChecker.onClientTick(mc);
+		UiUtilsGuiPacketLog.flush();
 		if (mc == null || mc.getWindow() == null)
 			return;
 
@@ -182,6 +188,8 @@ public final class UiUtils {
 			new KeybindAction("pop_last", "Pop Last", "", false),
 			new KeybindAction("send_chat_box", "Send Chat Field", "", false)
 			,
+			new KeybindAction("fabricate_panel", "Fabricate Packet Panel", "", true),
+			new KeybindAction("gui_tools_panel", "GUI Tools Panel", "", true),
 			new KeybindAction("macro_run_last", "Run Last Macro", UiUtilsSettings.get().macroRunLastKey, true),
 			new KeybindAction("macro_stop", "Stop Macro", UiUtilsSettings.get().macroStopKey, true)
 		);
@@ -255,6 +263,10 @@ public final class UiUtils {
 			case "send_one" -> chatIfEnabled(sendOneQueuedPacket(mc) ? "Sent one queued packet" : "No queued packets to send");
 			case "pop_last" -> chatIfEnabled(popLastQueuedPacket() ? "Removed last queued packet" : "No queued packets to remove");
 			case "send_chat_box" -> sendCurrentChatField(mc);
+			case "fabricate_panel" ->
+				UiUtilsPanels.toggleFabricator(McCompat.getScreen(mc));
+			case "gui_tools_panel" ->
+				UiUtilsPanels.toggleTools(McCompat.getScreen(mc));
 			case "macro_run_last" -> {
 				String macroName = UiUtilsSettings.get().lastMacroName;
 				if (macroName != null && !macroName.isBlank())
@@ -285,7 +297,7 @@ public final class UiUtils {
 		chatIfEnabled("Left GUI and sent queued packets (" + sent + ")");
 	}
 
-	private static void disconnectAndSendPackets(Minecraft mc) {
+	public static void disconnectAndSendPackets(Minecraft mc) {
 		int sent = sendQueuedPackets(mc, 1);
 		UiUtilsState.delayUiPackets = false;
 		UiUtilsState.delayedUiPackets.clear();
@@ -358,14 +370,6 @@ public final class UiUtils {
 			.append(Component.literal(rest).withColor(bodyColor));
 	}
 
-	public static void renderSyncInfo(Minecraft mc, GuiGraphicsExtractor graphics,
-		AbstractContainerMenu menu) {
-		if (menu == null)
-			return;
-		graphics.text(mc.font, "Sync Id: " + menu.containerId, 200, 5, 0xFFFFFF, false);
-		graphics.text(mc.font, "Revision: " + menu.getStateId(), 200, 35, 0xFFFFFF, false);
-	}
-
 	public static float fitTextScale(Font font, String text, int maxWidth,
 		int maxHeight, float minScale) {
 		if (font == null || text == null || text.isEmpty())
@@ -411,11 +415,24 @@ public final class UiUtils {
 	}
 
 	public static boolean saveCurrentGuiToSlot(Minecraft mc, String slot) {
+		String name = "";
+		try {
+			Screen screen = McCompat.getScreen(mc);
+			if (screen != null && screen.getTitle() != null)
+				name = screen.getTitle().getString();
+		} catch (Throwable ignored) {
+		}
+		return saveCurrentGuiToSlot(mc, slot, name);
+	}
+
+	public static boolean saveCurrentGuiToSlot(Minecraft mc, String slot,
+		String guiName) {
 		if (mc.player == null)
 			return false;
 		String key = slot.toLowerCase(Locale.ROOT);
 		UiUtilsState.storedScreen = McCompat.getScreen(mc);
 		UiUtilsState.storedMenu = mc.player.containerMenu;
+		UiUtilsState.storedGuiName = guiName == null ? "" : guiName;
 		UiUtilsState.savedScreens.put(key, UiUtilsState.storedScreen);
 		UiUtilsState.savedMenus.put(key, mc.player.containerMenu);
 		return true;
@@ -503,7 +520,7 @@ public final class UiUtils {
 		final int naturalSpacing = spacing;
 		final int naturalFullWidth = 160;
 		final int naturalChatHeight = 20;
-		final int rowCount = 20;
+		final int rowCount = 22;
 		double scale = Math.min(1.0D, Math.min(
 			maxHeight / (double)(rowCount * naturalRowHeight
 				+ (rowCount - 1) * naturalSpacing + naturalChatHeight + naturalSpacing),
@@ -560,31 +577,15 @@ public final class UiUtils {
 		}));
 		rows.add(UiWidgetRow.single("Leave & Send Packets", b -> leaveAndSendPackets(mc)));
 		rows.add(UiWidgetRow.single("Disconnect & Send Packets", b -> disconnectAndSendPackets(mc)));
-		rows.add(UiWidgetRow.single("Fabricate Packet", b -> {
-			if (McCompat.getScreen(mc) instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen) {
-				UiUtilsState.fabricateOverlayOpen = !UiUtilsState.fabricateOverlayOpen;
-				chatIfEnabled("Fabricate overlay: " + (UiUtilsState.fabricateOverlayOpen ? "opened" : "closed"));
-			} else {
-				chatIfEnabled("Fabricate packet works inside container screens.");
-			}
-		}));
-		rows.add(UiWidgetRow.single("Copy GUI Title JSON", b -> {
-			try {
-				Screen screen = McCompat.getScreen(mc);
-				if (screen == null)
-					throw new IllegalStateException("Minecraft screen was null.");
-				String json = new Gson().toJson(ComponentSerialization.CODEC.encodeStart(JsonOps.INSTANCE, screen.getTitle()).getOrThrow());
-				mc.keyboardHandler.setClipboard(json);
-				chatIfEnabled("Copied GUI title JSON to clipboard");
-			} catch (IllegalStateException e) {
-				LOGGER.error("Error while copying title JSON to clipboard", e);
-				chatIfEnabled("Failed to copy GUI title JSON");
-			}
-		}));
+		rows.add(UiWidgetRow.single("Fabricate Packet", b ->
+			UiUtilsPanels.toggleFabricator(McCompat.getScreen(mc))));
+		rows.add(UiWidgetRow.single("GUI Tools", b ->
+			UiUtilsPanels.toggleTools(McCompat.getScreen(mc))));
 		rows.add(UiWidgetRow.pair(
 			new UiWidgetButton("Save GUI", halfWidth, b -> {
 				if (saveCurrentGuiToSlot(mc, defaultSlot))
-					chatIfEnabled("Saved GUI to slot \"" + defaultSlot + "\"");
+					chatIfEnabled("Saved GUI to slot \"" + defaultSlot + "\" ("
+						+ UiUtilsGuiCache.status(mc).label() + ")");
 			}),
 			new UiWidgetButton("Load GUI", halfWidth, b -> {
 				if (loadGuiFromSlot(mc, defaultSlot))
@@ -592,6 +593,14 @@ public final class UiUtils {
 				else
 					chatIfEnabled("No saved GUI in slot \"" + defaultSlot + "\"");
 			})));
+		rows.add(UiWidgetRow.pair(
+			new UiWidgetButton("Clear GUI Cache", halfWidth, b -> {
+				chatIfEnabled(UiUtilsGuiCache.clear()
+					? "Cleared saved GUI cache" : "No saved GUI to clear");
+			}),
+			new UiWidgetButton("GUI Packet Log", halfWidth,
+				b -> McCompat.setScreen(mc,
+					new UiUtilsGuiPacketLogScreen(McCompat.getScreen(mc))))));
 		rows.add(UiWidgetRow.pair(
 			new UiWidgetButton("Clear Queue", halfWidth, b -> {
 				int cleared = clearQueuedPackets();

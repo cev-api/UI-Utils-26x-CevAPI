@@ -10,6 +10,8 @@ package com.ui_utils.mixin.ui_utils;
 import com.ui_utils.packettools.AdvancedPacketTool;
 import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsDisconnect;
+import com.ui_utils.uiutils.UiUtilsGuiPacketControl;
+import com.ui_utils.uiutils.UiUtilsGuiPacketLog;
 import com.ui_utils.uiutils.PacketHud;
 import com.ui_utils.uiutils.UiUtilsState;
 import com.ui_utils.uiutils.macro.UiUtilsMacroRuntimeState;
@@ -40,6 +42,33 @@ public class UiUtilsConnectionMixin {
 			ci.cancel();
 			return;
 		}
+
+		// Focused GUI traffic log plus the per-packet Allow/Drop/Delay rules.
+		if (UiUtilsState.isUiEnabled()) {
+			if (UiUtilsGuiPacketLog.isEnabled())
+				UiUtilsGuiPacketLog.recordOutgoing(packet);
+			if (UiUtilsGuiPacketControl.handles(packet)) {
+				if (UiUtilsGuiPacketControl.shouldDrop(packet)) {
+					UiUtils.LOGGER.info(
+						"GUI packet control: dropped {}", packet.getClass().getSimpleName());
+					UiUtils.chatIfEnabled("Dropped "
+						+ UiUtilsGuiPacketControl.describe(packet));
+					ci.cancel();
+					return;
+				}
+				if (UiUtilsGuiPacketControl.shouldDelay(packet)) {
+					UiUtilsState.delayedUiPackets.add(packet);
+					UiUtils.refreshQueueCounterButtons();
+					UiUtils.LOGGER.info(
+						"GUI packet control: delayed {} (queued {})",
+						packet.getClass().getSimpleName(),
+						UiUtilsState.delayedUiPackets.size());
+					ci.cancel();
+					return;
+				}
+			}
+		}
+
 		if (!UiUtilsState.isUiEnabled())
 			return;
 

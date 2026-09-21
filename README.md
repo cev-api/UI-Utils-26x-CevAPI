@@ -1,8 +1,9 @@
 # UI-Utils 26x CevAPI
 
-![26.1](https://i.imgur.com/RoXogYx.png)
-![Plugin](https://i.imgur.com/vOyTsYx.png)
-![Macro](https://i.imgur.com/9H2JbKC.png)
+![26.3](https://i.imgur.com/Zqn1tN4.png)
+![Plugin](https://i.imgur.com/j3VZaoV.png)
+![Macro](https://i.imgur.com/1vRzz36.png)
+![PacketTool](https://i.imgur.com/WJTxNeO.png)
 
 ## Overview
 
@@ -37,11 +38,62 @@ If you want to compile specifically against `26.1.2`, you can still override the
 
 ## Highlights
 
+### Update Checker
+  - On launch the mod checks the [GitHub releases](https://github.com/cev-api/UI-Utils-26x-CevAPI/releases/) for a newer version
+  - Runs on a background thread with a 5 second timeout, so a slow or offline network never delays the game
+  - If an update exists it is announced **once per game launch** with a clickable link to the release page; it is not repeated when you change servers or worlds
 ### Simple GUI
   - Close GUI without sending a packet
   - De‑sync tricks (close packet only)
   - Send/Delay queue for UI packets, with flush on demand
-  - Copy GUI title JSON
+  - Disconnect & send (flushes every queued GUI packet, then disconnects)
+### GUI Tools (saved-GUI lifecycle)
+  - Its own draggable in-game panel (drag by the grip in the panel's top-right corner)
+  - Appears on container and inventory screens only (chests, plugin GUIs, player inventory, creative inventory); chat, the pause menu, options, level loading during a portal transition and other mods' screens never host it
+  - Defaults to the right of the container and stacks below the fabrication panel when both are open
+  - Save / Load / **Clear GUI Cache** so a stored screen never lingers after it is stale
+  - Tracks the saved `Screen`, its `ScreenHandler`, the GUI name, sync ID and revision
+  - Reports whether the saved GUI is still **LIVE (server-backed)** or has become **STALE (clientside-only)** after the server closed the window
+  - Shows the same LIVE / CLIENT-ONLY state for the currently open GUI right next to the fabrication tools
+  - `Copy GUI JSON` serializes the **whole** GUI (title components, syncId, revision, saved-GUI state, cursor and every occupied slot with item id, count and full data-component/NBT representation) as pretty JSON to the clipboard
+  - `Copy Title JSON` keeps the old title-only behaviour
+  - `Steal` moves the container contents into your inventory, `Store` moves your inventory into the container, `Dump` throws the container contents on the ground
+  - Transfers are queued at a configurable delay (default 100 ms) instead of firing every click at once, so servers do not reject or throttle them
+  - Open from the UI‑Utils overlay (`GUI Tools`) or via `.uiutils gui tools`
+### Container buttons (Steal / Store / Dump)
+  - Small vanilla-styled buttons (44x12) shown centred above any open container GUI, so they match the active resource pack
+  - Gated by the **Steal/Store/Dump buttons** option in Settings
+  - `Steal` quick-moves every container slot into your inventory
+  - `Store` quick-moves your inventory into the container
+  - `Dump` throws the container contents on the ground
+  - Transfers run as a queue at the configurable transfer delay (adjustable in GUI Tools)
+  - Hidden in the player inventory and the creative inventory
+### GUI Packet Logger
+  - Focused logger for container traffic only, normalized to one row format:
+    `timestamp | direction | packet | syncId | revision | slot | button | action | cursor/item`
+  - Covers `ClickSlot`, `ButtonClick`, `CloseScreen`, `CreativeSlot`, `SetSlot`, `SetContent`, `SetData`, `Cursor`, `OpenScreen` and `CloseScreen`
+  - Bounded in-memory ring buffer plus an optional `config/packet-logger/gui-<timestamp>.log` file (batched writes, flushed from the client tick)
+  - Scrollable viewer that scales its width with the window size so the long rows stay readable
+  - Open from GUI Tools, from the overlay (`GUI Packet Log`) or via `.uiutils guilog open`
+### Per-Packet GUI Delay / Block (GUI Packet Control)
+  - Replaces the old all-or-nothing handling for GUI packets with a rule per packet class
+  - Rules: **Allow / Drop / Delay**, each packet coloured by its state
+  - Covers `Click Slot`, `Button Click`, `Close Screen`, `Creative Slot`, `Slot State`, `Held Slot`, `Place Recipe`, `Select Trade`, `Set Beacon`, `Sign Update`, `Recipe Book` and `Recipe Seen`
+  - Delay is tick based and shared with the existing queue, so `Clear Queue`, `Spam`, `Send One`, `Pop Last` and `Disconnect & Send Packets` all work with it
+  - Rules persist in `ui-utils.json`
+  - Open from GUI Tools or via `.uiutils guipackets screen`
+### Packet Fabrication Helpers (ClickSlot, ButtonClick, Timed Spam)
+  - Its own titled, draggable in-game panel (drag by the grip in the panel's top-right corner)
+  - Appears on container and inventory screens only, same as GUI Tools
+  - Toggling it from anywhere else is remembered and the panel shows as soon as a container or the inventory is open
+  - Header shows the GUI name, live `syncId` / `revision` and LIVE / CLIENT-ONLY state, plus the saved-GUI status
+  - **Action dropdown** for `PICKUP`, `QUICK_MOVE`, `SWAP`, `CLONE`, `THROW`, `QUICK_CRAFT`, `PICKUP_ALL` instead of cycling blindly
+  - Captured default sync ID / revision, editable per send
+  - Repeat count per send plus a delay toggle
+  - Validation and status feedback (out-of-range slots, non-numeric fields, send summaries) under the send button
+  - Quick `Steal` / `Dump` / `Copy JSON` buttons for the open container
+  - **Timed Spam** mode: send a chosen slot click `N` times with a configurable millisecond interval for race / desync testing (for example `slot 5, 40 clicks, 50 ms apart`), with live progress
+  - The overlay widgets are re-created on resize, so the fabricator no longer goes missing after a window resize
 ### Command, Plugin, and Server Scanner
   - Passively caches joined-server packet evidence (configuration, known packs, payload channels, registries, dimensions, advancements, tab/scoreboard text, and chat-completion metadata) per connected server. Server-list/status traffic is excluded.
   - Command scans offer two modes:
@@ -58,9 +110,7 @@ If you want to compile specifically against `26.1.2`, you can still override the
 ### AntiCheat Detector
   - Reads packets on server join to determine the current AntiCheat, if any.
   - Disable/Enable in settings.
-### Packet Fabrication Helpers (ClickSlot, ButtonClick)
-  - In-game popup that is repositionable.
-### Added Extra Tools From [FrannnnDev's fork](https://github.com/FrannnnDev/ui-utils-advanced/) of UI-Utils
+### Extra Tools From [FrannnnDev's fork](https://github.com/FrannnnDev/ui-utils-advanced/) of UI-Utils
   - Leave & send, Disconnect & send, Save/Load GUI, Clear Queue, Queue, Resync Inv, Disconnect, Spam +/-, Send One, Pop Last
   - Queue helper and counter
   - ```.uiutils``` commands
@@ -185,14 +235,17 @@ Main commands:
 - `lagmethod <list|current|METHOD>`
 - `settings`
 - `autoduper <open|start|stop|status|slot|command|attempt|hybrid [openCommand]>`
-
-## Settings List
+- `gui <status|save|saveclose|load|clear|copy|steal|dump|tools>`
+- `guilog <on|off|toggle|file|clear|copy|open>`
+- `guipackets <list|cycle <id>|reset|delay <ticks>|screen>`
 
 - Slot overlay mode: `OFF` / `HOVER` / `ALWAYS`
 - Packet HUD toggle
 - Log to chat toggle
 - Bypass resource-pack toggle
 - Force-deny resource-pack toggle
+- Show RP Buttons toggle
+- Steal/Store/Dump buttons toggle (shows or hides the container-page Steal / Store / Dump buttons)
 - AntiCheat detector toggle
 - Disconnect method selector
 - Timeout seconds selector (for `TIMEOUT` disconnect mode)

@@ -78,17 +78,17 @@ public final class UiUtilsServerFingerprintCollector {
 
 	private UiUtilsServerFingerprintCollector() {}
 
-	// ### ADDED ### Called before packet-tool cancellation; never observes outgoing client packets.
+	// Called before packet-tool cancellation; never observes outgoing client packets.
 	public static void onIncomingPacket(Connection connection, Packet<?> packet) {
 		if (packet == null)
 			return;
-		// ### MODIFIED ### Ignore server-list/status connections entirely; they are not joined-server evidence.
+		// Ignore server-list/status connections entirely; they are not joined-server evidence.
 		PacketListener listener = connection.getPacketListener();
 		if (!(listener instanceof ClientLoginPacketListener
 			|| listener instanceof ClientConfigurationPacketListener
 			|| listener instanceof ClientGamePacketListener))
 			return;
-		// ### ADDED ### A new joined-server Netty Connection is an unambiguous cache boundary.
+		// A new joined-server Netty Connection is an unambiguous cache boundary.
 		if (activeConnection != connection) {
 			synchronized (LOCK) {
 				if (activeConnection != connection) {
@@ -147,7 +147,7 @@ public final class UiUtilsServerFingerprintCollector {
 	}
 
 	public static void onClientTick(Minecraft minecraft) {
-		// ### MODIFIED ### Do not clear configuration evidence during the configuration -> play hand-off.
+		// Configuration evidence is kept across the configuration to play hand-off.
 		if (minecraft == null || minecraft.getConnection() == null) {
 			synchronized (LOCK) {
 				if (connectionActive && playStarted)

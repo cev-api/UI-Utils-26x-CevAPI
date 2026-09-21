@@ -14,6 +14,8 @@ public final class MainClient implements ClientModInitializer {
 		try { System.setProperty("java.awt.headless", "false"); } catch (Throwable ignored) {}
 		UiUtilsSettings.load();
 		UiUtils.init();
+		com.ui_utils.uiutils.UiUtilsPanelHost.register();
+		com.ui_utils.uiutils.UiUtilsVersionChecker.start();
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			Minecraft mc = Minecraft.getInstance();
 			UiUtils.onClientTick(mc);

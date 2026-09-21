@@ -17,6 +17,8 @@ public final class UiUtilsState {
 
 	public static Screen storedScreen;
 	public static AbstractContainerMenu storedMenu;
+	/** Title of the last saved GUI, used for the saved-GUI status readout. */
+	public static String storedGuiName = "";
 	public static final Map<String, Screen> savedScreens = new HashMap<>();
 	public static final Map<String, AbstractContainerMenu> savedMenus = new HashMap<>();
 
@@ -25,6 +27,9 @@ public final class UiUtilsState {
 	public static boolean fabricateOverlayOpen = false;
 	public static int fabricateOverlayX = -1;
 	public static int fabricateOverlayY = -1;
+	public static boolean guiToolsOverlayOpen = false;
+	public static int guiToolsOverlayX = -1;
+	public static int guiToolsOverlayY = -1;
 	public static int spamCount = 1;
 	public static boolean settingsPanelOpen = false;
 

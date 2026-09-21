@@ -10,6 +10,7 @@ import net.minecraft.client.Minecraft;
 
 public final class UiUtilsCommandSystem {
 	private static final String PREFIX = "[UI-Utils] ";
+	private static final String NL = String.valueOf((char)10);
 	public static final String ROOT_COMMAND = ".uiutils";
 	public static final String ALT_ROOT_COMMAND = "uiutils";
 	public static final String[] SUBCOMMANDS = {"help", "enable", "disable",
@@ -19,7 +20,8 @@ public final class UiUtilsCommandSystem {
 		"commandscan", "cmdscan", "queue", "packethud", "phud", "hud",
 		"delay", "sendpackets", "sendui", "autoduper", "duper",
 		"closedelay", "cmddelay", "commanddelay", "disconnectmethod",
-		"dcmethod", "timeout", "lagmethod", "settings", "macro", "macros"};
+		"dcmethod", "timeout", "lagmethod", "settings", "macro", "macros",
+		"gui", "gtools", "guilog", "guipackets", "gpkt"};
 
 	private UiUtilsCommandSystem() {}
 
@@ -55,6 +57,9 @@ public final class UiUtilsCommandSystem {
 			case "lagmethod" -> lagMethod(args);
 			case "settings" -> openSettings();
 			case "macro", "macros" -> macro(args);
+			case "gui", "gtools" -> gui(args);
+			case "guilog" -> guiLog(args);
+			case "guipackets", "gpkt" -> guiPackets(args);
 			default -> PREFIX + "Unknown command: " + command;
 		};
 	}
@@ -91,10 +96,155 @@ public final class UiUtilsCommandSystem {
 				return true;
 		return false;
 	}
-
+	
 	private static String help() {
-		return PREFIX + "Usage: .uiutils <command> (or uiutils <command>)\n" + PREFIX
-			+ "Commands: help, enable, disable, close, desync, apt, chat, screen, plugins, commands, queue, packethud, delay, closedelay, commanddelay, sendpackets, autoduper, disconnectmethod, timeout, lagmethod, settings, macro";
+		return PREFIX + "Usage: .uiutils <command> (or uiutils <command>)" + NL
+			+ PREFIX
+			+ "Commands: help, enable, disable, close, desync, apt, chat, screen, plugins, commands, queue, packethud, delay, closedelay, commanddelay, sendpackets, autoduper, disconnectmethod, timeout, lagmethod, settings, macro"
+			+ NL + PREFIX
+			+ "GUI: gui <status|save|saveclose|load|clear|copy|steal|dump|tools>, guilog <on|off|clear|copy|open|file>, guipackets <list|cycle|reset|delay> [id] [n]";
+	}
+
+	private static String gui(String args) {
+		Minecraft mc = Minecraft.getInstance();
+		String[] parts = args.split("\\s+", 2);
+		String action = parts.length > 0 ? parts[0].toLowerCase(Locale.ROOT) : "";
+		return switch (action) {
+			case "" , "status", "info" -> PREFIX + "Current GUI: "
+				+ UiUtilsGuiCache.currentStatus(mc).label() + "\n" + PREFIX
+				+ "Saved GUI: " + UiUtilsGuiCache.status(mc).label() + "\n" + PREFIX
+				+ "GUI packets: " + UiUtilsGuiPacketControl.summary();
+			case "save" -> {
+				boolean ok = UiUtilsGuiCache.save(mc);
+				yield ok ? PREFIX + "Saved GUI: "
+					+ UiUtilsGuiCache.status(mc).label()
+					: PREFIX + "No GUI to save.";
+			}
+			case "saveclose" -> {
+				boolean ok = UiUtilsGuiCache.saveAndClose(mc);
+				yield ok ? PREFIX + "Saved and closed GUI: "
+					+ UiUtilsGuiCache.status(mc).label()
+					: PREFIX + "No GUI to save.";
+			}
+			case "load", "restore" -> UiUtilsGuiCache.load(mc)
+				? PREFIX + "Restored saved GUI." : PREFIX + "No saved GUI.";
+			case "clear" -> UiUtilsGuiCache.clear()
+				? PREFIX + "Cleared saved GUI cache." : PREFIX + "No saved GUI to clear.";
+			case "copy", "json" -> {
+				String json = UiUtilsGuiCache.buildSnapshotJson(mc);
+				mc.keyboardHandler.setClipboard(json);
+				yield PREFIX + "Copied GUI snapshot JSON (" + json.length() + " chars).";
+			}
+			case "steal" -> {
+				UiUtilsContainerTransfer.steal(mc);
+				yield PREFIX + "Stealing container contents.";
+			}
+			case "store" -> {
+				UiUtilsContainerTransfer.store(mc);
+				yield PREFIX + "Storing inventory contents.";
+			}
+			case "dump" -> {
+				UiUtilsContainerTransfer.dump(mc);
+				yield PREFIX + "Dumping container contents.";
+			}
+			case "tools", "screen" -> {
+				UiUtilsPanels.toggleTools(McCompat.getScreen(mc));
+				yield PREFIX + "GUI Tools: "
+					+ (UiUtilsState.guiToolsOverlayOpen ? "opened" : "closed");
+			}
+			default -> PREFIX
+				+ "Usage: gui <status|save|saveclose|load|clear|copy|steal|store|dump|tools>";
+		};
+	}
+
+	private static String guiLog(String args) {
+		Minecraft mc = Minecraft.getInstance();
+		String action = args.isBlank() ? "status"
+			: args.trim().toLowerCase(Locale.ROOT);
+		return switch (action) {
+			case "on" -> {
+				UiUtilsGuiPacketLog.setEnabled(true);
+				yield PREFIX + "GUI packet log enabled.";
+			}
+			case "off" -> {
+				UiUtilsGuiPacketLog.setEnabled(false);
+				yield PREFIX + "GUI packet log disabled.";
+			}
+			case "toggle" -> {
+				UiUtilsGuiPacketLog.setEnabled(!UiUtilsGuiPacketLog.isEnabled());
+				yield PREFIX + "GUI packet log: "
+					+ (UiUtilsGuiPacketLog.isEnabled() ? "ON" : "OFF");
+			}
+			case "file" -> {
+				UiUtilsGuiPacketLog
+					.setFileLoggingEnabled(!UiUtilsGuiPacketLog.isFileLoggingEnabled());
+				yield PREFIX + "GUI packet log file: "
+					+ (UiUtilsGuiPacketLog.isFileLoggingEnabled() ? "ON" : "OFF");
+			}
+			case "clear" -> {
+				UiUtilsGuiPacketLog.clear();
+				yield PREFIX + "Cleared GUI packet log.";
+			}
+			case "copy" -> {
+				mc.keyboardHandler.setClipboard(UiUtilsGuiPacketLog.asText());
+				yield PREFIX + "Copied GUI packet log ("
+					+ UiUtilsGuiPacketLog.size() + " row(s)).";
+			}
+			case "open", "show" -> {
+				McCompat.setScreen(mc,
+					new UiUtilsGuiPacketLogScreen(McCompat.getScreen(mc)));
+				yield PREFIX + "Opened GUI packet log.";
+			}
+			default -> PREFIX + "GUI packet log: "
+				+ (UiUtilsGuiPacketLog.isEnabled() ? "ON" : "OFF") + ", rows="
+				+ UiUtilsGuiPacketLog.size() + ", file="
+				+ (UiUtilsGuiPacketLog.isFileLoggingEnabled() ? "ON" : "OFF")
+				+ ". Usage: guilog <on|off|toggle|file|clear|copy|open>";
+		};
+	}
+
+	private static String guiPackets(String args) {
+		Minecraft mc = Minecraft.getInstance();
+		String[] parts = args.split("\\s+", 3);
+		String action = parts.length > 0 && !parts[0].isBlank()
+			? parts[0].toLowerCase(Locale.ROOT) : "list";
+		return switch (action) {
+			case "list", "" -> PREFIX + "GUI packet rules: "
+				+ UiUtilsGuiPacketControl.summary() + "\n" + PREFIX
+				+ UiUtilsGuiPacketControl.rulesText().replace("\n", "\n" + PREFIX);
+			case "cycle" -> {
+				if (parts.length < 2)
+					yield PREFIX + "Usage: guipackets cycle <id> (see guipackets list ids)";
+				String id = parts[1].toLowerCase(Locale.ROOT);
+				UiUtilsGuiPacketControl.Mode mode = null;
+				for (UiUtilsGuiPacketControl.Entry entry : UiUtilsGuiPacketControl
+					.entries())
+					if (entry.id().equals(id))
+						mode = UiUtilsGuiPacketControl.cycleMode(id);
+				yield mode == null ? PREFIX + "Unknown packet id: " + id
+					: PREFIX + id + " -> " + mode.label();
+			}
+			case "reset" -> {
+				UiUtilsGuiPacketControl.resetAndPersist();
+				yield PREFIX + "Reset all GUI packet rules to Allow.";
+			}
+			case "delay" -> {
+				if (parts.length < 2 || !UiUtils.isInteger(parts[1]))
+					yield PREFIX + "Usage: guipackets delay <ticks>";
+				int ticks = Integer.parseInt(parts[1]);
+				UiUtilsGuiPacketControl.adjustDelay(
+					ticks - UiUtilsGuiPacketControl.delayTicks());
+				yield PREFIX + "GUI packet delay: "
+					+ UiUtilsGuiPacketControl.delayTicks() + " tick(s).";
+			}
+			case "screen", "open" -> {
+				McCompat.setScreen(mc,
+					new UiUtilsGuiPacketControlScreen(McCompat.getScreen(mc)));
+				yield PREFIX + "Opened GUI Packet Control.";
+			}
+			default -> PREFIX
+				+ "Usage: guipackets <list|cycle <id>|reset|delay <ticks>|screen>";
+		};
 	}
 
 	private static String macro(String args) {

@@ -39,7 +39,7 @@ public final class UiUtilsVerboseServerScanScreen extends Screen {
 			left + 196, this.height - 30, width - 196, 20));
 	}
 
-	// ### ADDED ### Verbose Scan is a combined view; run missing active scans once for this server.
+	// Verbose Scan is a combined view; run missing active scans once for this server.
 	private static void startMissingScans() {
 		if (!UiUtilsPluginScanner.isActive() && !UiUtilsPluginScanner.hasResultsForCurrentServer())
 			UiUtilsPluginScanner.startScan();
@@ -61,7 +61,7 @@ public final class UiUtilsVerboseServerScanScreen extends Screen {
 			int color = line.startsWith("[") ? 0xFFFFDE7A : line.startsWith("  ") ? 0xFFB8D8FF : 0xFFEAEAEA;
 			graphics.text(this.font, line, left + 6, y, color, false);
 		}
-		// ### ADDED ### Visible scrollbar for long verbose reports.
+		// Visible scrollbar for long verbose reports.
 		scrollbarX = left + width - 5;
 		scrollbarTop = top + 2;
 		scrollbarBottom = bottom - 2;

@@ -99,9 +99,13 @@ public final class UiUtilsSettingsScreen extends Screen {
 			() -> UiUtilsSettings.get().showResourcePackButtons,
 			v -> UiUtilsSettings.get().showResourcePackButtons = v));
 		y += rowH + gap;
-		
+
+		addRenderableWidget(makeToggleButton(left, y, half, rowH,
+			"Steal/Store/Dump buttons",
+			() -> UiUtilsSettings.get().showStealDumpButtons,
+			v -> UiUtilsSettings.get().showStealDumpButtons = v));
 		disconnectMethodButton = addRenderableWidget(UiUtils.styledButton("",
-			b -> cycleDisconnectMethod(), left, y, panelWidth, rowH));
+			b -> cycleDisconnectMethod(), left + half + gap, y, half, rowH));
 		refreshDisconnectMethodLabel();
 		y += rowH + gap;
 		

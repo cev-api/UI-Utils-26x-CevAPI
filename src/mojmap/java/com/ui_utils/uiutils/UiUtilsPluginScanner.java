@@ -248,7 +248,7 @@ public final class UiUtilsPluginScanner {
 		inferPluginsFromObservedCommands();
 	}
 
-	// ### ADDED ### Configuration-phase Known Packs outlive an active scan reset.
+	// Configuration-phase Known Packs outlive an active scan reset.
 	private static void mergePassiveKnownPacks() {
 		for (UiUtilsServerFingerprintCollector.KnownPackInfo pack
 			: UiUtilsServerFingerprintCollector.snapshot().knownPacks()) {
