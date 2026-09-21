@@ -134,8 +134,7 @@ public final class UiUtilsKeybindsScreen extends Screen {
 			rebuildWidgets();
 			return true;
 		}
-		if(keyEvent.key() == org.lwjgl.glfw.GLFW.GLFW_KEY_BACKSPACE
-			|| keyEvent.key() == org.lwjgl.glfw.GLFW.GLFW_KEY_DELETE) {
+		if(McCompat.isClearKey(keyEvent)) {
 			UiUtils.setKeybind(waitingForAction, "");
 		}else {
 			InputConstants.Key key = InputConstants.getKey(keyEvent);

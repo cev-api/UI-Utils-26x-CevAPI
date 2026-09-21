@@ -86,7 +86,7 @@ public final class UiUtilsMacrosScreen extends Screen {
             status = "Press a key (ESC clears)";
         }, left, y, 84, row));
 
-        addRenderableWidget(UiUtils.styledButton("Run", b -> {
+        addRenderableWidget(UiUtils.styledButton(loopToggleLabel(), b -> {
             pushUndo();
             editing.loop = !editing.loop;
             rebuild();
@@ -130,7 +130,7 @@ public final class UiUtilsMacrosScreen extends Screen {
             addRenderableWidget(UiUtils.styledButton("Cancel", b -> McCompat.setScreen(minecraft, parent), left + 114, by, 110, row));
             addRenderableWidget(UiUtils.styledButton("Undo", b -> undo(), left + 228, by, 86, row));
             addRenderableWidget(UiUtils.styledButton("Redo", b -> redo(), left + 318, by, 86, row));
-            addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(minecraft, parent), left + 408, by, 92, row));
+            addRenderableWidget(UiUtils.styledButton("Done", b -> saveAndClose(), left + 408, by, 92, row));
         } else {
             addRenderableWidget(UiUtils.styledButton("Save", b -> saveMacro(), left, by, footerWidth, row));
             addRenderableWidget(UiUtils.styledButton("Cancel", b -> McCompat.setScreen(minecraft, parent), left + footerWidth + footerGap, by, footerWidth, row));
@@ -138,10 +138,15 @@ public final class UiUtilsMacrosScreen extends Screen {
             addRenderableWidget(UiUtils.styledButton("Undo", b -> undo(), left, by, footerWidth, row));
             addRenderableWidget(UiUtils.styledButton("Redo", b -> redo(), left + footerWidth + footerGap, by, footerWidth, row));
             by += row + gap;
-            addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(minecraft, parent), left, by, width, row));
+            addRenderableWidget(UiUtils.styledButton("Done", b -> saveAndClose(), left, by, width, row));
         }
 
         refreshRows();
+    }
+
+    /** "Done" saves first; it used to be identical to Cancel and silently discarded edits. */
+    private void saveAndClose() {
+        if (saveMacro()) McCompat.setScreen(minecraft, parent);
     }
 
     private void rebuild() {
@@ -185,8 +190,8 @@ public final class UiUtilsMacrosScreen extends Screen {
         return editing.keyCode < 0 ? "Bind Key" : "Key: " + editing.keyCode;
     }
 
-    private String loopLabel() {
-        return editing.loop ? "Run" : "Run";
+    private String loopToggleLabel() {
+        return editing.loop ? "Loop: ON" : "Loop: OFF";
     }
 
     private int maxStepOffset() {
@@ -294,18 +299,23 @@ public final class UiUtilsMacrosScreen extends Screen {
         if (stepOffset < 0) stepOffset = 0;
     }
 
-    private void saveMacro() {
+    private boolean saveMacro() {
         syncNameField();
         String n = nameField.getValue().trim();
         if (n.isBlank()) {
             status = "Name Required";
-            return;
+            return false;
         }
         editing.name = n;
         if (originalName != null) UiUtilsMacroManager.get().remove(originalName);
-        UiUtilsMacroManager.get().add(editing.deepCopy(), true);
-        originalName = editing.name;
+        UiUtilsMacro saved = UiUtilsMacroManager.get().add(editing.deepCopy(), true);
+        // add() renames on a name clash, so adopt the name it actually stored.
+        if (saved != null) {
+            editing.name = saved.name;
+            originalName = saved.name;
+        }
         status = "Saved";
+        return true;
     }
 
     private void runEditing() {
@@ -490,12 +500,15 @@ public final class UiUtilsMacrosScreen extends Screen {
 
         @Override
         public boolean mouseClicked(MouseButtonEvent context, boolean doubleClick) {
+            // 26.3 resolves clicks through getChildAt(), but keep the hit test so the
+            // row still behaves like a normal widget if the dispatch model changes.
             if (!active || !visible || context.button() != 0) return false;
+            if (!isMouseOver(context.x(), context.y())) return false;
             int idx = stepOffset + row;
             if (idx < 0 || idx >= editing.actions.size()) return false;
             selectedStep = idx;
-            if (doubleClick) editStep(idx);
             refreshRows();
+            if (doubleClick) editStep(idx);
             return true;
         }
 
@@ -578,6 +591,7 @@ public final class UiUtilsMacrosScreen extends Screen {
         var d = a.getData();
         switch (a.getType()) {
             case SEND_CHAT -> d.putString("message", "");
+            case SEND_COMMAND -> d.putString("command", "");
             case DELAY -> {
                 d.putBoolean("useTicks", false);
                 d.putInt("delayMs", 250);

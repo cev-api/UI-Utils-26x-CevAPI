@@ -46,6 +46,7 @@ public final class ActionFieldRegistry {
         SCHEMAS.put(UiUtilsMacroActionType.WAIT_SOUND, ActionFieldSchema.builder().stringList("soundIds", "Sound IDs").addLabel("Add").toggle("waitForGui", "Wait for GUI").text("waitGuiName", "GUI Name").showWhen("waitForGui").toggle("checkDistance", "Check Distance").decimal("maxDistance", "Max Distance").decRange(0.0, 256.0).showWhen("checkDistance").build());
         SCHEMAS.put(UiUtilsMacroActionType.PAY, ActionFieldSchema.builder().text("commandTemplate", "Command Template").text("amountInput", "Amount").toggle("delayEnabled", "Use Delay").number("delayMs", "Delay (ms)").range(0, 60000).showWhen("delayEnabled").stringList("players", "Players").addLabel("Add").build());
         SCHEMAS.put(UiUtilsMacroActionType.SEND_CHAT, ActionFieldSchema.builder().text("message", "Message").toggle("waitForGui", "Wait for GUI").text("guiName", "GUI Name").showWhen("waitForGui").build());
+        SCHEMAS.put(UiUtilsMacroActionType.SEND_COMMAND, ActionFieldSchema.builder().text("command", "Command").build());
         SCHEMAS.put(UiUtilsMacroActionType.NBT_BOOK, ActionFieldSchema.builder().number("pages", "Pages").range(1, 100).text("title", "Title").toggle("onlyAscii", "Only ASCII").text("customText", "Custom Component").number("delayTicks", "Delay (ticks)").range(0, 200).number("bookCount", "Book Count").range(1, 64).build());
 
         // Inventory-family and core action editors (verbatim behavior baseline)

@@ -173,7 +173,7 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
         graphics.text(this.font, "Macro Library [" + filtered.size() + "]", left, top, 0xFFE6EEF7, false);
         graphics.text(this.font, "Running: " + running, left + Math.min(175, width / 2), top, 0xFFC6D6E8, false);
         graphics.text(this.font, status, left, top + (rowH + gap) * (visibleRows + 6) + 4, 0xFFFFC66D, false);
-        int listTop = contentTop(rowH, gap, visibleRows) + (rowH + gap) * 2;
+        int listTop = listTop(rowH, gap, visibleRows);
         int listBottom = listTop + (rowH + gap) * visibleRows - 3;
         lastScrollbar = computeScrollbar(left + width + 5, listTop, listBottom, filtered.size(), rows.size(), offset);
         renderScrollbar(graphics, lastScrollbar);
@@ -186,7 +186,7 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
         int rowH = rowHeight();
         int gap = rowGap();
         int visibleRows = visibleRows(rowH, gap);
-        int listTop = contentTop(rowH, gap, visibleRows) + (rowH + gap) * 2;
+        int listTop = listTop(rowH, gap, visibleRows);
         int listBottom = listTop + (rowH + gap) * visibleRows - 3;
         if (mouseX < left || mouseX > left + width || mouseY < listTop || mouseY > listBottom) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         if (scrollY < 0) offset = Math.min(Math.max(0, filtered.size() - rows.size()), offset + 1);
@@ -238,10 +238,14 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
 
         @Override
         public boolean mouseClicked(MouseButtonEvent context, boolean doubleClick) {
+            // 26.3 resolves clicks through getChildAt(), but keep the hit test so the
+            // row still behaves like a normal widget if the dispatch model changes.
             if (!active || !visible || context.button() != 0) return false;
+            if (!isMouseOver(context.x(), context.y())) return false;
             int idx = offset + row;
             if (idx < 0 || idx >= filtered.size()) return false;
             selected = idx;
+            refreshRows();
             if (doubleClick) openSelected();
             return true;
         }
@@ -401,8 +405,17 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
         return Math.max(4, Math.min(10, (this.height - 170) / (rowH + gap)));
     }
 
+    // Rows above the macro list: search, Create/Edit, Run/Stop.
+    private static final int HEADER_ROWS = 3;
+
+    private int listTop(int rowH, int gap, int visibleRows) {
+        return contentTop(rowH, gap, visibleRows) + (rowH + gap) * HEADER_ROWS;
+    }
+
     private int contentTop(int rowH, int gap, int visibleRows) {
-        int totalHeight = rowH * (visibleRows + 5) + gap * (visibleRows + 4);
+        // Visible rows plus search, Create/Edit, Run/Stop, import, export, Delete/Done.
+        int totalRows = visibleRows + HEADER_ROWS + 3;
+        int totalHeight = rowH * totalRows + gap * (totalRows - 1);
         return Math.max(12, (this.height - totalHeight) / 2);
     }
 }

@@ -51,6 +51,7 @@ public enum UiUtilsMacroActionType {
     MINE,
     PAY,
     SEND_CHAT,
+    SEND_COMMAND,
     NBT_BOOK,
     WAIT_LAN_STEP;
 

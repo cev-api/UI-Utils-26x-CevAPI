@@ -31,7 +31,6 @@ import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundContainerClosePacket;
 import net.minecraft.world.inventory.AbstractContainerMenu;
-import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,8 +66,9 @@ public final class UiUtils {
 		if (mc == null || mc.getWindow() == null)
 			return;
 
-		// Don't fire hotkeys while typing in chat/text fields.
-		if (isTypingIntoTextField(mc)) {
+		// Don't fire hotkeys while typing in chat/text fields, or while rebinding keys.
+		if (isTypingIntoTextField(mc)
+			|| McCompat.getScreen(mc) instanceof UiUtilsKeybindsScreen) {
 			updateKeybindEdges(mc, false);
 			return;
 		}
@@ -715,7 +715,7 @@ public final class UiUtils {
 		EditBox field = new EditBox(font, x, y, width, height, Component.literal("Chat ...")) {
 			@Override
 			public boolean keyPressed(net.minecraft.client.input.KeyEvent keyEvent) {
-				if (keyEvent.key() == GLFW.GLFW_KEY_ENTER || keyEvent.key() == GLFW.GLFW_KEY_KP_ENTER) {
+				if (McCompat.isConfirmationKey(keyEvent)) {
 					String text = getValue();
 					String command = null;
 					if (UiUtilsCommandSystem.isUiUtilsCommand(text)) {

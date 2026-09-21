@@ -67,7 +67,15 @@ public final class UiUtilsMacroExecutor {
                     : Math.max(0, action.getData().getIntOr("delayMs", 50)));
                 case SEND_CHAT -> {
                     String msg = action.getData().getStringOr("message", "");
-                    if (!msg.isBlank()) runOnMain(mc, () -> UiUtils.sendChatWithConfiguredDelay(mc, msg));
+                    // A leading slash means the macro wants a command, matching the chat field keybind.
+                    if (!msg.isBlank()) runOnMain(mc, () -> {
+                        if (msg.startsWith("/")) UiUtils.sendCommandWithConfiguredDelay(mc, msg.substring(1));
+                        else UiUtils.sendChatWithConfiguredDelay(mc, msg);
+                    });
+                }
+                case SEND_COMMAND -> {
+                    String command = action.getData().getStringOr("command", "");
+                    if (!command.isBlank()) runOnMain(mc, () -> UiUtils.sendCommandWithConfiguredDelay(mc, command));
                 }
                 case CLOSE_GUI -> runOnMain(mc, () -> UiUtils.closeScreenWithConfiguredDelay(mc));
                 case DESYNC -> runOnMain(mc, () -> UiUtils.sendClosePacketWithConfiguredDelay(mc));

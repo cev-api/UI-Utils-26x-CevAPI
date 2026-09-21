@@ -110,9 +110,9 @@ public final class UiUtilsMacroTypePickerScreen extends Screen {
     private static List<PickerSection> actionSections() {
         return List.of(
             new PickerSection("Flow", List.of(
-                UiUtilsMacroActionType.SEND_CHAT, UiUtilsMacroActionType.DELAY, UiUtilsMacroActionType.REPEAT,
-                UiUtilsMacroActionType.STOP_MACRO, UiUtilsMacroActionType.SEND_TOGGLE, UiUtilsMacroActionType.DELAY_PACKETS,
-                UiUtilsMacroActionType.SAVE_GUI, UiUtilsMacroActionType.RESTORE_GUI
+                UiUtilsMacroActionType.SEND_CHAT, UiUtilsMacroActionType.SEND_COMMAND, UiUtilsMacroActionType.DELAY,
+                UiUtilsMacroActionType.REPEAT, UiUtilsMacroActionType.STOP_MACRO, UiUtilsMacroActionType.SEND_TOGGLE,
+                UiUtilsMacroActionType.DELAY_PACKETS, UiUtilsMacroActionType.SAVE_GUI, UiUtilsMacroActionType.RESTORE_GUI
             )),
             new PickerSection("Movement", List.of(
                 UiUtilsMacroActionType.ROTATE, UiUtilsMacroActionType.LOOK_AT_BLOCK, UiUtilsMacroActionType.SNEAK,
