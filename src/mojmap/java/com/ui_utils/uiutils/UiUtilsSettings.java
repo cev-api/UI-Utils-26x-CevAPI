@@ -119,7 +119,7 @@ public final class UiUtilsSettings {
 		public int fabricateOverlayBgAlpha = 120;
 
 		// Focused GUI (container) packet logger + per-packet Allow/Drop/Delay rules
-		public boolean guiPacketLogEnabled = true;
+		public boolean guiPacketLogEnabled = false;
 		public boolean guiPacketLogToFile = true;
 		public int guiPacketDelayTicks = 1;
 		public Map<String, String> guiPacketModes = new HashMap<>();
