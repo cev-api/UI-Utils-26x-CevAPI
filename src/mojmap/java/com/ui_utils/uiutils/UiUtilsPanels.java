@@ -24,6 +24,8 @@ import net.minecraft.world.item.ItemStack;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 
+import com.ui_utils.nbttools.UiUtilsNbtEditor;
+
 /**
  * The Fabricate Packet and GUI Tools panels.
  * <p>
@@ -126,6 +128,13 @@ public final class UiUtilsPanels {
 	private static final List<AbstractWidget> pendingAdd = new ArrayList<>();
 	// Widgets currently registered on a screen, so a rebuild can drop them first.
 	private static final List<AbstractWidget> registered = new ArrayList<>();
+	// Every widget instance ever handed to a screen. Rebuilding while an older set
+	// is still live would leave that set rendering behind the panel, which only
+	// becomes obvious after a drag when the stale copy stops following the panel.
+	private static final List<AbstractWidget> ownedWidgets = new ArrayList<>();
+	// A screen initialises more than once per open (Screen#init and Screen#resize
+	// both fire AFTER_INIT), so the panels are attached once per initialisation.
+	private static boolean attachClaimed;
 
 	private UiUtilsPanels() {
 	}
@@ -191,12 +200,24 @@ public final class UiUtilsPanels {
 	}
 
 	private static void dropRegistered(Screen screen) {
-		if (registered.isEmpty())
+		if (ownedWidgets.isEmpty()) {
+			registered.clear();
 			return;
+		}
+		// Remove every widget we ever gave this screen. Passing entries that are no
+		// longer present is harmless, and asking for the full set means a rebuild can
+		// never leave an older one behind.
+		List<AbstractWidget> owned = new ArrayList<>(ownedWidgets);
+		boolean purged = false;
 		try {
-			Screens.getWidgets(screen).removeAll(registered);
+			Screens.getWidgets(screen).removeAll(owned);
+			purged = true;
 		} catch (Throwable ignored) {
 		}
+		// Keep the list if the removal failed so a later attach can retry; otherwise
+		// forget it, which also keeps it from growing across screen changes.
+		if (purged)
+			ownedWidgets.clear();
 		registered.clear();
 	}
 
@@ -218,6 +239,7 @@ public final class UiUtilsPanels {
 		pendingAdd.clear();
 		Screens.getWidgets(screen).addAll(pending);
 		registered.addAll(pending);
+		ownedWidgets.addAll(pending);
 		if (!loggedAttach) {
 			loggedAttach = true;
 			UiUtils.LOGGER.info(
@@ -227,7 +249,10 @@ public final class UiUtilsPanels {
 		}
 	}
 
-	/** Called on a fresh screen so a resize rebuilds the widgets. */
+	/**
+	 * Called when a screen begins initialising (before its widget lists are
+	 * cleared) so the next attach rebuilds the panels.
+	 */
 	public static void onScreenInit() {
 		fabricatorInitialized = false;
 		toolsInitialized = false;
@@ -236,6 +261,19 @@ public final class UiUtilsPanels {
 		// Screen#init clears its widget lists, so the old set is gone with it.
 		registered.clear();
 		pendingAdd.clear();
+		attachClaimed = false;
+	}
+
+	/**
+	 * Claims the attach for the current initialisation. Returns true only for the
+	 * first caller, so the follow-up AFTER_INIT of a resize cannot add a second set
+	 * of panel widgets on top of the one that is already live.
+	 */
+	public static boolean claimAttach() {
+		if (attachClaimed)
+			return false;
+		attachClaimed = true;
+		return true;
 	}
 
 	public static void update(Screen screen) {
@@ -943,6 +981,9 @@ public final class UiUtilsPanels {
 			Minecraft mc = Minecraft.getInstance();
 			mc.keyboardHandler.setClipboard(UiUtilsGuiCache.buildSnapshotJson(mc));
 			setToolsStatus("Copied GUI snapshot JSON", 0xFF8BE88B);
+		}, 0, 0, 10, 10), UiUtils.styledButton("Open NBT", b -> {
+			UiUtilsNbtEditor.openEditor(Minecraft.getInstance());
+			setToolsStatus("Opened the NBT editor", 0xFF8BE88B);
 		}, 0, 0, 10, 10), UiUtils.styledButton("Copy Title JSON", b -> {
 			Minecraft mc = Minecraft.getInstance();
 			String json = UiUtilsGuiCache.buildTitleJson(mc);

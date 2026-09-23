@@ -1,4 +1,5 @@
 package com.ui_utils.uiutils;
+import com.ui_utils.nbttools.UiUtilsNbtEditor;
 import com.ui_utils.packettools.AdvancedPacketTool;
 import com.ui_utils.uiutils.macro.UiUtilsMacroExecutor;
 import com.ui_utils.uiutils.macro.UiUtilsMacroManager;
@@ -191,7 +192,8 @@ public final class UiUtils {
 			new KeybindAction("fabricate_panel", "Fabricate Packet Panel", "", true),
 			new KeybindAction("gui_tools_panel", "GUI Tools Panel", "", true),
 			new KeybindAction("macro_run_last", "Run Last Macro", UiUtilsSettings.get().macroRunLastKey, true),
-			new KeybindAction("macro_stop", "Stop Macro", UiUtilsSettings.get().macroStopKey, true)
+			new KeybindAction("macro_stop", "Stop Macro", UiUtilsSettings.get().macroStopKey, true),
+			new KeybindAction("nbt_editor", "NBT Editor", "", true)
 		);
 	}
 
@@ -273,6 +275,7 @@ public final class UiUtils {
 					UiUtilsMacroManager.get().execute(macroName);
 			}
 			case "macro_stop" -> UiUtilsMacroExecutor.stop();
+			case "nbt_editor" -> UiUtilsNbtEditor.openEditor(mc);
 			default -> {}
 		}
 	}
@@ -520,7 +523,7 @@ public final class UiUtils {
 		final int naturalSpacing = spacing;
 		final int naturalFullWidth = 160;
 		final int naturalChatHeight = 20;
-		final int rowCount = 22;
+		final int rowCount = 25;
 		double scale = Math.min(1.0D, Math.min(
 			maxHeight / (double)(rowCount * naturalRowHeight
 				+ (rowCount - 1) * naturalSpacing + naturalChatHeight + naturalSpacing),
@@ -536,6 +539,8 @@ public final class UiUtils {
 		int spamCenterWidth = Math.max(40, fullWidth - spamSideWidth * 2 - compactSpacing * 2);
 		final String defaultSlot = "default";
 		List<UiWidgetRow> rows = new ArrayList<>();
+		nbtTargetButtons.clear();
+		nbtTargetTargets.clear();
 		rows.add(UiWidgetRow.label("UI-Utils by CevAPI"));
 		rows.add(UiWidgetRow.single("Settings", b -> {
 			McCompat.setScreen(mc, new UiUtilsSettingsScreen(McCompat.getScreen(mc)));
@@ -552,6 +557,28 @@ public final class UiUtils {
 		}));
 		rows.add(UiWidgetRow.single("Macros", b -> {
 			McCompat.setScreen(mc, new UiUtilsMacroLibraryScreen(McCompat.getScreen(mc)));
+		}));
+		rows.add(UiWidgetRow.single("NBT Editor", b -> UiUtilsNbtEditor.openEditor(mc)));
+		rows.add(UiWidgetRow.quad(
+			new UiWidgetButton(nbtTargetLabel(UiUtilsNbtEditor.ReadFrom.HELD_ITEM), 38,
+				b -> selectNbtTarget(UiUtilsNbtEditor.ReadFrom.HELD_ITEM),
+				UiUtilsNbtEditor.ReadFrom.HELD_ITEM),
+			new UiWidgetButton(nbtTargetLabel(UiUtilsNbtEditor.ReadFrom.BLOCK), 38,
+				b -> selectNbtTarget(UiUtilsNbtEditor.ReadFrom.BLOCK),
+				UiUtilsNbtEditor.ReadFrom.BLOCK),
+			new UiWidgetButton(nbtTargetLabel(UiUtilsNbtEditor.ReadFrom.ENTITY), 38,
+				b -> selectNbtTarget(UiUtilsNbtEditor.ReadFrom.ENTITY),
+				UiUtilsNbtEditor.ReadFrom.ENTITY),
+			new UiWidgetButton(nbtTargetLabel(UiUtilsNbtEditor.ReadFrom.CONTAINER), 38,
+				b -> selectNbtTarget(UiUtilsNbtEditor.ReadFrom.CONTAINER),
+				UiUtilsNbtEditor.ReadFrom.CONTAINER)));
+		rows.add(UiWidgetRow.single("NBT World Edit (OP): "
+			+ boolText(UiUtilsNbtEditor.isWorldEditsEnabled()), b -> {
+			UiUtilsNbtEditor.toggleWorldEdits();
+			b.setMessage(Component.literal("NBT World Edit (OP): "
+				+ boolText(UiUtilsNbtEditor.isWorldEditsEnabled())));
+			chatIfEnabled("NBT world editing: "
+				+ UiUtilsNbtEditor.isWorldEditsEnabled());
 		}));
 		rows.add(UiWidgetRow.single("Close Without Packet", b -> closeScreenWithConfiguredDelay(mc)));
 		rows.add(UiWidgetRow.single("De-Sync", b -> sendClosePacketWithConfiguredDelay(mc)));
@@ -672,6 +699,10 @@ public final class UiUtils {
 					queueButtons.add(widget);
 				if (button.text.startsWith("Spam (X"))
 					spamButtons.add(widget);
+				if (button.nbtTarget() != null) {
+					nbtTargetButtons.add(widget);
+					nbtTargetTargets.add(button.nbtTarget());
+				}
 				nextX += width + compactSpacing;
 				consumed += width;
 			}
@@ -680,6 +711,7 @@ public final class UiUtils {
 		for (UiUtilsColoredButton button : queueButtons)
 			queueCounterButtons.put(button, Boolean.TRUE);
 		setSpamCountButtons(spamButtons);
+		refreshNbtTargetButtons();
 
 		int chatY = baseY + rows.size() * (rowHeight + compactSpacing);
 		return new UiWidgetLayout(baseX, chatY, fullWidth, chatHeight);
@@ -771,6 +803,31 @@ public final class UiUtils {
 		int chatHeight) {}
 
 	private static final WeakHashMap<UiUtilsColoredButton, Boolean> spamCountButtonMap = new WeakHashMap<>();
+	private static final List<UiUtilsColoredButton> nbtTargetButtons = new ArrayList<>();
+	private static final List<UiUtilsNbtEditor.ReadFrom> nbtTargetTargets = new ArrayList<>();
+
+	private static String nbtTargetLabel(UiUtilsNbtEditor.ReadFrom target) {
+		boolean active = UiUtilsNbtEditor.getReadFrom() == target;
+		return (active ? ">" : "") + target.shortLabel();
+	}
+
+	private static void selectNbtTarget(UiUtilsNbtEditor.ReadFrom target) {
+		UiUtilsNbtEditor.setReadFrom(target);
+		UiUtilsNbtEditor.readTarget();
+		refreshNbtTargetButtons();
+		String message = UiUtilsNbtEditor.getLastEditorMessage();
+		chatIfEnabled(message == null || message.isBlank()
+			? "NBT target: " + target : message);
+	}
+
+	private static void refreshNbtTargetButtons() {
+		for (int i = 0; i < nbtTargetButtons.size(); i++) {
+			UiUtilsColoredButton button = nbtTargetButtons.get(i);
+			if (button == null || i >= nbtTargetTargets.size())
+				continue;
+			button.setMessage(Component.literal(nbtTargetLabel(nbtTargetTargets.get(i))));
+		}
+	}
 
 	private static List<UiUtilsColoredButton> spamCountButtons() {
 		spamCountButtonMap.keySet().removeIf(button -> button == null);
@@ -784,7 +841,13 @@ public final class UiUtils {
 	}
 
 	private record UiWidgetButton(String text, int width,
-		UiUtilsColoredButton.PressAction action) {}
+		UiUtilsColoredButton.PressAction action,
+		UiUtilsNbtEditor.ReadFrom nbtTarget) {
+		private UiWidgetButton(String text, int width,
+			UiUtilsColoredButton.PressAction action) {
+			this(text, width, action, null);
+		}
+	}
 
 	private static final class UiWidgetRow {
 		private final String labelText;
@@ -813,6 +876,11 @@ public final class UiUtils {
 		private static UiWidgetRow triple(UiWidgetButton left,
 			UiWidgetButton center, UiWidgetButton right) {
 			return new UiWidgetRow(null, List.of(left, center, right));
+		}
+
+		private static UiWidgetRow quad(UiWidgetButton first, UiWidgetButton second,
+			UiWidgetButton third, UiWidgetButton fourth) {
+			return new UiWidgetRow(null, List.of(first, second, third, fourth));
 		}
 	}
 

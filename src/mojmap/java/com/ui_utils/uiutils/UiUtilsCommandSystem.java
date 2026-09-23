@@ -1,5 +1,6 @@
 package com.ui_utils.uiutils;
 
+import com.ui_utils.nbttools.UiUtilsNbtEditor;
 import com.ui_utils.packettools.AdvancedPacketTool;
 import com.ui_utils.uiutils.macro.UiUtilsMacroExecutor;
 import com.ui_utils.uiutils.macro.UiUtilsMacroIo;
@@ -21,7 +22,7 @@ public final class UiUtilsCommandSystem {
 		"delay", "sendpackets", "sendui", "autoduper", "duper",
 		"closedelay", "cmddelay", "commanddelay", "disconnectmethod",
 		"dcmethod", "timeout", "lagmethod", "settings", "macro", "macros",
-		"gui", "gtools", "guilog", "guipackets", "gpkt"};
+		"gui", "gtools", "guilog", "guipackets", "gpkt", "nbt"};
 
 	private UiUtilsCommandSystem() {}
 
@@ -57,6 +58,7 @@ public final class UiUtilsCommandSystem {
 			case "lagmethod" -> lagMethod(args);
 			case "settings" -> openSettings();
 			case "macro", "macros" -> macro(args);
+			case "nbt" -> openNbt();
 			case "gui", "gtools" -> gui(args);
 			case "guilog" -> guiLog(args);
 			case "guipackets", "gpkt" -> guiPackets(args);
@@ -100,7 +102,7 @@ public final class UiUtilsCommandSystem {
 	private static String help() {
 		return PREFIX + "Usage: .uiutils <command> (or uiutils <command>)" + NL
 			+ PREFIX
-			+ "Commands: help, enable, disable, close, desync, apt, chat, screen, plugins, commands, queue, packethud, delay, closedelay, commanddelay, sendpackets, autoduper, disconnectmethod, timeout, lagmethod, settings, macro"
+			+ "Commands: help, enable, disable, close, desync, apt, chat, screen, plugins, commands, queue, packethud, delay, closedelay, commanddelay, sendpackets, autoduper, disconnectmethod, timeout, lagmethod, settings, macro, nbt"
 			+ NL + PREFIX
 			+ "GUI: gui <status|save|saveclose|load|clear|copy|steal|dump|tools>, guilog <on|off|clear|copy|open|file>, guipackets <list|cycle|reset|delay> [id] [n]";
 	}
@@ -410,6 +412,11 @@ public final class UiUtilsCommandSystem {
 		var parent = McCompat.getScreen(mc);
 		mc.execute(() -> McCompat.setScreen(mc, new UiUtilsSettingsScreen(parent)));
 		return PREFIX + "Opened settings.";
+	}
+
+	private static String openNbt() {
+		UiUtilsNbtEditor.openEditor(Minecraft.getInstance());
+		return PREFIX + "Opened the NBT editor.";
 	}
 
 	private static String autoduper(String args) {

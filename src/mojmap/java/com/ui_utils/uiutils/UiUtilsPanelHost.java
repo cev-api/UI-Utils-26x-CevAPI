@@ -21,11 +21,19 @@ public final class UiUtilsPanelHost {
 	}
 
 	public static void register() {
+		// A screen can initialise more than once per open: Fabric fires AFTER_INIT
+		// from both Screen#init and Screen#resize, with the widget lists only
+		// cleared once. Rebuild on the start of an initialisation and then attach
+		// only once, or the follow-up event would add a second set of widgets that
+		// stops following the panel once it is dragged.
+		ScreenEvents.BEFORE_INIT
+			.register((client, screen, scaledWidth, scaledHeight) -> {
+				UiUtilsPanels.onScreenInit();
+			});
 		ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
-			// Fresh screen or resize: rebuild the panels, but only on screens that
-			// are allowed to host them.
-			UiUtilsPanels.onScreenInit();
 			if (!UiUtilsPanels.isAllowedScreen(screen))
+				return;
+			if (!UiUtilsPanels.claimAttach())
 				return;
 			try {
 				attachTo(screen);

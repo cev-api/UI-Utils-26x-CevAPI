@@ -1,0 +1,25 @@
+{
+    "id": "minecraft:creeper_spawn_egg",
+    "count": 64,
+    "components": {
+        "minecraft:item_model": "minecraft:breeze_rod",
+        "minecraft:entity_data": {
+			id: "minecraft:creeper",
+			powered: 1b,
+			ExplosionRadius: 127b,
+			Fuse: 0s,
+			PersistenceRequired: 1b,
+			Invulnerable: 1b,
+			CustomNameVisible: 1b,
+			CustomName: {
+				text: "https://cevapi.dev/",
+				color: "aqua",
+				bold: true
+			}
+        },
+        "minecraft:custom_name": {
+            "text": "Breeze Rod",
+            "italic": false
+        }
+    }
+}
