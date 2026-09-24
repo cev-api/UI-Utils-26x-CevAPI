@@ -1,20 +1,19 @@
 package com.ui_utils.uiutils;
 
-import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import com.ui_utils.uiutils.ui.UiButton;
+import com.ui_utils.uiutils.ui.UiContent;
+import com.ui_utils.uiutils.ui.UiModernScreen;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.util.Mth;
 
 /**
- * Focused replacement for the old all-or-nothing "Delay Packets" switch: every
- * outgoing container packet class gets its own Allow / Drop / Delay rule.
+ * Per-packet Allow / Drop / Delay rules for outgoing container packets.
  */
-public final class UiUtilsGuiPacketControlScreen extends Screen {
+public final class UiUtilsGuiPacketControlScreen extends UiModernScreen {
 	private final Screen parent;
-	private final List<UiUtilsColoredButton> rowButtons = new ArrayList<>();
-	private UiUtilsColoredButton delayButton;
+	private UiButton delayButton;
 
 	public UiUtilsGuiPacketControlScreen(Screen parent) {
 		super(Component.literal("GUI Packet Control"));
@@ -22,61 +21,48 @@ public final class UiUtilsGuiPacketControlScreen extends Screen {
 	}
 
 	@Override
-	protected void init() {
-		rowButtons.clear();
-		List<UiUtilsGuiPacketControl.Entry> entries = UiUtilsGuiPacketControl.entries();
-		int columnWidth = Math.min(330, this.width - 20);
-		int left = (this.width - columnWidth) / 2;
-		int top = 46;
-		int footerHeight = 52;
-		int available = Math.max(80, this.height - top - footerHeight);
-		int rowHeight = Mth.clamp(available / Math.max(1, entries.size()), 12, 22);
-		int gap = Math.max(1, Math.min(3, rowHeight / 8));
+	protected int naturalWidth() {
+		return 300;
+	}
 
-		int y = top;
-		for (UiUtilsGuiPacketControl.Entry entry : entries) {
-			UiUtilsGuiPacketControl.Mode initialMode =
+	@Override
+	protected void buildContent(UiContent c) {
+		c.note("Click a packet to cycle Allow > Drop > Delay. Changes are saved immediately.");
+
+		List<UiUtilsGuiPacketControl.Entry> entries = UiUtilsGuiPacketControl.entries();
+		for(UiUtilsGuiPacketControl.Entry entry : entries) {
+			UiUtilsGuiPacketControl.Mode initial =
 				UiUtilsGuiPacketControl.mode(entry.id());
-			UiUtilsColoredButton button = UiUtils.styledButton(
-				entry.label() + ": " + initialMode.label(),
-				b -> {
-					UiUtilsGuiPacketControl.Mode mode =
-						UiUtilsGuiPacketControl.cycleMode(entry.id());
-					b.setMessage(Component.literal(
-						entry.label() + ": " + mode.label()));
-					b.tint(tintFor(mode));
-					UiUtils.chatIfEnabled("GUI packet " + entry.label() + ": "
-						+ mode.label());
-				}, left, y, columnWidth, rowHeight);
-			button.tint(tintFor(initialMode));
-			rowButtons.add(button);
-			addRenderableWidget(button);
-			y += rowHeight + gap;
+			UiButton button = UiButton.of(entry.label() + ": " + initial.label(), null);
+			button.tint(tintFor(initial));
+			button.action(() -> {
+				UiUtilsGuiPacketControl.Mode mode =
+					UiUtilsGuiPacketControl.cycleMode(entry.id());
+				button.setMessage(Component.literal(
+					entry.label() + ": " + mode.label()));
+				button.tint(tintFor(mode));
+				UiUtils.chatIfEnabled("GUI packet " + entry.label() + ": "
+					+ mode.label());
+			});
+			c.row(UiContent.of(button));
 		}
 
-		int footerY = this.height - footerHeight + 4;
-		int third = (columnWidth - 12) / 3;
-		delayButton = UiUtils.styledButton(delayLabel(), b -> {
-		}, left, footerY, third, 20);
-		addRenderableWidget(delayButton);
-		addRenderableWidget(UiUtils.styledButton("Delay -", b -> {
+		c.section("Tick delay");
+		delayButton = UiButton.of(delayLabel(), null);
+		delayButton.action(null);
+		c.row(UiContent.of(UiButton.of("Delay -", () -> {
 			UiUtilsGuiPacketControl.adjustDelay(-1);
 			updateDelayLabel();
-		}, left + third + 6, footerY, third, 20));
-		addRenderableWidget(UiUtils.styledButton("Delay +", b -> {
+		})), UiContent.of(delayButton), UiContent.of(UiButton.of("Delay +", () -> {
 			UiUtilsGuiPacketControl.adjustDelay(1);
 			updateDelayLabel();
-		}, left + third * 2 + 12, footerY, columnWidth - third * 2 - 12, 20));
+		})));
 
-		int bottomY = footerY + 24;
-		addRenderableWidget(UiUtils.styledButton("Reset All", b -> {
+		c.footerButton("Reset All", UiButton.Kind.DANGER, () -> {
 			UiUtilsGuiPacketControl.resetAndPersist();
-			reopen();
-		}, left, bottomY, (columnWidth - 6) / 2, 20));
-		addRenderableWidget(UiUtils.styledButton("Done",
-			b -> McCompat.setScreen(this.minecraft, parent),
-			left + (columnWidth - 6) / 2 + 6, bottomY,
-			columnWidth - (columnWidth - 6) / 2 - 6, 20));
+			Minecraft.getInstance().execute(this::rebuildWidgets);
+		});
+		c.footerButton("Done", UiButton.Kind.PRIMARY, this::onClose);
 	}
 
 	private static int tintFor(UiUtilsGuiPacketControl.Mode mode) {
@@ -96,18 +82,8 @@ public final class UiUtilsGuiPacketControlScreen extends Screen {
 			delayButton.setMessage(Component.literal(delayLabel()));
 	}
 
-	private void reopen() {
-		McCompat.setScreen(this.minecraft, new UiUtilsGuiPacketControlScreen(parent));
-	}
-
 	@Override
-	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX,
-		int mouseY, float partialTicks) {
-		super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
-		graphics.centeredText(this.font, this.title, this.width / 2, 14,
-			0xFFFFFFFF);
-		graphics.centeredText(this.font,
-			Component.literal("Click a packet to cycle Allow > Drop > Delay"),
-			this.width / 2, 28, 0xFFB8D8FF);
+	public void onClose() {
+		McCompat.setScreen(this.minecraft, parent);
 	}
 }

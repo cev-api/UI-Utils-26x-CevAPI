@@ -1,42 +1,55 @@
 package com.ui_utils.uiutils;
 
-import com.mojang.blaze3d.platform.InputConstants;
+import com.ui_utils.uiutils.ui.UiButton;
+import com.ui_utils.uiutils.ui.UiContent;
+import com.ui_utils.uiutils.ui.UiInput;
+import com.ui_utils.uiutils.ui.UiSlider;
+import com.ui_utils.uiutils.ui.UiModernScreen;
+import com.ui_utils.uiutils.ui.UiTheme;
+import com.ui_utils.uiutils.ui.UiToggle;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.AbstractWidget;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
+import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 
-public final class UiUtilsSettingsScreen extends Screen {
+public final class UiUtilsSettingsScreen extends UiModernScreen {
 	private final Screen parent;
 	private boolean settingsDirty;
 
-	private EditBox selectedColorHexField;
+	private UiInput selectedColorHexField;
 
-	private UiUtilsColoredButton overlayModeButton;
-	private UiUtilsColoredButton packetHudButton;
-	private UiUtilsColoredButton disconnectMethodButton;
-	private UiUtilsColoredButton timeoutSecondsButton;
-	private UiUtilsColoredButton timeoutLagMethodButton;
-	private UiUtilsColoredButton colorTargetButton;
-	private UiUtilsColoredButton restoreKeyBindButton;
-	private UiUtilsColoredButton packetToolsKeyBindButton;
-	private UiUtilsColoredButton delayToggleKeyBindButton;
+	private UiButton overlayModeButton;
+	private UiButton packetHudButton;
+	private UiButton disconnectMethodButton;
+	private UiButton timeoutSecondsButton;
+	private UiButton timeoutLagMethodButton;
+	private UiButton colorTargetButton;
+	private UiButton uiScaleButton;
 	private HsvPickerWidget colorPickerWidget;
 	private ColorTarget selectedTarget = ColorTarget.BUTTON_COLOR;
-	private KeyCaptureMode keyCaptureMode = KeyCaptureMode.NONE;
 
 	public UiUtilsSettingsScreen(Screen parent) {
 		super(Component.literal("UI-Utils Settings"));
 		this.parent = parent;
+	}
+
+	@Override
+	protected int naturalWidth() {
+		return 380;
+	}
+
+	@Override
+	protected boolean expandHeight() {
+		return true;
 	}
 
 	private enum OverlayMode {
@@ -59,231 +72,193 @@ public final class UiUtilsSettingsScreen extends Screen {
 	}
 
 	@Override
-	protected void init() {
-		int panelWidth = getPanelWidth();
-		int left = this.width / 2 - panelWidth / 2;
-		int rowH = rowHeight();
-		int gap = rowGap();
-		int pickerHeight = getPickerHeight(rowH, gap);
-		int y = getContentTop(rowH, gap, pickerHeight);
-		int half = (panelWidth - gap) / 2;
-		int third = (panelWidth - gap * 2) / 3;
+	protected void buildContent(UiContent c) {
+		// Two balanced columns, one control per cell: a cell is wide enough for the
+		// full label, so nothing is truncated at normal scale.
+		c.columns(2, true);
 
-		y += rowH + gap;
-
-		overlayModeButton = addRenderableWidget(UiUtils.styledButton("",
-			b -> cycleOverlayMode(), left, y, half, rowH));
+		c.section("Interface");
+		uiScaleButton = c.button("", () -> {
+			cycleUiScale();
+			Minecraft.getInstance().execute(this::rebuildWidgets);
+		});
+		refreshUiScaleLabel();
+		overlayModeButton = c.button("", () -> {
+			cycleOverlayMode();
+			refreshOverlayModeLabel();
+		});
 		refreshOverlayModeLabel();
-
-		packetHudButton = addRenderableWidget(UiUtils.styledButton("",
-			b -> cyclePacketHudPosition(), left + half + gap, y, half, rowH));
+		packetHudButton = c.button("", () -> {
+			cyclePacketHudPosition();
+			refreshPacketHudLabel();
+		});
 		refreshPacketHudLabel();
-		y += rowH + gap;
 
-		addRenderableWidget(makeToggleButton(left, y, half, rowH,
-			"Log to chat", () -> UiUtilsSettings.get().logToChat,
-			v -> UiUtilsSettings.get().logToChat = v));
-		addRenderableWidget(makeToggleButton(left + half + gap, y, half, rowH,
-			"AntiCheat detector", () -> UiUtilsSettings.get().antiCheatDetectorEnabled,
-			v -> UiUtilsSettings.get().antiCheatDetectorEnabled = v));
-		y += rowH + gap;
-
-		addRenderableWidget(makeToggleButton(left, y, third, rowH, "Bypass RP",
+		c.toggle("Log to chat",
+			() -> UiUtilsSettings.get().logToChat,
+			v -> UiUtilsSettings.get().logToChat = v);
+		c.toggle("AntiCheat detector",
+			() -> UiUtilsSettings.get().antiCheatDetectorEnabled,
+			v -> UiUtilsSettings.get().antiCheatDetectorEnabled = v);
+		c.toggle("Bypass resource pack",
 			() -> UiUtilsSettings.get().bypassResourcePack,
-			v -> UiUtilsSettings.get().bypassResourcePack = v));
-		addRenderableWidget(makeToggleButton(left + third + gap, y, third, rowH,
-			"Force Deny RP", () -> UiUtilsSettings.get().resourcePackForceDeny,
-			v -> UiUtilsSettings.get().resourcePackForceDeny = v));
-		addRenderableWidget(makeToggleButton(left + (third + gap) * 2, y,
-			third, rowH, "Show RP Buttons",
+			v -> UiUtilsSettings.get().bypassResourcePack = v);
+		c.toggle("Force deny resource pack",
+			() -> UiUtilsSettings.get().resourcePackForceDeny,
+			v -> UiUtilsSettings.get().resourcePackForceDeny = v);
+		c.toggle("Show resource pack buttons",
 			() -> UiUtilsSettings.get().showResourcePackButtons,
-			v -> UiUtilsSettings.get().showResourcePackButtons = v));
-		y += rowH + gap;
-
-		addRenderableWidget(makeToggleButton(left, y, half, rowH,
-			"Steal/Store/Dump buttons",
+			v -> UiUtilsSettings.get().showResourcePackButtons = v);
+		c.toggle("Steal / Store / Dump buttons",
 			() -> UiUtilsSettings.get().showStealDumpButtons,
-			v -> UiUtilsSettings.get().showStealDumpButtons = v));
-		disconnectMethodButton = addRenderableWidget(UiUtils.styledButton("",
-			b -> cycleDisconnectMethod(), left + half + gap, y, half, rowH));
+			v -> UiUtilsSettings.get().showStealDumpButtons = v);
+		disconnectMethodButton = UiButton.of("", () -> {
+			cycleDisconnectMethod();
+			refreshDisconnectMethodLabel();
+		});
 		refreshDisconnectMethodLabel();
-		y += rowH + gap;
-		
-		timeoutSecondsButton = addRenderableWidget(UiUtils.styledButton("",
-			b -> cycleTimeoutSeconds(), left, y, half, rowH));
+		// Keep the related navigation beside the disconnect setting.
+		UiButton keybindsButton = UiButton.of("Keybinds",
+			() -> McCompat.setScreen(this.minecraft, new UiUtilsKeybindsScreen(this)));
+		c.spanRow(UiContent.of(disconnectMethodButton),
+			UiContent.of(keybindsButton));
+		c.space(6);
+
+		c.spanRow(UiContent.of(new UiSlider("Close Delay", 0, 80,
+			UiUtilsSettings.get().uiCloseDelayTicks, v -> {
+				UiUtilsSettings.get().uiCloseDelayTicks = v;
+				settingsDirty = true;
+			})));
+		c.spanRow(UiContent.of(new UiSlider("Command Delay", 0, 80,
+			UiUtilsSettings.get().uiCommandDelayTicks, v -> {
+				UiUtilsSettings.get().uiCommandDelayTicks = v;
+				settingsDirty = true;
+			})));
+
+		c.section("Disconnect");
+		timeoutSecondsButton = c.button("", () -> {
+			cycleTimeoutSeconds();
+			refreshTimeoutSecondsLabel();
+		});
 		refreshTimeoutSecondsLabel();
-		timeoutLagMethodButton = addRenderableWidget(UiUtils.styledButton("",
-			b -> cycleTimeoutLagMethod(), left + half + gap, y, half, rowH));
+		timeoutLagMethodButton = c.button("", () -> {
+			cycleTimeoutLagMethod();
+			refreshTimeoutLagMethodLabel();
+		});
 		refreshTimeoutLagMethodLabel();
-		y += rowH + gap;
 
-		addRenderableWidget(new IntSlider(left, y, half, rowH, "Close Delay",
-			0, 80, UiUtilsSettings.get().uiCloseDelayTicks,
-			v -> UiUtilsSettings.get().uiCloseDelayTicks = v,
-			() -> settingsDirty = true));
-		addRenderableWidget(new IntSlider(left + half + gap, y, half, rowH,
-			"Command Delay", 0, 80,
-			UiUtilsSettings.get().uiCommandDelayTicks,
-			v -> UiUtilsSettings.get().uiCommandDelayTicks = v,
-			() -> settingsDirty = true));
-		y += rowH + gap;
-
-		addRenderableWidget(UiUtils.styledButton("Keybinds",
-			b -> McCompat.setScreen(this.minecraft, new UiUtilsKeybindsScreen(this)),
-			left, y, panelWidth, rowH));
-		y += rowH + gap + 8;
-
-		colorTargetButton = addRenderableWidget(UiUtils.styledButton("",
-			b -> cycleColorTarget(), left, y, panelWidth, rowH));
+		c.section("Colours");
+		colorTargetButton = UiButton.of("", () -> {
+			cycleColorTarget();
+			refreshColorTargetLabel();
+		});
 		refreshColorTargetLabel();
-		y += rowH + gap;
-
-		colorPickerWidget =
-			addRenderableWidget(new HsvPickerWidget(left, y, panelWidth, pickerHeight,
-				rgb -> {
-					setSelectedTargetColor(rgb);
-					updateSelectedColorHexField();
-				}));
+		c.centeredRow(UiContent.fixed(colorTargetButton, 250));
+		colorPickerWidget = new HsvPickerWidget(0, 0, 1, 1, rgb -> {
+			setSelectedTargetColor(rgb);
+			updateSelectedColorHexField();
+		});
 		colorPickerWidget.setColor(getSelectedTargetColor());
-		y += pickerHeight + gap;
-
-		selectedColorHexField = new EditBox(this.font, left, y, half, rowH,
+		c.spanRow(UiContent.block(colorPickerWidget, 76, 120));
+		selectedColorHexField = new UiInput(this.font, 1, colorHexText(),
 			Component.literal("#RRGGBB"));
 		selectedColorHexField.setMaxLength(7);
-		selectedColorHexField.setHint(Component.literal("#RRGGBB"));
-		updateSelectedColorHexField();
-		addRenderableWidget(selectedColorHexField);
+		c.centeredRow(UiContent.fixed(selectedColorHexField, 250));
+		c.centeredRow(UiContent.fixed(UiButton.of("Apply selected color",
+			this::applySelectedColor), 220));
 
-		addRenderableWidget(UiUtils.styledButton("Apply selected color", b -> {
-			String raw = selectedColorHexField.getValue().trim();
-			if(raw.startsWith("#"))
-				raw = raw.substring(1);
-			if(!raw.matches("[0-9a-fA-F]{6}"))
-				return;
-			int rgb = Integer.parseInt(raw, 16) & 0xFFFFFF;
-			setSelectedTargetColor(rgb);
-			colorPickerWidget.setColor(rgb);
-			updateSelectedColorHexField();
-		}, left + half + gap, y, half, rowH));
-		y += rowH + gap;
+		c.spanRow(UiContent.of(new UiSlider("Slot overlay alpha", 0, 255,
+			UiUtilsSettings.get().slotOverlayAlpha, v -> {
+				UiUtilsSettings.get().slotOverlayAlpha = v;
+				settingsDirty = true;
+			})));
+		c.spanRow(UiContent.of(new UiSlider("Slot overlay offset X", -20, 20,
+			UiUtilsSettings.get().slotOverlayOffsetX, v -> {
+				UiUtilsSettings.get().slotOverlayOffsetX = v;
+				settingsDirty = true;
+			})));
+		c.spanRow(UiContent.of(new UiSlider("Slot overlay offset Y", -20, 20,
+			UiUtilsSettings.get().slotOverlayOffsetY, v -> {
+				UiUtilsSettings.get().slotOverlayOffsetY = v;
+				settingsDirty = true;
+			})));
+		c.spanRow(UiContent.of(new UiSlider("Overlay background alpha", 0, 255,
+			UiUtilsSettings.get().fabricateOverlayBgAlpha, v -> {
+				UiUtilsSettings.get().fabricateOverlayBgAlpha = v;
+				settingsDirty = true;
+			})));
 
-		addRenderableWidget(new IntSlider(left, y, panelWidth, rowH,
-			"Slot overlay alpha", 0, 255, UiUtilsSettings.get().slotOverlayAlpha,
-			v -> UiUtilsSettings.get().slotOverlayAlpha = v,
-			() -> settingsDirty = true));
-		y += rowH + gap;
+		// This is a single full-width setting at the end of a two-column page.
+		// Reset the flow before its category so the old column baseline cannot
+		// leave a large blank gap above the key field.
+		c.columns(1);
+		c.compactSection("DubeDB");
+		UiInput dupeDbKeyField = c.inputSlot(
+			UiUtilsSettings.get().dupeDbApiKey, value -> {
+				UiUtilsSettings.get().dupeDbApiKey = value;
+				UiUtilsSettings.save();
+			});
+		dupeDbKeyField.setMaxLength(512);
+		dupeDbKeyField.setHint(Component.literal("DupeDB API key"));
+		dupeDbKeyField.addFormatter((value, cursor) ->
+			FormattedCharSequence.forward("•".repeat(value.length()),
+				Style.EMPTY.withColor(UiTheme.TEXT)));
+		c.spanRow(UiContent.of(dupeDbKeyField));
+		c.space(3);
+		c.note("Refreshes the vulnerable plugin list once at launch when a key is set.");
 
-		addRenderableWidget(new IntSlider(left, y, panelWidth, rowH,
-			"Slot overlay offset X", -20, 20,
-			UiUtilsSettings.get().slotOverlayOffsetX,
-			v -> UiUtilsSettings.get().slotOverlayOffsetX = v,
-			() -> settingsDirty = true));
-		y += rowH + gap;
-
-		addRenderableWidget(new IntSlider(left, y, panelWidth, rowH,
-			"Slot overlay offset Y", -20, 20,
-			UiUtilsSettings.get().slotOverlayOffsetY,
-			v -> UiUtilsSettings.get().slotOverlayOffsetY = v,
-			() -> settingsDirty = true));
-		y += rowH + gap;
-
-		addRenderableWidget(new IntSlider(left, y, panelWidth, rowH,
-			"Fabricate overlay background alpha", 0, 255,
-			UiUtilsSettings.get().fabricateOverlayBgAlpha,
-			v -> UiUtilsSettings.get().fabricateOverlayBgAlpha = v,
-			() -> settingsDirty = true));
-		y += rowH + gap;
-
-		addRenderableWidget(UiUtils.styledButton("Done",
-			b -> {
-				flushPendingSettingsSave();
-				McCompat.setScreen(this.minecraft, parent);
-			}, left + panelWidth / 2 - 80, y,
-			160, rowH));
+		c.footerButton("Done", UiButton.Kind.PRIMARY, this::onClose);
 	}
 
-	@Override
-	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX,
-		int mouseY, float partialTicks) {
-		super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
-		int panelWidth = getPanelWidth();
-		int left = this.width / 2 - panelWidth / 2;
-		int rowH = rowHeight();
-		int gap = rowGap();
-		int y = getContentTop(rowH, gap, getPickerHeight(rowH, gap));
-		UiUtils.renderScaledCenteredText(graphics, this.font,
-			Component.literal("UI-Utils by CevAPI"), left + panelWidth / 2,
-			y + Math.max(1, (rowH - this.font.lineHeight) / 2),
-			panelWidth - 8, rowH - 2, 0xFFFFFF, 0.55F);
+	private UiToggle toggle(String label, BooleanSupplier getter,
+		Consumer<Boolean> setter) {
+		return new UiToggle(label, getter, v -> {
+			setter.accept(v);
+			UiUtilsSettings.save();
+		});
+	}
+
+	private String colorHexText() {
+		return String.format("#%06X", getSelectedTargetColor() & 0xFFFFFF);
+	}
+
+	private void applySelectedColor() {
+		String raw = selectedColorHexField.getValue().trim();
+		if (raw.startsWith("#"))
+			raw = raw.substring(1);
+		if (!raw.matches("[0-9a-fA-F]{6}"))
+			return;
+		int rgb = Integer.parseInt(raw, 16) & 0xFFFFFF;
+		setSelectedTargetColor(rgb);
+		if (colorPickerWidget != null)
+			colorPickerWidget.setColor(rgb);
+		updateSelectedColorHexField();
+	}
+
+	private void cycleUiScale() {
+		int[] options = {0, 75, 100, 125, 150};
+		int current = UiUtilsSettings.get().uiScalePercent;
+		int next = options[0];
+		for (int i = 0; i < options.length; i++)
+			if (options[i] == current)
+				next = options[(i + 1) % options.length];
+		UiUtilsSettings.get().uiScalePercent = next;
+		UiUtilsSettings.save();
+	}
+
+	private String uiScaleText() {
+		int percent = UiUtilsSettings.get().uiScalePercent;
+		return percent <= 0 ? "Auto" : percent + "%";
+	}
+
+	private void refreshUiScaleLabel() {
+		if (uiScaleButton != null)
+			uiScaleButton.setMessage(Component.literal("UI scale: " + uiScaleText()));
 	}
 
 	@Override
 	public boolean keyPressed(KeyEvent keyEvent) {
-		if(keyCaptureMode == KeyCaptureMode.NONE)
-			return super.keyPressed(keyEvent);
-		if(keyEvent.isEscape()) {
-			keyCaptureMode = KeyCaptureMode.NONE;
-			refreshKeyBindLabels();
-			return true;
-		}
-		InputConstants.Key key = InputConstants.getKey(keyEvent);
-		String name = key.getName();
-		switch(keyCaptureMode) {
-			case RESTORE -> {
-				UiUtils.setKeybind("restore_gui", name);
-			}
-			case PACKET_TOOL -> {
-				UiUtils.setKeybind("packet_tool", name);
-			}
-			case DELAY_TOGGLE -> {
-				UiUtils.setKeybind("delay_packets_toggle", name);
-			}
-			case NONE -> {}
-		}
-		keyCaptureMode = KeyCaptureMode.NONE;
-		refreshKeyBindLabels();
-		return true;
-	}
-
-	private int getPanelWidth() {
-		return Math.min(420, Math.max(220, this.width - 24));
-	}
-
-	private int rowHeight() {
-		return Mth.clamp((this.height - 130) / 17, 12, 18);
-	}
-
-	private int rowGap() {
-		return rowHeight() <= 15 ? 2 : 4;
-	}
-
-	private int getPickerHeight(int rowH, int gap) {
-		int fixedRows = 17;
-		int gaps = 17;
-		int available = this.height - 24 - fixedRows * rowH - gaps * gap;
-		return Mth.clamp(available, 60, 100);
-	}
-
-	private int getContentTop(int rowH, int gap, int pickerHeight) {
-		int fixedRows = 17;
-		int gaps = 17;
-		int contentHeight = fixedRows * rowH + pickerHeight + gaps * gap + 8;
-		return Math.max(8, (this.height - contentHeight) / 2);
-	}
-
-	private UiUtilsColoredButton makeToggleButton(int x, int y, int width,
-		int height, String label, BooleanSupplier getter,
-		Consumer<Boolean> setter) {
-		UiUtilsColoredButton button = UiUtils.styledButton("", b -> {
-			boolean next = !getter.getAsBoolean();
-			setter.accept(next);
-			UiUtilsSettings.save();
-			b.setMessage(Component.literal(
-				label + ": " + (next ? "ON" : "OFF")));
-		}, x, y, width, height);
-		button.setMessage(Component
-			.literal(label + ": " + (getter.getAsBoolean() ? "ON" : "OFF")));
-		return button;
+		return super.keyPressed(keyEvent);
 	}
 
 	private OverlayMode getOverlayMode() {
@@ -374,7 +349,7 @@ public final class UiUtilsSettingsScreen extends Screen {
 		if(disconnectMethodButton == null)
 			return;
 		disconnectMethodButton.setMessage(Component.literal(
-			"Disconnect method: " + UiUtilsDisconnect.getConfiguredMethod().name()));
+			"Disconnect: " + UiUtilsDisconnect.getConfiguredMethod().name()));
 	}
 	
 	private void refreshTimeoutSecondsLabel() {
@@ -391,47 +366,11 @@ public final class UiUtilsSettingsScreen extends Screen {
 			"Timeout lag: " + UiUtilsDisconnect.getConfiguredLagMethod().name()));
 	}
 
-	private void refreshKeyBindLabels() {
-		if(restoreKeyBindButton != null)
-			restoreKeyBindButton.setMessage(Component.literal(
-				keyCaptureMode == KeyCaptureMode.RESTORE ? "Press Restore Key..."
-					: "Set Restore Key: "
-						+ formatKeyName(UiUtilsSettings.get().restoreKey)));
-		if(packetToolsKeyBindButton != null)
-			packetToolsKeyBindButton.setMessage(Component.literal(
-				keyCaptureMode == KeyCaptureMode.PACKET_TOOL
-					? "Press Packet Tool Key..."
-					: "Set Packet Tool Key: "
-						+ formatKeyName(UiUtilsSettings.get().packetToolsKey)));
-		if(delayToggleKeyBindButton != null)
-			delayToggleKeyBindButton.setMessage(Component.literal(
-				keyCaptureMode == KeyCaptureMode.DELAY_TOGGLE
-					? "Press Delay Toggle Key..."
-					: "Set Delay Toggle Key: "
-						+ formatKeyName(UiUtilsSettings.get().delayToggleKey)));
-	}
-
-	private String formatKeyName(String keyName) {
-		String raw = keyName == null || keyName.isBlank() ? "key.keyboard.unknown"
-			: keyName;
-		int dot = raw.lastIndexOf('.');
-		String part = dot >= 0 && dot + 1 < raw.length() ? raw.substring(dot + 1)
-			: raw;
-		return part.toUpperCase(java.util.Locale.ROOT);
-	}
-
 	private void refreshColorTargetLabel() {
 		if(colorTargetButton == null)
 			return;
 		colorTargetButton.setMessage(
 			Component.literal("Editing color: " + selectedTarget.label));
-	}
-
-	private enum KeyCaptureMode {
-		NONE,
-		RESTORE,
-		PACKET_TOOL,
-		DELAY_TOGGLE
 	}
 
 	private int getSelectedTargetColor() {
@@ -471,64 +410,6 @@ public final class UiUtilsSettingsScreen extends Screen {
 			return;
 		UiUtilsSettings.save();
 		settingsDirty = false;
-	}
-
-	private static final class IntSlider extends AbstractSliderButton {
-		private final String label;
-		private final int min;
-		private final int max;
-		private final java.util.function.IntConsumer onChange;
-		private final Runnable onDirty;
-
-		private IntSlider(int x, int y, int w, int h, String label, int min,
-			int max, int initial, java.util.function.IntConsumer onChange,
-			Runnable onDirty) {
-			super(x, y, w, h, Component.empty(), normalize(initial, min, max));
-			this.label = label;
-			this.min = min;
-			this.max = max;
-			this.onChange = onChange;
-			this.onDirty = onDirty;
-			updateMessage();
-		}
-
-		@Override
-		protected void updateMessage() {
-			setMessage(Component.literal(label + ": " + toInt()));
-		}
-
-		@Override
-		protected void applyValue() {
-			onChange.accept(toInt());
-			onDirty.run();
-		}
-
-		@Override
-		public void extractWidgetRenderState(GuiGraphicsExtractor graphics,
-			int mouseX, int mouseY, float partialTicks) {
-			Component original = getMessage();
-			setMessage(Component.empty());
-			super.extractWidgetRenderState(graphics, mouseX, mouseY,
-				partialTicks);
-			setMessage(original);
-			int textY = getY() + Math.max(1,
-				(getHeight() - Minecraft.getInstance().font.lineHeight) / 2);
-			UiUtils.renderScaledCenteredText(graphics,
-				Minecraft.getInstance().font, original,
-				getX() + getWidth() / 2, textY, getWidth() - 10,
-				getHeight() - 2, 0xFFFFFFFF, 0.35F);
-		}
-
-		private int toInt() {
-			return Mth.clamp((int)Math.round(min + (max - min) * this.value),
-				min, max);
-		}
-
-		private static double normalize(int value, int min, int max) {
-			if(max <= min)
-				return 0.0D;
-			return Mth.clamp((value - min) / (double)(max - min), 0.0D, 1.0D);
-		}
 	}
 
 	private static final class HsvPickerWidget extends AbstractWidget {

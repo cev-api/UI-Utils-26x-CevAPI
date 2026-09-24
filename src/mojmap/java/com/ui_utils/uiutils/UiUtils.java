@@ -27,6 +27,12 @@ import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractSignEditScreen;
 import net.minecraft.client.gui.screens.inventory.BookEditScreen;
+import net.minecraft.util.Mth;
+import com.ui_utils.uiutils.ui.UiInput;
+import com.ui_utils.uiutils.ui.UiLabel;
+import com.ui_utils.uiutils.ui.UiPanel;
+import com.ui_utils.uiutils.ui.UiPinToggle;
+import com.ui_utils.uiutils.ui.UiTheme;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.network.protocol.Packet;
@@ -40,6 +46,8 @@ public final class UiUtils {
 	public static final Logger LOGGER = LoggerFactory.getLogger("ui-utils");
 
 	private static final WeakHashMap<UiUtilsColoredButton, Boolean> queueCounterButtons = new WeakHashMap<>();
+	private static final WeakHashMap<UiUtilsColoredButton, Boolean> autoduperButtons = new WeakHashMap<>();
+	private static int autoduperFlashTick;
 	private static final Map<String, Boolean> keyActionDown = new HashMap<>();
 	private static boolean initialized;
 	private static EditBox currentChatField;
@@ -59,6 +67,7 @@ public final class UiUtils {
 
 	public static void onClientTick(Minecraft mc) {
 		refreshQueueCounterButtons();
+		refreshAutoduperButtons();
 		UiUtilsServerFingerprintCollector.onClientTick(mc);
 		UiUtilsPluginScanner.onTick();
 		UiUtilsLegacyPluginScanner.onTick();
@@ -91,6 +100,17 @@ public final class UiUtils {
 				&& (action.alwaysAvailable || UiUtilsState.isUiEnabled()))
 				executeKeybindAction(action.id, mc);
 			keyActionDown.put(action.id, down);
+		}
+	}
+
+	private static void refreshAutoduperButtons() {
+		boolean running = UiUtilsAutoduper.isRunning();
+		boolean flash = running && (autoduperFlashTick++ / 8) % 2 == 0;
+		for(UiUtilsColoredButton button : autoduperButtons.keySet()) {
+			if(button == null) continue;
+			button.setMessage(Component.literal(running ? "Stop Autoduper"
+				: "Start Autoduper"));
+			button.tint(flash ? 0xFFD22E3C : running ? 0xFF7F1821 : 0);
 		}
 	}
 
@@ -517,204 +537,402 @@ public final class UiUtils {
 		return false;
 	}
 
+	/**
+	 * Builds the in-game UI-Utils panel: a compact flat panel with a title bar, a
+	 * two column button grid and the chat field pinned at the bottom. Everything
+	 * is sized from one scale so the panel fits the space the container screen
+	 * leaves for it.
+	 */
 	public static UiWidgetLayout addUiWidgets(Minecraft mc, int baseX, int baseY,
 		int spacing, int maxHeight, int maxRight, Consumer<AbstractWidget> adder) {
-		final int naturalRowHeight = 20;
-		final int naturalSpacing = spacing;
-		final int naturalFullWidth = 160;
-		final int naturalChatHeight = 20;
-		final int rowCount = 25;
-		double scale = Math.min(1.0D, Math.min(
-			maxHeight / (double)(rowCount * naturalRowHeight
-				+ (rowCount - 1) * naturalSpacing + naturalChatHeight + naturalSpacing),
-			Math.max(naturalFullWidth, maxRight - baseX) / (double)naturalFullWidth));
-		scale *= 0.92D;
-		int rowHeight = Math.max(12, (int)Math.floor(naturalRowHeight * scale));
-		int compactSpacing = Math.max(1, (int)Math.floor(naturalSpacing * scale));
-		int fullWidth = Math.min(maxRight - baseX,
-			Math.max(88, (int)Math.floor(naturalFullWidth * scale)));
-		int chatHeight = Math.max(12, (int)Math.floor(naturalChatHeight * scale));
-		int halfWidth = Math.max(44, (fullWidth - compactSpacing) / 2);
-		int spamSideWidth = Math.max(16, (int)Math.floor(30 * scale));
-		int spamCenterWidth = Math.max(40, fullWidth - spamSideWidth * 2 - compactSpacing * 2);
+		final int naturalRowHeight = 16;
+		final int naturalSpacing = 2;
+		final int naturalFullWidth = 200;
+		final int naturalChatHeight = 14;
+		final int naturalHeaderHeight = 13;
 		final String defaultSlot = "default";
+
+		autoduperButtons.clear();
 		List<UiWidgetRow> rows = new ArrayList<>();
-		nbtTargetButtons.clear();
-		nbtTargetTargets.clear();
-		rows.add(UiWidgetRow.label("UI-Utils by CevAPI"));
 		rows.add(UiWidgetRow.single("Settings", b -> {
 			McCompat.setScreen(mc, new UiUtilsSettingsScreen(McCompat.getScreen(mc)));
 		}));
-		rows.add(UiWidgetRow.single("Command & Plugin Scanner", b -> {
+		rows.add(UiWidgetRow.single("Plugin Scan", b -> {
 			McCompat.setScreen(mc, new UiUtilsCommandScannerScreen(McCompat.getScreen(mc)));
 		}));
-		rows.add(UiWidgetRow.single("Advanced Packet Tool", b -> {
+		rows.add(UiWidgetRow.single("Packet Tool", b -> {
 			AdvancedPacketTool.openScreen(McCompat.getScreen(mc));
-		}));
-		rows.add(UiWidgetRow.single("Start Autoduper", b -> UiUtilsAutoduper.start()));
-		rows.add(UiWidgetRow.single("Autoduper Options", b -> {
-			McCompat.setScreen(mc, new UiUtilsAutoduperScreen(McCompat.getScreen(mc)));
 		}));
 		rows.add(UiWidgetRow.single("Macros", b -> {
 			McCompat.setScreen(mc, new UiUtilsMacroLibraryScreen(McCompat.getScreen(mc)));
 		}));
 		rows.add(UiWidgetRow.single("NBT Editor", b -> UiUtilsNbtEditor.openEditor(mc)));
-		rows.add(UiWidgetRow.quad(
-			new UiWidgetButton(nbtTargetLabel(UiUtilsNbtEditor.ReadFrom.HELD_ITEM), 38,
-				b -> selectNbtTarget(UiUtilsNbtEditor.ReadFrom.HELD_ITEM),
-				UiUtilsNbtEditor.ReadFrom.HELD_ITEM),
-			new UiWidgetButton(nbtTargetLabel(UiUtilsNbtEditor.ReadFrom.BLOCK), 38,
-				b -> selectNbtTarget(UiUtilsNbtEditor.ReadFrom.BLOCK),
-				UiUtilsNbtEditor.ReadFrom.BLOCK),
-			new UiWidgetButton(nbtTargetLabel(UiUtilsNbtEditor.ReadFrom.ENTITY), 38,
-				b -> selectNbtTarget(UiUtilsNbtEditor.ReadFrom.ENTITY),
-				UiUtilsNbtEditor.ReadFrom.ENTITY),
-			new UiWidgetButton(nbtTargetLabel(UiUtilsNbtEditor.ReadFrom.CONTAINER), 38,
-				b -> selectNbtTarget(UiUtilsNbtEditor.ReadFrom.CONTAINER),
-				UiUtilsNbtEditor.ReadFrom.CONTAINER)));
-		rows.add(UiWidgetRow.single("NBT World Edit (OP): "
-			+ boolText(UiUtilsNbtEditor.isWorldEditsEnabled()), b -> {
-			UiUtilsNbtEditor.toggleWorldEdits();
-			b.setMessage(Component.literal("NBT World Edit (OP): "
-				+ boolText(UiUtilsNbtEditor.isWorldEditsEnabled())));
-			chatIfEnabled("NBT world editing: "
-				+ UiUtilsNbtEditor.isWorldEditsEnabled());
-		}));
-		rows.add(UiWidgetRow.single("Close Without Packet", b -> closeScreenWithConfiguredDelay(mc)));
-		rows.add(UiWidgetRow.single("De-Sync", b -> sendClosePacketWithConfiguredDelay(mc)));
-		rows.add(UiWidgetRow.single("Send Packets: " + boolText(UiUtilsState.sendUiPackets), b -> {
+		rows.add(UiWidgetRow.pair(
+			new UiWidgetButton("Fabricate Packet", naturalFullWidth, b ->
+				UiUtilsPanels.toggleFabricator(McCompat.getScreen(mc))),
+			new UiWidgetButton("GUI Tools", naturalFullWidth, b ->
+				UiUtilsPanels.toggleTools(McCompat.getScreen(mc)))));
+		rows.add(UiWidgetRow.label(""));
+		rows.add(UiWidgetRow.pair(
+			new UiWidgetButton("Start Autoduper", naturalFullWidth, b -> {
+				if(UiUtilsAutoduper.isRunning())
+					UiUtilsAutoduper.stop("Stopped By User");
+				else
+					UiUtilsAutoduper.start();
+				refreshAutoduperButtons();
+			}),
+			new UiWidgetButton("AD Options", naturalFullWidth, b -> {
+				McCompat.setScreen(mc,
+					new UiUtilsAutoduperScreen(McCompat.getScreen(mc)));
+			})));
+		rows.add(UiWidgetRow.label(""));
+		rows.add(UiWidgetRow.pair(
+			new UiWidgetButton("Close w/o Packet", naturalFullWidth,
+				b -> closeScreenWithConfiguredDelay(mc)),
+			new UiWidgetButton("Delay: " + boolText(UiUtilsState.delayUiPackets),
+				naturalFullWidth, b -> {
+					UiUtilsState.delayUiPackets = !UiUtilsState.delayUiPackets;
+					b.setMessage(Component.literal("Delay: "
+						+ boolText(UiUtilsState.delayUiPackets)));
+					if (!UiUtilsState.delayUiPackets
+						&& !UiUtilsState.delayedUiPackets.isEmpty()
+						&& mc.getConnection() != null) {
+						for (Packet<?> packet : UiUtilsState.delayedUiPackets)
+							mc.getConnection().send(packet);
+						if (mc.player != null)
+							mc.player.sendSystemMessage(Component.literal("Sent "
+								+ UiUtilsState.delayedUiPackets.size() + " packets."));
+						UiUtilsState.delayedUiPackets.clear();
+						refreshQueueCounterButtons();
+					}
+					chatIfEnabled("Delay packets: " + UiUtilsState.delayUiPackets);
+			})));
+		rows.add(UiWidgetRow.single("De-Sync",
+			b -> sendClosePacketWithConfiguredDelay(mc)));
+		rows.add(UiWidgetRow.single("Send: " + boolText(UiUtilsState.sendUiPackets), b -> {
 			UiUtilsState.sendUiPackets = !UiUtilsState.sendUiPackets;
-			b.setMessage(Component.literal("Send Packets: "
+			b.setMessage(Component.literal("Send: "
 				+ boolText(UiUtilsState.sendUiPackets)));
 			chatIfEnabled("Send packets: " + UiUtilsState.sendUiPackets);
 		}));
-		rows.add(UiWidgetRow.single("Delay Packets: " + boolText(UiUtilsState.delayUiPackets), b -> {
-			UiUtilsState.delayUiPackets = !UiUtilsState.delayUiPackets;
-			b.setMessage(Component.literal("Delay Packets: "
-				+ boolText(UiUtilsState.delayUiPackets)));
-			if (!UiUtilsState.delayUiPackets && !UiUtilsState.delayedUiPackets.isEmpty() && mc.getConnection() != null) {
-				for (Packet<?> packet : UiUtilsState.delayedUiPackets)
-					mc.getConnection().send(packet);
-				if (mc.player != null)
-					mc.player.sendSystemMessage(Component.literal("Sent " + UiUtilsState.delayedUiPackets.size() + " packets."));
-				UiUtilsState.delayedUiPackets.clear();
-				refreshQueueCounterButtons();
-			}
-			chatIfEnabled("Delay packets: " + UiUtilsState.delayUiPackets);
-		}));
-		rows.add(UiWidgetRow.single("Leave & Send Packets", b -> leaveAndSendPackets(mc)));
-		rows.add(UiWidgetRow.single("Disconnect & Send Packets", b -> disconnectAndSendPackets(mc)));
-		rows.add(UiWidgetRow.single("Fabricate Packet", b ->
-			UiUtilsPanels.toggleFabricator(McCompat.getScreen(mc))));
-		rows.add(UiWidgetRow.single("GUI Tools", b ->
-			UiUtilsPanels.toggleTools(McCompat.getScreen(mc))));
 		rows.add(UiWidgetRow.pair(
-			new UiWidgetButton("Save GUI", halfWidth, b -> {
+			new UiWidgetButton("Leave & Send", naturalFullWidth, b -> leaveAndSendPackets(mc)),
+			new UiWidgetButton("Disc & Send", naturalFullWidth, b -> disconnectAndSendPackets(mc))));
+		rows.add(UiWidgetRow.label(""));
+		rows.add(UiWidgetRow.pair(
+			new UiWidgetButton("Save GUI", naturalFullWidth, b -> {
 				if (saveCurrentGuiToSlot(mc, defaultSlot))
 					chatIfEnabled("Saved GUI to slot \"" + defaultSlot + "\" ("
 						+ UiUtilsGuiCache.status(mc).label() + ")");
 			}),
-			new UiWidgetButton("Load GUI", halfWidth, b -> {
+			new UiWidgetButton("Load GUI", naturalFullWidth, b -> {
 				if (loadGuiFromSlot(mc, defaultSlot))
 					chatIfEnabled("Loaded GUI from slot \"" + defaultSlot + "\"");
 				else
 					chatIfEnabled("No saved GUI in slot \"" + defaultSlot + "\"");
 			})));
 		rows.add(UiWidgetRow.pair(
-			new UiWidgetButton("Clear GUI Cache", halfWidth, b -> {
+			new UiWidgetButton("Clear Cache", naturalFullWidth, b -> {
 				chatIfEnabled(UiUtilsGuiCache.clear()
 					? "Cleared saved GUI cache" : "No saved GUI to clear");
 			}),
-			new UiWidgetButton("GUI Packet Log", halfWidth,
+			new UiWidgetButton("Packet Log", naturalFullWidth,
 				b -> McCompat.setScreen(mc,
 					new UiUtilsGuiPacketLogScreen(McCompat.getScreen(mc))))));
 		rows.add(UiWidgetRow.pair(
-			new UiWidgetButton("Clear Queue", halfWidth, b -> {
-				int cleared = clearQueuedPackets();
-				chatIfEnabled("Cleared queued packets (" + cleared + ")");
-			}),
-			new UiWidgetButton("Queue: " + UiUtilsState.delayedUiPackets.size(),
-				halfWidth, b -> b.setMessage(Component.literal("Queue: "
-					+ UiUtilsState.delayedUiPackets.size())))));
-		rows.add(UiWidgetRow.pair(
-			new UiWidgetButton("Resync Inv", halfWidth, b -> {
+			new UiWidgetButton("Resync Inv", naturalFullWidth, b -> {
 				if (mc.player != null && tryResyncInventory(mc.player.containerMenu))
 					chatIfEnabled("Inventory resynced");
 				else
 					chatIfEnabled("Failed to resync inventory");
 			}),
-			new UiWidgetButton("Disconnect", halfWidth,
+			new UiWidgetButton("Disconnect", naturalFullWidth,
 				b -> UiUtilsDisconnect.disconnectWithConfiguredMethod(mc))));
+		rows.add(UiWidgetRow.label(""));
+		rows.add(UiWidgetRow.pair(
+			new UiWidgetButton("Clear Queue", naturalFullWidth, b -> {
+				int cleared = clearQueuedPackets();
+				chatIfEnabled("Cleared queued packets (" + cleared + ")");
+			}),
+			new UiWidgetButton("Queue: " + UiUtilsState.delayedUiPackets.size(),
+				naturalFullWidth, b -> b.setMessage(Component.literal("Queue: "
+					+ UiUtilsState.delayedUiPackets.size())))));
 		rows.add(UiWidgetRow.triple(
-			new UiWidgetButton("-", spamSideWidth, b -> {
+			new UiWidgetButton("-", 18, b -> {
 				if (UiUtilsState.spamCount > 1)
 					UiUtilsState.spamCount--;
 				spamCountButtons().forEach(button -> button.setMessage(
 					Component.literal("Spam (X" + UiUtilsState.spamCount + ")")));
 			}),
-			new UiWidgetButton("Spam (X" + UiUtilsState.spamCount + ")",
-				spamCenterWidth, b -> {
-					int sent = sendQueuedPackets(mc, UiUtilsState.spamCount);
-					chatIfEnabled("Spammed queued packets (" + sent + ")");
-				}),
-			new UiWidgetButton("+", spamSideWidth, b -> {
+			new UiWidgetButton("Spam (X" + UiUtilsState.spamCount + ")", 140, b -> {
+				int sent = sendQueuedPackets(mc, UiUtilsState.spamCount);
+				chatIfEnabled("Spammed queued packets (" + sent + ")");
+			}),
+			new UiWidgetButton("+", 18, b -> {
 				if (UiUtilsState.spamCount < 100)
 					UiUtilsState.spamCount++;
 				spamCountButtons().forEach(button -> button.setMessage(
 					Component.literal("Spam (X" + UiUtilsState.spamCount + ")")));
 			})));
 		rows.add(UiWidgetRow.pair(
-			new UiWidgetButton("Send One", halfWidth, b -> {
+			new UiWidgetButton("Send One", naturalFullWidth, b -> {
 				boolean sent = sendOneQueuedPacket(mc);
 				chatIfEnabled(sent ? "Sent one queued packet" : "No queued packets to send");
 			}),
-			new UiWidgetButton("Pop Last", halfWidth, b -> {
+			new UiWidgetButton("Pop Last", naturalFullWidth, b -> {
 				boolean popped = popLastQueuedPacket();
 				chatIfEnabled(popped ? "Removed last queued packet" : "No queued packets to remove");
 			})));
 
-		List<UiUtilsColoredButton> queueButtons = new ArrayList<>();
-		List<UiUtilsColoredButton> spamButtons = new ArrayList<>();
-		for (int i = 0; i < rows.size(); i++) {
-			int x = baseX;
-			int y = baseY + i * (rowHeight + compactSpacing);
-			UiWidgetRow row = rows.get(i);
+		// Consecutive single-cell rows share a line, which is what keeps the panel
+		// short enough to fit beside an open container. Only short labels are paired:
+		// a label wider than half the panel would be truncated, so it gets a full
+		// width row of its own instead.
+		List<Object> lines = new ArrayList<>();
+		UiWidgetRow pending = null;
+		for (UiWidgetRow row : rows) {
 			if (row.labelText != null) {
-				adder.accept(new UiUtilsTextLabel(x, y, fullWidth, rowHeight,
-					Component.literal(row.labelText)));
+				if (pending != null) {
+					lines.add(List.of(pending));
+					pending = null;
+				}
+				lines.add(row.labelText);
 				continue;
 			}
-			int nextX = x;
-			int consumed = 0;
-			for (int buttonIndex = 0; buttonIndex < row.buttons.size(); buttonIndex++) {
-				UiWidgetButton button = row.buttons.get(buttonIndex);
-				int width = buttonIndex == row.buttons.size() - 1
-					? fullWidth - consumed - compactSpacing * buttonIndex
-					: Math.max(18, (int)Math.round(button.width
-						* (fullWidth / (double)naturalFullWidth)));
-				UiUtilsColoredButton widget = styledButton(button.text, button.action,
-					nextX, y, width, rowHeight);
-				adder.accept(widget);
-				if (button.text.startsWith("Queue: "))
-					queueButtons.add(widget);
-				if (button.text.startsWith("Spam (X"))
-					spamButtons.add(widget);
-				if (button.nbtTarget() != null) {
-					nbtTargetButtons.add(widget);
-					nbtTargetTargets.add(button.nbtTarget());
+			if (row.buttons.size() == 1 && fitsHalfRow(row)) {
+				if (pending == null) {
+					pending = row;
+					continue;
 				}
-				nextX += width + compactSpacing;
-				consumed += width;
+				lines.add(List.of(pending, row));
+				pending = null;
+				continue;
 			}
+			if (pending != null) {
+				lines.add(List.of(pending));
+				pending = null;
+			}
+			lines.add(List.of(row));
 		}
+		if (pending != null)
+			lines.add(List.of(pending));
+
+		final int naturalLabelHeight = 11;
+		final int panelPadding = 6;
+		int usableWidth = Math.max(100, maxRight - baseX - panelPadding * 2);
+		int usableHeight = Math.max(80, maxHeight - panelPadding * 2);
+		// Same scale the overlay panels and the UI-Utils windows use, then clamped so
+		// the panel fits: it cannot scroll, so it must fit both ways. A second column
+		// is tried as well, which keeps the text full size in a short window instead
+		// of shrinking the whole panel.
+		float preferred = UiTheme.screenScale(
+			mc.getWindow().getGuiScaledWidth(),
+			mc.getWindow().getGuiScaledHeight());
+		int columns = 1;
+		int split = lines.size();
+		double scale = bestPanelScale(lines, 1, lines.size(), naturalFullWidth,
+			naturalRowHeight, naturalLabelHeight, naturalHeaderHeight,
+			naturalSpacing, naturalChatHeight, preferred, usableWidth, usableHeight);
+		double twoColumnScale = bestPanelScale(lines, 2, columnSplit(lines),
+			naturalFullWidth, naturalRowHeight, naturalLabelHeight,
+			naturalHeaderHeight, naturalSpacing, naturalChatHeight, preferred,
+			usableWidth, usableHeight);
+		if (twoColumnScale > scale) {
+			columns = 2;
+			split = columnSplit(lines);
+			scale = twoColumnScale;
+		}
+		float uiScale = (float)scale;
+		int rowHeight = Math.max(10, (int)Math.round(naturalRowHeight * scale));
+		int labelHeight = Math.max(9, (int)Math.round(naturalLabelHeight * scale));
+		int headerHeight = Math.max(11, (int)Math.round(naturalHeaderHeight * scale));
+		int gap = Math.max(1, (int)Math.round(naturalSpacing * scale));
+		int columnWidth = Math.max(96, (int)Math.round(naturalFullWidth * scale));
+		int fullWidth = Math.min(usableWidth, columns == 1 ? columnWidth
+			: columnWidth * 2 + gap * 2);
+		int chatHeight = Math.max(11, (int)Math.round(naturalChatHeight * scale));
+
+		int panelTop = baseY;
+		int panelLeft = baseX;
+		int bodyTop = panelTop + headerHeight + gap;
+		int bodyBottom = panelBottom(lines, split, columns, bodyTop, rowHeight,
+			labelHeight, gap);
+		// The chat field sits below the button stack, and the panel is grown to hold
+		// it plus the gap above it.
+		int chatGap = 6;
+		adder.accept(new UiPanel(panelLeft - panelPadding, panelTop - panelPadding,
+			fullWidth + panelPadding * 2,
+			bodyBottom - panelTop + chatGap + chatHeight + gap + panelPadding * 2, false)
+				.uiScale(uiScale));
+		UiPanel headerPanel = new UiPanel(panelLeft - panelPadding,
+			panelTop - panelPadding, fullWidth + panelPadding * 2,
+			headerHeight + panelPadding, true);
+		headerPanel.setMessage(Component.literal("UI-Utils by CevAPI"));
+		headerPanel.centered(true);
+		headerPanel.uiScale(1F);
+		adder.accept(headerPanel);
+		int pinWidth = 18;
+		UiPinToggle pinButton = new UiPinToggle(
+			panelLeft + fullWidth - pinWidth - 2, panelTop - panelPadding,
+			pinWidth, headerHeight + panelPadding,
+			() -> UiUtilsSettings.get().mainUiPinned, () -> {
+			UiUtilsSettings.get().mainUiPinned = !UiUtilsSettings.get().mainUiPinned;
+			UiUtilsSettings.save();
+		});
+		pinButton.setTooltip(net.minecraft.client.gui.components.Tooltip
+			.create(Component.literal("Pin or unpin panel")));
+		pinButton.uiScale(1F);
+		adder.accept(pinButton);
+
+		List<UiUtilsColoredButton> queueButtons = new ArrayList<>();
+		List<UiUtilsColoredButton> spamButtons = new ArrayList<>();
+		layoutColumn(lines.subList(0, split), panelLeft, columnWidth, bodyTop,
+			fullWidth, gap, rowHeight, labelHeight, 1F, adder, queueButtons,
+			spamButtons);
+		if (columns == 2)
+			layoutColumn(lines.subList(split, lines.size()),
+				panelLeft + columnWidth + gap * 2, columnWidth, bodyTop, fullWidth,
+				gap, rowHeight, labelHeight, 1F, adder, queueButtons,
+				spamButtons);
 		queueCounterButtons.keySet().removeIf(button -> button == null);
 		for (UiUtilsColoredButton button : queueButtons)
 			queueCounterButtons.put(button, Boolean.TRUE);
 		setSpamCountButtons(spamButtons);
-		refreshNbtTargetButtons();
 
-		int chatY = baseY + rows.size() * (rowHeight + compactSpacing);
-		return new UiWidgetLayout(baseX, chatY, fullWidth, chatHeight);
+		int chatY = bodyBottom + 6;
+		int panelX = panelLeft - panelPadding;
+		int panelY = panelTop - panelPadding;
+		int panelHeight = bodyBottom - panelTop + chatGap + chatHeight + gap
+			+ panelPadding * 2;
+		return new UiWidgetLayout(panelLeft, chatY, fullWidth, chatHeight,
+			uiScale, panelX, panelY, fullWidth + panelPadding * 2, panelHeight,
+			headerHeight + panelPadding);
+	}
+
+	/**
+	 * Index at which a second column should start: moved to the next section label
+	 * so a column never opens in the middle of a group.
+	 */
+	private static int columnSplit(List<Object> lines) {
+		int split = lines.size() / 2;
+		for (int i = split; i < lines.size(); i++)
+			if (lines.get(i) instanceof String)
+				return i;
+		return split;
+	}
+
+	/** Height of the laid-out column(s), used to size the panel background. */
+	private static int panelBottom(List<Object> lines, int split, int columns,
+		int bodyTop, int rowHeight, int labelHeight, int gap) {
+		int first = bodyTop
+			+ groupHeight(lines.subList(0, split), rowHeight, labelHeight, gap);
+		if (columns == 1)
+			return first - gap;
+		int second = bodyTop + groupHeight(lines.subList(split, lines.size()),
+			rowHeight, labelHeight, gap);
+		return Math.max(first, second) - gap;
+	}
+
+	private static int groupHeight(java.util.List<Object> group, int rowHeight,
+		int labelHeight, int gap) {
+		int height = 0;
+		for (Object line : group)
+			height += (line instanceof String ? labelHeight : rowHeight) + gap;
+		return height;
+	}
+
+	/** Places one column of panel lines, starting at {@code startY}. */
+	private static void layoutColumn(java.util.List<Object> group, int startX,
+		int columnWidth, int startY, int fullWidth, int gap, int rowHeight,
+		int labelHeight, float uiScale, Consumer<AbstractWidget> adder,
+		List<UiUtilsColoredButton> queueButtons,
+		List<UiUtilsColoredButton> spamButtons) {
+		int y = startY;
+		for (Object line : group) {
+			if (line instanceof String text) {
+				UiLabel label = new UiLabel(text).uiScale(uiScale)
+					.size(columnWidth, labelHeight);
+				label.setX(startX);
+				label.setY(y);
+				adder.accept(label);
+				y += labelHeight + gap;
+				continue;
+			}
+			@SuppressWarnings("unchecked")
+			List<UiWidgetRow> cells = (List<UiWidgetRow>)line;
+			List<UiWidgetButton> buttons = new ArrayList<>();
+			for (UiWidgetRow cell : cells)
+				buttons.addAll(cell.buttons);
+			if (buttons.isEmpty()) {
+				y += rowHeight + gap;
+				continue;
+			}
+			int declared = 0;
+			for (UiWidgetButton button : buttons)
+				declared += button.width;
+			int available = columnWidth - gap * (buttons.size() - 1);
+			int consumed = 0;
+			int x = startX;
+			for (int buttonIndex = 0; buttonIndex < buttons.size(); buttonIndex++) {
+				UiWidgetButton button = buttons.get(buttonIndex);
+				int width = buttonIndex == buttons.size() - 1
+					? available - consumed
+					: Math.max(14, (int)Math.round(button.width
+						* (available / (double)Math.max(1, declared))));
+				UiUtilsColoredButton widget = styledButton(button.text, button.action,
+					x, y, width, rowHeight);
+				widget.uiScale(uiScale);
+				adder.accept(widget);
+				if (button.text.startsWith("Queue: "))
+					queueButtons.add(widget);
+				if (button.text.equals("Start Autoduper"))
+					autoduperButtons.put(widget, Boolean.TRUE);
+				if (button.text.startsWith("Spam (X"))
+					spamButtons.add(widget);
+				x += width + gap;
+				consumed += width;
+			}
+			y += rowHeight + gap;
+		}
+	}
+
+	/**
+	 * Largest scale at which the panel fits the available box for the given column
+	 * count. The 6px slack absorbs per-row rounding.
+	 */
+	private static double bestPanelScale(List<Object> lines, int columns,
+		int split, int naturalFullWidth, int naturalRowHeight,
+		int naturalLabelHeight, int naturalHeaderHeight, int naturalSpacing,
+		int naturalChatHeight, float preferred, int usableWidth,
+		int usableHeight) {
+		int naturalWidth = columns == 1 ? naturalFullWidth
+			: naturalFullWidth * 2 + naturalSpacing * 2;
+		int bodyUnits;
+		if (columns == 1) {
+			bodyUnits = groupHeightUnits(lines, naturalRowHeight,
+				naturalLabelHeight, naturalSpacing);
+		} else {
+			bodyUnits = Math.max(
+				groupHeightUnits(lines.subList(0, split), naturalRowHeight,
+					naturalLabelHeight, naturalSpacing),
+				groupHeightUnits(lines.subList(split, lines.size()),
+					naturalRowHeight, naturalLabelHeight, naturalSpacing));
+		}
+		int naturalHeight = naturalHeaderHeight + naturalSpacing + bodyUnits
+			+ naturalChatHeight + naturalSpacing;
+		float fitWidth = usableWidth / (float)naturalWidth;
+		float fitHeight = Math.max(0.2F,
+			(usableHeight - 6) / (float)naturalHeight);
+		float target = Math.min(preferred, Math.min(fitWidth, fitHeight));
+		return Math.floor(Math.max(0.25F, target) * 8D) / 8D;
+	}
+
+	private static int groupHeightUnits(java.util.List<Object> group, int rowHeight,
+		int labelHeight, int spacing) {
+		int height = 0;
+		for (Object line : group)
+			height += (line instanceof String ? labelHeight : rowHeight) + spacing;
+		return height;
 	}
 
 	public static UiUtilsColoredButton styledButton(String text,
@@ -727,107 +945,84 @@ public final class UiUtils {
 		return value ? "True" : "False";
 	}
 
-	private static final class UiUtilsTextLabel extends AbstractWidget {
-		private UiUtilsTextLabel(int x, int y, int width, int height,
-			Component message) {
-			super(x, y, width, height, message);
-			this.active = false;
-		}
+public static EditBox createChatField(Minecraft mc, Font font, int x, int y,
+int width, int height) {
+return createChatField(mc, font, x, y, width, height, 1F);
+}
 
-		@Override
-		protected void extractWidgetRenderState(GuiGraphicsExtractor graphics,
-			int mouseX, int mouseY, float partialTicks) {
-			int textColor = 0xFF000000
-				| (UiUtilsSettings.get().uiButtonTextColor & 0xFFFFFF);
-			int textY = getY() + Math.max(1, (getHeight()
-				- Minecraft.getInstance().font.lineHeight) / 2);
-			renderScaledCenteredText(graphics, Minecraft.getInstance().font,
-				getMessage(), getX() + getWidth() / 2, textY, getWidth() - 6,
-				getHeight() - 2, textColor, 0.4F);
-		}
+/** Chat field carrying the panel scale, so its text matches the buttons. */
+public static EditBox createChatField(Minecraft mc, Font font, int x, int y,
+int width, int height, float uiScale) {
+UiInput field = new UiInput(font, width, "", Component.literal("Chat ...")) {
+@Override
+public boolean keyPressed(net.minecraft.client.input.KeyEvent keyEvent) {
+if (McCompat.isConfirmationKey(keyEvent)) {
+String text = getValue();
+String command = null;
+if (UiUtilsCommandSystem.isUiUtilsCommand(text)) {
+command = UiUtilsCommandSystem.extractCommandBody(text);
+} else {
+String trimmed = text == null ? "" : text.trim();
+if (!trimmed.isEmpty()) {
+String[] parts = trimmed.split("\\s+", 2);
+if (UiUtilsCommandSystem.isKnownSubcommand(parts[0]))
+command = trimmed;
+}
+}
+if (command != null) {
+String result = UiUtilsCommandSystem.execute(command);
+if (mc.player != null && !result.isEmpty())
+for (String line : result.split("\n"))
+mc.player.sendSystemMessage(Component.literal(line));
+setValue("");
+return true;
+}
 
-		@Override
-		protected void updateWidgetNarration(NarrationElementOutput narration) {
-		}
-	}
-
-	public static EditBox createChatField(Minecraft mc, Font font, int x, int y,
-		int width, int height) {
-		EditBox field = new EditBox(font, x, y, width, height, Component.literal("Chat ...")) {
-			@Override
-			public boolean keyPressed(net.minecraft.client.input.KeyEvent keyEvent) {
-				if (McCompat.isConfirmationKey(keyEvent)) {
-					String text = getValue();
-					String command = null;
-					if (UiUtilsCommandSystem.isUiUtilsCommand(text)) {
-						command = UiUtilsCommandSystem.extractCommandBody(text);
-					} else {
-						String trimmed = text == null ? "" : text.trim();
-						if (!trimmed.isEmpty()) {
-							String[] parts = trimmed.split("\\s+", 2);
-							if (UiUtilsCommandSystem.isKnownSubcommand(parts[0]))
-								command = trimmed;
-						}
-					}
-					if (command != null) {
-							String result = UiUtilsCommandSystem.execute(command);
-							if (mc.player != null && !result.isEmpty())
-								for (String line : result.split("\n"))
-									mc.player.sendSystemMessage(Component.literal(line));
-							setValue("");
-							return true;
-						}
-
-					if (mc.getConnection() != null && mc.player != null) {
-						if (text.startsWith("/"))
-							sendCommandWithConfiguredDelay(mc,
-								text.replaceFirst(Pattern.quote("/"), ""));
-						else
-							sendChatWithConfiguredDelay(mc, text);
-					} else {
-						LOGGER.warn("Minecraft player/connection was null while sending chat.");
-					}
-					setValue("");
-					return true;
-				}
-				return super.keyPressed(keyEvent);
-			}
-		};
-		currentChatField = field;
-		field.setMaxLength(256);
-		field.setHint(Component.literal("Chat ..."));
-		return field;
-	}
+if (mc.getConnection() != null && mc.player != null) {
+if (text.startsWith("/"))
+sendCommandWithConfiguredDelay(mc,
+text.replaceFirst(Pattern.quote("/"), ""));
+else
+sendChatWithConfiguredDelay(mc, text);
+} else {
+LOGGER.warn("Minecraft player/connection was null while sending chat.");
+}
+setValue("");
+return true;
+}
+return super.keyPressed(keyEvent);
+}
+};
+field.uiScale(uiScale);
+field.setX(x);
+field.setY(y);
+field.setHeight(height);
+currentChatField = field;
+field.setMaxLength(256);
+field.setHint(Component.literal("Chat ..."));
+return field;
+}
 
 	public record UiWidgetLayout(int chatX, int chatY, int chatWidth,
-		int chatHeight) {}
+		int chatHeight, float uiScale, int panelX, int panelY, int panelWidth,
+		int panelHeight, int panelHeaderHeight) {}
+
+	/**
+	 * True when a single button row is short enough to share a line. Half the panel
+	 * is {@code naturalFullWidth / 2} design units, which fits roughly this many
+	 * characters at the default font; anything longer would render ellipsised.
+	 */
+	private static boolean fitsHalfRow(UiWidgetRow row) {
+		for (UiWidgetButton button : row.buttons)
+			if (button.text.length() > HALF_ROW_CHARS)
+				return false;
+		return true;
+	}
+
+	/** Longest label that still fits in half the panel width. */
+	private static final int HALF_ROW_CHARS = 13;
 
 	private static final WeakHashMap<UiUtilsColoredButton, Boolean> spamCountButtonMap = new WeakHashMap<>();
-	private static final List<UiUtilsColoredButton> nbtTargetButtons = new ArrayList<>();
-	private static final List<UiUtilsNbtEditor.ReadFrom> nbtTargetTargets = new ArrayList<>();
-
-	private static String nbtTargetLabel(UiUtilsNbtEditor.ReadFrom target) {
-		boolean active = UiUtilsNbtEditor.getReadFrom() == target;
-		return (active ? ">" : "") + target.shortLabel();
-	}
-
-	private static void selectNbtTarget(UiUtilsNbtEditor.ReadFrom target) {
-		UiUtilsNbtEditor.setReadFrom(target);
-		UiUtilsNbtEditor.readTarget();
-		refreshNbtTargetButtons();
-		String message = UiUtilsNbtEditor.getLastEditorMessage();
-		chatIfEnabled(message == null || message.isBlank()
-			? "NBT target: " + target : message);
-	}
-
-	private static void refreshNbtTargetButtons() {
-		for (int i = 0; i < nbtTargetButtons.size(); i++) {
-			UiUtilsColoredButton button = nbtTargetButtons.get(i);
-			if (button == null || i >= nbtTargetTargets.size())
-				continue;
-			button.setMessage(Component.literal(nbtTargetLabel(nbtTargetTargets.get(i))));
-		}
-	}
 
 	private static List<UiUtilsColoredButton> spamCountButtons() {
 		spamCountButtonMap.keySet().removeIf(button -> button == null);
@@ -841,12 +1036,7 @@ public final class UiUtils {
 	}
 
 	private record UiWidgetButton(String text, int width,
-		UiUtilsColoredButton.PressAction action,
-		UiUtilsNbtEditor.ReadFrom nbtTarget) {
-		private UiWidgetButton(String text, int width,
-			UiUtilsColoredButton.PressAction action) {
-			this(text, width, action, null);
-		}
+		UiUtilsColoredButton.PressAction action) {
 	}
 
 	private static final class UiWidgetRow {
@@ -865,7 +1055,7 @@ public final class UiUtils {
 		private static UiWidgetRow single(String text,
 			UiUtilsColoredButton.PressAction action) {
 			return new UiWidgetRow(null, List.of(
-				new UiWidgetButton(text, 160, action)));
+				new UiWidgetButton(text, 200, action)));
 		}
 
 		private static UiWidgetRow pair(UiWidgetButton left,
@@ -876,11 +1066,6 @@ public final class UiUtils {
 		private static UiWidgetRow triple(UiWidgetButton left,
 			UiWidgetButton center, UiWidgetButton right) {
 			return new UiWidgetRow(null, List.of(left, center, right));
-		}
-
-		private static UiWidgetRow quad(UiWidgetButton first, UiWidgetButton second,
-			UiWidgetButton third, UiWidgetButton fourth) {
-			return new UiWidgetRow(null, List.of(first, second, third, fourth));
 		}
 	}
 

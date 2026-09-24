@@ -175,5 +175,6 @@ run/
 .idea/
 yarn-sources.jar
 logs/
+Thumbs.db
 .gradle_old_loomlock/
 build_old_loomlock/

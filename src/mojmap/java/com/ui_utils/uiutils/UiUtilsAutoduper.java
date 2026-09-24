@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Locale;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
@@ -582,36 +581,6 @@ public final class UiUtilsAutoduper {
 			status = "Validation rejected ghost item";
 			phase = Phase.RUN_STRATEGY;
 		}
-	}
-
-	public static void renderAbortOverlay(GuiGraphicsExtractor graphics) {
-		if(!running)
-			return;
-		Minecraft mc = Minecraft.getInstance();
-		int x = 8;
-		int y = 8;
-		int w = 150;
-		int h = 20;
-		graphics.fill(x, y, x + w, y + h, 0xCC7A1010);
-		graphics.outline(x, y, w, h, 0xFFFFB0B0);
-		String abortText = "ABORT AUTODUPE";
-		if(UiUtilsSettings.get().autoduperAbortHoldEnabled
-			&& abortHoldTicks > 0) {
-			abortText += " "
-				+ Math.min(100, abortHoldTicks * 100 / 60) + "%";
-		}
-		graphics.text(mc.font, abortText, x + 8, y + 6, 0xFFFFFFFF, false);
-	}
-
-	public static boolean handleAbortOverlayClick(double mouseX, double mouseY,
-		int button) {
-		if(!running || button != 0)
-			return false;
-		if(mouseX >= 8 && mouseX <= 158 && mouseY >= 8 && mouseY <= 28) {
-			abort();
-			return true;
-		}
-		return false;
 	}
 
 	private static void sendOpenCommand(Minecraft mc) {

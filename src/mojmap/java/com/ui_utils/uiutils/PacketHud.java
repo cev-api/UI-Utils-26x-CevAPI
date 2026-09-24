@@ -34,11 +34,13 @@ public final class PacketHud {
     }
 
     public static void render(GuiGraphicsExtractor g) {
+        if (!UiUtilsSettings.get().packetHudEnabled)
+            return;
         UiUtilsSettings.PacketHudPosition position = UiUtilsSettings.get().packetHudPosition;
         if (!position.isEnabled())
             return;
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null)
+        if (mc.level == null || McCompat.getScreen(mc) != null)
             return; // only in-game like Wurst's HUDs
         int sw = mc.getWindow().getGuiScaledWidth();
         int sh = mc.getWindow().getGuiScaledHeight();
@@ -53,11 +55,13 @@ public final class PacketHud {
 
     // Render path that accepts the runtime GuiGraphics instance without importing it
     public static void renderAny(Object graphics) {
+        if (!UiUtilsSettings.get().packetHudEnabled)
+            return;
         UiUtilsSettings.PacketHudPosition position = UiUtilsSettings.get().packetHudPosition;
         if (!position.isEnabled())
             return;
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null)
+        if (mc.level == null || McCompat.getScreen(mc) != null)
             return;
 
         int queued = com.ui_utils.uiutils.UiUtilsState.delayedUiPackets.size();

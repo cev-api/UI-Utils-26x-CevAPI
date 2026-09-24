@@ -4,6 +4,12 @@ import com.ui_utils.uiutils.macro.UiUtilsMacro;
 import com.ui_utils.uiutils.macro.UiUtilsMacroExecutor;
 import com.ui_utils.uiutils.macro.UiUtilsMacroIo;
 import com.ui_utils.uiutils.macro.UiUtilsMacroManager;
+import com.ui_utils.uiutils.ui.UiButton;
+import com.ui_utils.uiutils.ui.UiContent;
+import com.ui_utils.uiutils.ui.UiInput;
+import com.ui_utils.uiutils.ui.UiListRow;
+import com.ui_utils.uiutils.ui.UiModernScreen;
+import com.ui_utils.uiutils.ui.UiTheme;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -11,29 +17,22 @@ import java.util.List;
 import java.util.Locale;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
-public final class UiUtilsMacroLibraryScreen extends Screen {
+public final class UiUtilsMacroLibraryScreen extends UiModernScreen {
     private final Screen parent;
-    private EditBox searchField;
-    private EditBox importField;
-    private EditBox exportField;
-    private final List<MacroRow> rows = new ArrayList<>();
+    private UiInput searchField;
+    private UiInput importField;
+    private UiInput exportField;
+    private final List<UiListRow> rows = new ArrayList<>();
     private final List<UiUtilsMacro> filtered = new ArrayList<>();
     private int selected = -1;
     private int offset = 0;
     private String status = "";
-    private boolean draggingScrollbar;
-    private int scrollbarGrabOffset;
-    private ScrollbarMetrics lastScrollbar = ScrollbarMetrics.none();
 
     public UiUtilsMacroLibraryScreen(Screen parent) {
         super(Component.literal("Macro Library"));
@@ -41,318 +40,171 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
     }
 
     @Override
-    protected void init() {
-        clearWidgets();
-        rows.clear();
+    protected int naturalWidth() {
+        return 420;
+    }
+
+    @Override
+    protected boolean expandWidth() {
+        return true;
+    }
+
+    @Override
+    protected int maxWidth() {
+        return 560;
+    }
+
+    @Override
+    protected void buildContent(UiContent c) {
         ensureDefaultDirectories();
-        int width = panelWidth();
-        int left = (this.width - width) / 2;
-        int rowH = rowHeight();
-        int gap = rowGap();
-        int visibleRows = visibleRows(rowH, gap);
-        int top = contentTop(rowH, gap, visibleRows);
-        boolean stacked = width < 420;
-        int half = (width - gap) / 2;
-        int third = (width - gap * 2) / 3;
+        rows.clear();
 
-        searchField = new EditBox(this.font, left, top, width, rowH, Component.literal("Search"));
-        searchField.setHint(Component.literal("Search macros..."));
-        addRenderableWidget(searchField);
-        top += rowH + gap;
-
-        addRenderableWidget(UiUtils.styledButton("Create New", b -> {
-            McCompat.setScreen(minecraft, new UiUtilsMacrosScreen(this));
-        }, left, top, third, rowH));
-        addRenderableWidget(UiUtils.styledButton("Edit Selected", b -> openSelected(),
-            left + (third + gap), top, third, rowH));
-        addRenderableWidget(UiUtils.styledButton("Delete Selected", b -> deleteSelected(),
-            left + (third + gap) * 2, top, third, rowH));
-        top += rowH + gap;
-        addRenderableWidget(UiUtils.styledButton("Run Selected", b -> runSelected(),
-            left, top, half, rowH));
-        addRenderableWidget(UiUtils.styledButton("Stop", b -> UiUtilsMacroExecutor.stop(),
-            left + half + gap, top, half, rowH));
-        top += rowH + gap;
-
-        for (int i = 0; i < visibleRows; i++) {
-            MacroRow r = addRenderableWidget(new MacroRow(left, top + i * (rowH + gap), width, rowH, i));
-            rows.add(r);
-        }
-
-        int ioTop = top + (rowH + gap) * visibleRows + gap;
-        int fieldWidth = stacked ? width : Math.max(180, width - 160);
-        importField = new EditBox(this.font, left, ioTop, fieldWidth, rowH, Component.literal("Import path"));
-        importField.setMaxLength(1024);
-        importField.setHint(Component.literal("Import path (NBT)"));
-        importField.setValue(defaultImportDirectory().toString());
-        addRenderableWidget(importField);
-        addRenderableWidget(UiUtils.styledButton("...", b -> openFilePicker(importField, true),
-            stacked ? left : left + fieldWidth + 4, ioTop, stacked ? half : 28, rowH));
-        addRenderableWidget(UiUtils.styledButton("Import", b -> {
-            status = UiUtilsMacroIo.importMacro(importField.getValue().trim(), "");
+        searchField = c.input("", value -> {
+            offset = 0;
             refreshRows();
-        }, stacked ? left + half + gap : left + fieldWidth + 36, ioTop,
-            stacked ? half : width - fieldWidth - 36, rowH));
+        });
+        searchField.setHint(Component.literal("Search macros..."));
+        c.row(UiContent.of(UiButton.of("Create New",
+                () -> McCompat.setScreen(minecraft, new UiUtilsMacrosScreen(this)))),
+            UiContent.of(UiButton.of("Edit Selected", this::openSelected)),
+            UiContent.of(UiButton.of("Delete Selected", this::deleteSelected)));
+        c.row(UiContent.of(UiButton.of("Run Selected", this::runSelected)),
+            UiContent.of(UiButton.of("Stop", UiUtilsMacroExecutor::stop)));
 
-        exportField = new EditBox(this.font, left, ioTop + rowH + gap, fieldWidth, rowH, Component.literal("Export folder"));
+        // Only as many list slots as the viewport has room for: the import and
+        // export controls below must stay inside the panel, not clip behind the
+        // footer where they cannot be reached.
+        // One row per macro, always. The panel scrolls as a whole, so the import and
+        // export controls below can never be stranded behind the footer. The list is
+        // filtered first, because the row count depends on it.
+        rebuildFiltered();
+        int slots = Math.max(3, Math.min(40, filtered.size() + 1));
+        for (int slot = 0; slot < slots; slot++) {
+            final int rowSlot = slot;
+            UiListRow row = new UiListRow("", () -> selectRow(rowSlot, false));
+            row.doubleRun(() -> selectRow(rowSlot, true));
+            rows.add(row);
+            c.row(UiContent.of(row));
+        }
+
+        c.section("Import / Export");
+        importField = new UiInput(this.font, 1, defaultImportDirectory().toString(),
+            Component.literal("Import path (NBT)"));
+        importField.setMaxLength(1024);
+        c.row(UiContent.of(importField, 6F),
+            UiContent.fixed(UiButton.of("...", () -> openFilePicker(importField, true)), 26),
+            UiContent.of(UiButton.of("Import", this::importMacro), 1.5F));
+
+        exportField = new UiInput(this.font, 1, defaultExportDirectory().toString(),
+            Component.literal("Export folder"));
         exportField.setMaxLength(1024);
-        exportField.setHint(Component.literal("Export folder"));
-        exportField.setValue(defaultExportDirectory().toString());
-        addRenderableWidget(exportField);
-        addRenderableWidget(UiUtils.styledButton("...", b -> openFilePicker(exportField, false),
-            stacked ? left : left + fieldWidth + 4, ioTop + rowH + gap, stacked ? half : 28, rowH));
-        addRenderableWidget(UiUtils.styledButton("Export", b -> {
-            UiUtilsMacro m = selectedMacro();
-            status = m == null ? "No macro selected." : UiUtilsMacroIo.exportMacro(m.name, exportField.getValue().trim());
-        }, stacked ? left + half + gap : left + fieldWidth + 36, ioTop + rowH + gap,
-            stacked ? half : width - fieldWidth - 36, rowH));
-
-        int doneWidth = Math.min(220, width);
-        addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(minecraft, parent),
-            left + (width - doneWidth) / 2, ioTop + (rowH + gap) * 2, doneWidth, rowH));
+        c.row(UiContent.of(exportField, 6F),
+            UiContent.fixed(UiButton.of("...", () -> openFilePicker(exportField, false)), 26),
+            UiContent.of(UiButton.of("Export", this::exportMacro), 1.5F));
 
         refreshRows();
-    }
-
-    private void deleteSelected() {
-        UiUtilsMacro m = selectedMacro();
-        if (m == null) {
-            status = "No macro selected.";
-            return;
-        }
-        UiUtilsMacroManager.get().remove(m.name);
-        selected = -1;
-        refreshRows();
-        status = "Deleted " + m.name;
-    }
-
-    private void runSelected() {
-        UiUtilsMacro m = selectedMacro();
-        if (m != null) UiUtilsMacroManager.get().execute(m.name);
-    }
-
-    private void openSelected() {
-        UiUtilsMacro m = selectedMacro();
-        if (m != null) McCompat.setScreen(minecraft, new UiUtilsMacrosScreen(this, m.name));
-    }
-
-    private UiUtilsMacro selectedMacro() {
-        return (selected >= 0 && selected < filtered.size()) ? filtered.get(selected) : null;
-    }
-
-    private void refreshRows() {
-        String q = searchField == null ? "" : searchField.getValue().trim().toLowerCase(Locale.ROOT);
-        filtered.clear();
-        for (UiUtilsMacro m : UiUtilsMacroManager.get().getAll()) {
-            if (q.isBlank() || m.name.toLowerCase(Locale.ROOT).contains(q)) filtered.add(m);
-        }
-        int maxOffset = Math.max(0, filtered.size() - rows.size());
-        if (offset > maxOffset) offset = maxOffset;
-        if (selected >= filtered.size()) selected = filtered.isEmpty() ? -1 : 0;
-        for (int i = 0; i < rows.size(); i++) {
-            rows.get(i).setMessage(Component.literal(rowText(i)));
-        }
-    }
-
-    private String rowText(int rowIndex) {
-        int index = offset + rowIndex;
-        if (index < 0 || index >= filtered.size()) return "";
-        UiUtilsMacro m = filtered.get(index);
-        String marker = index == selected ? "> " : "";
-        return marker + m.name + " (" + m.actions.size() + " steps)";
     }
 
     @Override
     public void tick() {
         super.tick();
         refreshRows();
+        String running = UiUtilsMacroExecutor.isRunning()
+            ? UiUtilsMacroExecutor.currentName() : "none";
+        setStatus(status.isEmpty() ? "Running: " + running : status);
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks) {
-        super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
-        int width = panelWidth();
-        int left = (this.width - width) / 2;
-        int rowH = rowHeight();
-        int gap = rowGap();
-        int visibleRows = visibleRows(rowH, gap);
-        int top = contentTop(rowH, gap, visibleRows);
-        int headerY = top - this.font.lineHeight * 2 - 6;
-        String running = UiUtilsMacroExecutor.isRunning() ? UiUtilsMacroExecutor.currentName() : "none";
-        graphics.text(this.font, "Macro Library [" + filtered.size() + "]", left, headerY, 0xFFE6EEF7, false);
-        graphics.text(this.font, "Running: " + running, left, headerY + this.font.lineHeight + 2, 0xFFC6D6E8, false);
-        int statusY = top + (rowH + gap) * (visibleRows + HEADER_ROWS + 3) + 4;
-        graphics.centeredText(this.font, Component.literal(status), this.width / 2,
-            statusY, 0xFFFFC66D);
-        int listTop = listTop(rowH, gap, visibleRows);
-        int listBottom = listTop + (rowH + gap) * visibleRows - 3;
-        lastScrollbar = computeScrollbar(left + width + 5, listTop, listBottom, filtered.size(), rows.size(), offset);
-        renderScrollbar(graphics, lastScrollbar);
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        int width = panelWidth();
-        int left = (this.width - width) / 2;
-        int rowH = rowHeight();
-        int gap = rowGap();
-        int visibleRows = visibleRows(rowH, gap);
-        int listTop = listTop(rowH, gap, visibleRows);
-        int listBottom = listTop + (rowH + gap) * visibleRows - 3;
-        if (mouseX < left || mouseX > left + width || mouseY < listTop || mouseY > listBottom) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
-        if (scrollY < 0) offset = Math.min(Math.max(0, filtered.size() - rows.size()), offset + 1);
-        else if (scrollY > 0) offset = Math.max(0, offset - 1);
-        refreshRows();
-        return true;
-    }
-
-    @Override
-    public boolean mouseClicked(MouseButtonEvent context, boolean doubleClick) {
-        if (context.button() == McCompat.LEFT_BUTTON && lastScrollbar.hasScroll && lastScrollbar.contains(context.x(), context.y())) {
-            if (context.y() >= lastScrollbar.thumbY && context.y() <= lastScrollbar.thumbY + lastScrollbar.thumbH) {
-                draggingScrollbar = true;
-                scrollbarGrabOffset = (int)Math.max(0, Math.round(context.y()) - lastScrollbar.thumbY);
-            } else {
-                jumpScrollToMouse((int)Math.round(context.y()), 0);
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX,
+        double scrollY) {
+        // Only take the wheel for the inner list when it has more entries than
+        // slots; otherwise the panel needs it to reach the rest of the form.
+        if (!rows.isEmpty() && scrollY != 0 && filtered.size() > rows.size()) {
+            int designY = designY(mouseY);
+            UiListRow first = rows.get(0);
+            UiListRow last = rows.get(rows.size() - 1);
+            if (designY >= first.getY() && designY <= last.getY() + last.getHeight()) {
+                int maxOffset = Math.max(0, filtered.size() - rows.size());
+                offset = Mth.clamp(offset + (scrollY < 0 ? 1 : -1), 0, maxOffset);
                 refreshRows();
+                return true;
             }
-            return true;
         }
-        // Hit-test the list here rather than relying on getChildAt() dispatch.
-        if (context.button() == McCompat.LEFT_BUTTON && handleRowClick(context.x(), context.y(), doubleClick))
-            return true;
-        return super.mouseClicked(context, doubleClick);
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
-    private boolean handleRowClick(double mouseX, double mouseY, boolean doubleClick) {
-        int width = panelWidth();
-        int left = (this.width - width) / 2;
-        int rowH = rowHeight();
-        int gap = rowGap();
-        int visibleRows = visibleRows(rowH, gap);
-        int listTop = listTop(rowH, gap, visibleRows);
-        if (mouseX < left || mouseX > left + width || mouseY < listTop)
-            return false;
-        int rowIndex = (int)((mouseY - listTop) / (rowH + gap));
-        if (rowIndex < 0 || rowIndex >= visibleRows)
-            return false;
-        int idx = offset + rowIndex;
-        if (idx < 0 || idx >= filtered.size())
-            return false;
-        selected = idx;
+    private void selectRow(int slot, boolean open) {
+        int index = offset + slot;
+        if (index < 0 || index >= filtered.size())
+            return;
+        selected = index;
         refreshRows();
-        if (doubleClick)
+        if (open)
             openSelected();
-        return true;
     }
 
-    @Override
-    public boolean mouseDragged(MouseButtonEvent context, double dragX, double dragY) {
-        if (draggingScrollbar && context.button() == McCompat.LEFT_BUTTON && lastScrollbar.hasScroll) {
-            jumpScrollToMouse((int)Math.round(context.y()), scrollbarGrabOffset);
-            refreshRows();
-            return true;
-        }
-        return super.mouseDragged(context, dragX, dragY);
+    private void importMacro() {
+        status = UiUtilsMacroIo.importMacro(importField.getValue().trim(), "");
+        Minecraft.getInstance().execute(this::rebuildWidgets);
     }
 
-    @Override
-    public boolean mouseReleased(MouseButtonEvent context) {
-        if (context.button() == McCompat.LEFT_BUTTON && draggingScrollbar) {
-            draggingScrollbar = false;
-            return true;
-        }
-        return super.mouseReleased(context);
+    private void exportMacro() {
+        UiUtilsMacro macro = selectedMacro();
+        status = macro == null ? "No macro selected."
+            : UiUtilsMacroIo.exportMacro(macro.name, exportField.getValue().trim());
     }
 
-    private final class MacroRow extends AbstractWidget {
-        private final int row;
-        private MacroRow(int x, int y, int w, int h, int row) {
-            super(x, y, w, h, Component.empty());
-            this.row = row;
+    private void deleteSelected() {
+        UiUtilsMacro macro = selectedMacro();
+        if (macro == null) {
+            status = "No macro selected.";
+            return;
         }
+        UiUtilsMacroManager.get().remove(macro.name);
+        selected = -1;
+        refreshRows();
+        status = "Deleted " + macro.name;
+    }
 
-        @Override
-        public boolean mouseClicked(MouseButtonEvent context, boolean doubleClick) {
-            // 26.3 resolves clicks through getChildAt(), but keep the hit test so the
-            // row still behaves like a normal widget if the dispatch model changes.
-            if (!active || !visible || context.button() != McCompat.LEFT_BUTTON) return false;
-            if (!isMouseOver(context.x(), context.y())) return false;
-            int idx = offset + row;
-            if (idx < 0 || idx >= filtered.size()) return false;
-            selected = idx;
-            refreshRows();
-            if (doubleClick) openSelected();
-            return true;
-        }
+    private void runSelected() {
+        UiUtilsMacro macro = selectedMacro();
+        if (macro != null) UiUtilsMacroManager.get().execute(macro.name);
+    }
 
-        @Override
-        protected void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks) {
-            int x = getX();
-            int y = getY();
-            int w = getWidth();
-            int h = getHeight();
-            boolean hasContent = !getMessage().getString().isBlank();
-            boolean selectedRow = offset + row == selected;
-            int baseRgb = UiUtilsSettings.get().uiButtonColor & 0xFFFFFF;
-            int fill = hasContent ? (selectedRow ? (0x99000000 | baseRgb) : 0x99000000) : 0x44000000;
-            int border = selectedRow ? (0xFF000000 | scaleRgb(baseRgb, 1.35F)) : (hasContent ? 0xAA5D6A72 : 0x66505A60);
-            graphics.fill(x, y, x + w, y + h, fill);
-            graphics.outline(x, y, w, h, border);
-            if (hasContent)
-                graphics.fill(x, y, x + 3, y + h, selectedRow ? 0xFFFFFFFF : (0xFF000000 | scaleRgb(baseRgb, 1.15F)));
-            int textColor = 0xFF000000 | (UiUtilsSettings.get().uiButtonTextColor & 0xFFFFFF);
-            int textY = y + Math.max(1,
-                (h - Minecraft.getInstance().font.lineHeight) / 2);
-            UiUtils.renderScaledText(graphics, Minecraft.getInstance().font,
-                getMessage().getString(), x + 6, textY, w - 12, h - 2,
-                textColor, 0.5F);
-        }
+    private void openSelected() {
+        UiUtilsMacro macro = selectedMacro();
+        if (macro != null) McCompat.setScreen(minecraft, new UiUtilsMacrosScreen(this, macro.name));
+    }
 
-        @Override
-        protected void updateWidgetNarration(NarrationElementOutput narration) {
-            defaultButtonNarrationText(narration);
+    private UiUtilsMacro selectedMacro() {
+        return (selected >= 0 && selected < filtered.size()) ? filtered.get(selected) : null;
+    }
+
+    /** Rebuilds the filtered list from the search box. Safe to call any time. */
+    private void rebuildFiltered() {
+        String query = searchField == null ? ""
+            : searchField.getValue().trim().toLowerCase(Locale.ROOT);
+        filtered.clear();
+        for (UiUtilsMacro macro : UiUtilsMacroManager.get().getAll()) {
+            if (query.isBlank() || macro.name.toLowerCase(Locale.ROOT).contains(query))
+                filtered.add(macro);
         }
     }
 
-    private static int scaleRgb(int rgb, float factor) {
-        int r = (rgb >> 16) & 0xFF;
-        int g = (rgb >> 8) & 0xFF;
-        int b = rgb & 0xFF;
-        r = clamp((int)(r * factor));
-        g = clamp((int)(g * factor));
-        b = clamp((int)(b * factor));
-        return (r << 16) | (g << 8) | b;
-    }
-
-    private static int clamp(int value) {
-        return Math.max(0, Math.min(255, value));
-    }
-
-    private void jumpScrollToMouse(int mouseY, int grabOffset) {
-        if (!lastScrollbar.hasScroll) return;
-        int maxScroll = Math.max(1, lastScrollbar.totalRows - lastScrollbar.visibleRows);
-        int travel = Math.max(1, lastScrollbar.trackBottom - lastScrollbar.trackTop - lastScrollbar.thumbH);
-        int thumbTop = Math.max(lastScrollbar.trackTop, Math.min(lastScrollbar.trackBottom - lastScrollbar.thumbH, mouseY - grabOffset));
-        double ratio = (thumbTop - lastScrollbar.trackTop) / (double)travel;
-        offset = Math.max(0, Math.min(maxScroll, (int)Math.round(ratio * maxScroll)));
-    }
-
-    private ScrollbarMetrics computeScrollbar(int x, int top, int bottom, int totalRows, int visibleRows, int scroll) {
-        int trackH = Math.max(1, bottom - top);
-        if (totalRows <= visibleRows) return new ScrollbarMetrics(x, top, bottom, top, trackH, false, totalRows, visibleRows);
-        double ratio = visibleRows / (double)Math.max(1, totalRows);
-        int thumbH = Math.max(12, (int)Math.round(trackH * ratio));
-        int maxScroll = Math.max(1, totalRows - visibleRows);
-        int travel = Math.max(1, trackH - thumbH);
-        int thumbY = top + (int)Math.round((Math.max(0, Math.min(scroll, maxScroll)) / (double)maxScroll) * travel);
-        return new ScrollbarMetrics(x, top, bottom, thumbY, thumbH, true, totalRows, visibleRows);
-    }
-
-    private void renderScrollbar(GuiGraphicsExtractor graphics, ScrollbarMetrics m) {
-        if (!m.hasScroll) return;
-        graphics.fill(m.x, m.trackTop, m.x + 3, m.trackBottom, 0xFF353535);
-        graphics.fill(m.x, m.thumbY, m.x + 3, m.thumbY + m.thumbH, draggingScrollbar ? 0xFFFFFFFF : 0xFFCFCFCF);
+    private void refreshRows() {
+        rebuildFiltered();
+        int maxOffset = Math.max(0, filtered.size() - rows.size());
+        if (offset > maxOffset) offset = maxOffset;
+        if (selected >= filtered.size()) selected = filtered.isEmpty() ? -1 : 0;
+        for (int i = 0; i < rows.size(); i++) {
+            UiListRow row = rows.get(i);
+            int index = offset + i;
+            boolean filled = index >= 0 && index < filtered.size();
+            row.active = filled;
+            row.label(filled ? filtered.get(index).name : "");
+            row.detail(filled ? filtered.get(index).actions.size() + " steps" : "");
+            row.selected(filled && index == selected);
+        }
     }
 
     private static Path defaultImportDirectory() {
@@ -413,46 +265,5 @@ public final class UiUtilsMacroLibraryScreen extends Screen {
             UiUtils.LOGGER.warn("Macro file picker failed", t);
             Minecraft.getInstance().execute(() -> status = "File picker failed: " + t.getClass().getSimpleName());
         }
-    }
-
-    private record ScrollbarMetrics(int x, int trackTop, int trackBottom, int thumbY, int thumbH, boolean hasScroll, int totalRows, int visibleRows) {
-        private static ScrollbarMetrics none() {
-            return new ScrollbarMetrics(0, 0, 0, 0, 0, false, 0, 0);
-        }
-
-        private boolean contains(double mx, double my) {
-            return mx >= x && mx <= x + 3 && my >= trackTop && my <= trackBottom;
-        }
-    }
-
-    private int panelWidth() {
-        return Math.min(460, Math.max(200, this.width - 20));
-    }
-
-    private int rowHeight() {
-        return Mth.clamp((this.height - 110) / 19, 12, 17);
-    }
-
-    private int rowGap() {
-        return rowHeight() <= 15 ? 2 : 3;
-    }
-
-    private int visibleRows(int rowH, int gap) {
-        return Math.max(4, Math.min(10, (this.height - 170) / (rowH + gap)));
-    }
-
-    // Rows above the macro list: search, Create/Edit, Run/Stop.
-    private static final int HEADER_ROWS = 3;
-
-    private int listTop(int rowH, int gap, int visibleRows) {
-        return contentTop(rowH, gap, visibleRows) + (rowH + gap) * HEADER_ROWS;
-    }
-
-    private int contentTop(int rowH, int gap, int visibleRows) {
-        // Visible rows plus search, Create/Edit/Delete, Run/Stop, import, export, Done.
-        int totalRows = visibleRows + HEADER_ROWS + 3;
-        int totalHeight = rowH * totalRows + gap * (totalRows - 1);
-        // Min leaves room for the two-line left-justified header above the panel.
-        return Math.max(26, (this.height - totalHeight) / 2);
     }
 }

@@ -7,32 +7,33 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import com.ui_utils.uiutils.ui.UiButton;
+import com.ui_utils.uiutils.ui.UiContent;
+import com.ui_utils.uiutils.ui.UiInput;
+import com.ui_utils.uiutils.ui.UiModernScreen;
+import com.ui_utils.uiutils.ui.UiTheme;
+import com.ui_utils.uiutils.ui.UiToggle;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
-public final class UiUtilsCommandScannerScreen extends Screen {
+public final class UiUtilsCommandScannerScreen extends UiModernScreen {
+	private static final int OUTPUT_LINES = 3;
+
 	private final Screen parent;
-	private EditBox searchField;
-	private EditBox packetCommandsField;
-	private UiUtilsColoredButton scannerModeButton;
-	private int resultsScroll;
-	private int resultsTop;
-	private int resultsBottom;
-	private int outputTop;
-	private int outputBottom;
+	private UiInput searchField;
+	private UiInput packetCommandsField;
+	private UiButton scannerModeButton;
 	private boolean commandOutputVisible;
-	private int panelLeft;
-	private int panelWidth;
+	private int resultsFlowTop;
+	/** Lines built for the last layout, shared by the measure and draw passes. */
+	private List<Line> resultLines = List.of();
 	private final Set<String> expandedPlugins = new HashSet<>();
 	private final Set<String> expandedCommandLetters = new HashSet<>();
 	private final List<ClickTargetRow> clickableRows = new ArrayList<>();
 	private boolean vulnerableListExpanded;
-	private boolean draggingScrollbar;
-	private int scrollbarGrabOffset;
-	private ScrollbarMetrics lastScrollbar = ScrollbarMetrics.none();
 
 	public UiUtilsCommandScannerScreen(Screen parent) {
 		super(Component.literal("UI-Utils Scanner Dashboard"));
@@ -40,106 +41,203 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 	}
 
 	@Override
-	protected void init() {
-		panelWidth = Math.min(420, Math.max(260, this.width - 32));
-		int left = (this.width - panelWidth) / 2;
-		panelLeft = left;
-		int rowH = 20;
-		int gap = 4;
-		boolean stacked = panelWidth < 360;
-		int splitWidth = stacked ? panelWidth : (panelWidth - 10) / 2;
+	protected int naturalWidth() {
+		return 480;
+	}
 
-		int topRows = stacked ? 11 : 7;
-		int controlsHeight = (rowH * topRows) + (gap * (topRows - 1));
-		int footerHeight = rowH + gap;
-		int outputHeight = commandOutputVisible ? 58 : 0;
-		int outputGap = commandOutputVisible ? 8 : 0;
-		int desiredResultsHeight = Math.min(260, Math.max(90,
-			this.height - controlsHeight - footerHeight - outputHeight - 68));
-		int totalBlockHeight = controlsHeight + 8 + desiredResultsHeight + 8 + footerHeight + outputGap + outputHeight;
-		int blockTop = Math.max(8, (this.height - totalBlockHeight) / 2);
-		int y = blockTop;
-
-		scannerModeButton = addRenderableWidget(UiUtils.styledButton("", b -> {
-			boolean packet = !"CLIENT_SIDE_ENUMERATION".equalsIgnoreCase(UiUtilsSettings.get().commandScannerMode);
-			UiUtilsSettings.get().commandScannerMode = packet ? "CLIENT_SIDE_ENUMERATION" : "PACKET_PROBING";
+	@Override
+	protected void buildContent(UiContent c) {
+		scannerModeButton = c.button("", () -> {
+			boolean packet = !"CLIENT_SIDE_ENUMERATION"
+				.equalsIgnoreCase(UiUtilsSettings.get().commandScannerMode);
+			UiUtilsSettings.get().commandScannerMode = packet
+				? "CLIENT_SIDE_ENUMERATION" : "PACKET_PROBING";
 			UiUtilsSettings.save();
 			refreshScannerModeLabel();
-		}, left, y, splitWidth, rowH));
+		});
 		refreshScannerModeLabel();
 
-		addRenderableWidget(UiUtils.styledButton("Run command scan", b -> UiUtilsCommandScanner.startScan(),
-			stacked ? left : left + splitWidth + 10, y, splitWidth, rowH));
-		y += rowH + gap;
-		if(stacked)
-			y += rowH + gap;
-
-		addRenderableWidget(UiUtils.styledButton("Command debug: "
-			+ (UiUtilsSettings.get().commandScannerDebugProbe ? "ON" : "OFF"), b -> {
-				UiUtilsSettings.get().commandScannerDebugProbe = !UiUtilsSettings.get().commandScannerDebugProbe;
-				UiUtilsSettings.save();
-				b.setMessage(Component.literal("Command debug: "
-					+ (UiUtilsSettings.get().commandScannerDebugProbe ? "ON" : "OFF")));
-			}, left, y, splitWidth, rowH));
-
-		addRenderableWidget(UiUtils.styledButton("Run plugin scan", b -> UiUtilsPluginScanner.startScan(),
-			stacked ? left : left + splitWidth + 10, y, splitWidth, rowH));
-		y += rowH + gap;
-		if(stacked)
-			y += rowH + gap;
-
-		addRenderableWidget(UiUtils.styledButton("Verbose Server Scan", b -> {
-			UiUtilsScanHistory.recordVerboseFingerprint(UiUtilsScanHistory.serverKey(this.minecraft),
+		c.row(UiContent.of(UiButton.of("Run command scan",
+				UiUtilsCommandScanner::startScan)),
+			UiContent.of(UiButton.of("Run plugin scan",
+				UiUtilsPluginScanner::startScan)));
+		c.button("Verbose Server Scan", () -> {
+			UiUtilsScanHistory.recordVerboseFingerprint(
+				UiUtilsScanHistory.serverKey(this.minecraft),
 				UiUtilsServerFingerprintCollector.snapshot());
-			McCompat.setScreen(this.minecraft, new UiUtilsVerboseServerScanScreen(this));
-		}, left, y, panelWidth, rowH));
-		y += rowH + gap;
+			McCompat.setScreen(this.minecraft,
+				new UiUtilsVerboseServerScanScreen(this));
+		});
+		c.row(UiContent.of(toggle("Command debug",
+				() -> UiUtilsSettings.get().commandScannerDebugProbe,
+				v -> {
+					UiUtilsSettings.get().commandScannerDebugProbe = v;
+					UiUtilsSettings.save();
+				})),
+			UiContent.of(toggle("Run found cmds",
+				() -> UiUtilsSettings.get().commandScannerRunFoundCommands,
+				v -> {
+					UiUtilsSettings.get().commandScannerRunFoundCommands = v;
+					UiUtilsSettings.save();
+				})));
+		c.button("Legacy Plugin Scan (Safer)",
+			UiUtilsLegacyPluginScanner::startScan);
 
-		addRenderableWidget(UiUtils.styledButton("Legacy Plugin Scan (Safer)", b -> UiUtilsLegacyPluginScanner.startScan(),
-			left, y, panelWidth, rowH));
-		y += rowH + gap;
-
-		searchField = new EditBox(this.font, left, y, splitWidth, rowH, Component.literal("Search results"));
+		c.section("Commands");
+		searchField = c.input("", value ->
+			Minecraft.getInstance().execute(this::rebuildWidgets));
 		searchField.setMaxLength(64);
 		searchField.setHint(Component.literal("Search results..."));
-		addRenderableWidget(searchField);
-
-		addRenderableWidget(UiUtils.styledButton("Run found cmds: "
-			+ (UiUtilsSettings.get().commandScannerRunFoundCommands ? "ON" : "OFF"), b -> {
-				UiUtilsSettings.get().commandScannerRunFoundCommands = !UiUtilsSettings.get().commandScannerRunFoundCommands;
-				UiUtilsSettings.save();
-				b.setMessage(Component.literal("Run found cmds: "
-					+ (UiUtilsSettings.get().commandScannerRunFoundCommands ? "ON" : "OFF")));
-			}, stacked ? left : left + splitWidth + 10, y, splitWidth, rowH));
-		y += rowH + gap;
-		if(stacked)
-			y += rowH + gap;
-
-		packetCommandsField = new EditBox(this.font, left, y, splitWidth, rowH, Component.literal("Packet commands"));
+		packetCommandsField = c.inputSlot(
+			UiUtilsSettings.get().commandScannerPacketCommands, value -> {});
 		packetCommandsField.setMaxLength(256);
-		packetCommandsField.setValue(UiUtilsSettings.get().commandScannerPacketCommands);
-		addRenderableWidget(packetCommandsField);
-		addRenderableWidget(UiUtils.styledButton("Send packet cmds", b -> {
-			UiUtilsSettings.get().commandScannerPacketCommands = packetCommandsField.getValue();
+		c.row(UiContent.of(packetCommandsField, 3F),
+			UiContent.of(UiButton.of("Send packet cmds", this::sendPacketCommands),
+				2F));
+
+		c.section("Results");
+		resultsFlowTop = c.cursor();
+		int lineHeight = lineHeight();
+		// The results and the command output are painted directly, not as widgets, so
+		// their exact extent is declared here. Without this the scroll system would
+		// only see the widgets above and could never reach the bottom of the list.
+		resultLines = buildLines(true);
+		int drawnBottom = resultsFlowTop + 2 + resultLines.size() * lineHeight;
+		if (commandOutputVisible)
+			drawnBottom += (OUTPUT_LINES + 2) * lineHeight + 6;
+		c.reportBottom(drawnBottom);
+		c.space(drawnBottom - c.cursor());
+		setStatus("");
+
+		c.footerButton("Clear results", UiButton.Kind.DANGER, this::clearResults);
+		c.footerButton("Done", UiButton.Kind.PRIMARY, this::onClose);
+	}
+
+	@Override
+	protected void drawContentOverlay(GuiGraphicsExtractor graphics, Font font,
+		int mouseX, int mouseY) {
+		int lineHeight = lineHeight();
+		List<Line> lines = resultLines;
+		clickableRows.clear();
+		int y = resultsFlowTop + 2;
+		for (Line line : lines) {
+			UiTheme.text(graphics, font,
+				UiTheme.ellipsize(font, line.text, contentWidthUnits()), 0, y,
+				line.color);
+			if (line.clickKey != null)
+				clickableRows.add(new ClickTargetRow(line.clickKey, 0, y - 1,
+					contentWidthUnits(), lineHeight + 1));
+			y += lineHeight;
+		}
+		if (commandOutputVisible)
+			drawCommandOutput(graphics, font, y + 4);
+	}
+
+	@Override
+	protected boolean onContentClick(int x, int y, boolean doubleClick) {
+		for (ClickTargetRow row : clickableRows) {
+			if (!row.contains(x, y))
+				continue;
+			if (row.clickKey.startsWith("plugin:")) {
+				if (expandedPlugins.contains(row.clickKey))
+					expandedPlugins.remove(row.clickKey);
+				else
+					expandedPlugins.add(row.clickKey);
+			} else if (row.clickKey.startsWith("letter:")) {
+				if (expandedCommandLetters.contains(row.clickKey))
+					expandedCommandLetters.remove(row.clickKey);
+				else
+					expandedCommandLetters.add(row.clickKey);
+			} else if (row.clickKey.startsWith("command:")) {
+				selectCommand(row.clickKey.substring("command:".length()));
+			} else if ("vuln:list".equals(row.clickKey)) {
+				vulnerableListExpanded = !vulnerableListExpanded;
+			} else {
+				continue;
+			}
+			return true;
+		}
+		return false;
+	}
+
+	private void sendPacketCommands() {
+		UiUtilsSettings.get().commandScannerPacketCommands =
+			packetCommandsField.getValue();
+		UiUtilsSettings.save();
+		UiUtilsCommandScanner.sendManualPacketCommands();
+		commandOutputVisible = true;
+		Minecraft.getInstance().execute(this::rebuildWidgets);
+	}
+
+	/**
+	 * Keeps the dashboard live while a scan runs. The result text is rebuilt every
+	 * tick, and the screen is re-laid out whenever the number of lines changes so
+	 * the space reserved for the list (and therefore the scroll range) matches what
+	 * is actually drawn.
+	 */
+	@Override
+	public void tick() {
+		super.tick();
+		if (scanning()) {
+			refreshResults();
+			return;
+		}
+		// One final refresh after a scan finishes, so the last results are shown.
+		refreshResults();
+	}
+
+	private boolean scanning() {
+		return UiUtilsCommandScanner.isActive() || UiUtilsPluginScanner.isActive()
+			|| UiUtilsLegacyPluginScanner.isActive();
+	}
+
+	private void refreshResults() {
+		List<Line> fresh = buildLines(true);
+		boolean sizeChanged = fresh.size() != resultLines.size();
+		resultLines = fresh;
+		// Growing results must not re-scale the screen, so the panel is only
+		// re-laid out to widen its scroll range. The scale stays put.
+		if (sizeChanged)
+			Minecraft.getInstance().execute(this::rebuildWidgets);
+		setStatus(scanning() ? "Scanning..." : "");
+	}
+
+	private void drawCommandOutput(GuiGraphicsExtractor graphics, Font font,
+		int top) {
+		int lineHeight = lineHeight();
+		int outputWidth = Math.max(1, contentWidthUnits() - 8);
+		graphics.fill(0, top, contentWidthUnits(), top + 1, UiTheme.BORDER);
+		UiTheme.text(graphics, font, "Command output (after Send packet cmds)", 4,
+			top + 3, 0xFFFFDE7A);
+		List<String> output = UiUtilsCommandScanner.getManualCommandOutputSnapshot();
+		if (output.isEmpty()) {
+			UiTheme.text(graphics, font,
+				"Select a command, then press Send packet cmds.", 4,
+				top + 3 + lineHeight + 2, UiTheme.TEXT_MUTED);
+			return;
+		}
+		int y = top + 3 + lineHeight + 2;
+		int first = Math.max(0, output.size() - OUTPUT_LINES);
+		for (int i = first; i < output.size(); i++) {
+			UiTheme.text(graphics, font,
+				UiTheme.ellipsize(font, output.get(i), outputWidth), 4, y,
+				UiTheme.TEXT_DIM);
+			y += lineHeight;
+		}
+	}
+
+	private static int lineHeight() {
+		return Minecraft.getInstance().font.lineHeight + 1;
+	}
+
+	/** Toggle that saves the setting, for rows that pair two of them. */
+	private static UiToggle toggle(String label,
+		java.util.function.BooleanSupplier getter,
+		java.util.function.Consumer<Boolean> setter) {
+		return new UiToggle(label, getter, value -> {
+			setter.accept(value);
 			UiUtilsSettings.save();
-			UiUtilsCommandScanner.sendManualPacketCommands();
-			commandOutputVisible = true;
-			rebuildWidgets();
-		}, stacked ? left : left + splitWidth + 10, y, splitWidth, rowH));
-		y += rowH + gap;
-		if(stacked)
-			y += rowH + gap;
-
-		resultsTop = y + 4;
-		resultsBottom = resultsTop + desiredResultsHeight;
-
-		int footerY = resultsBottom + 8;
-		outputTop = footerY + rowH + outputGap;
-		outputBottom = outputTop + outputHeight;
-		addRenderableWidget(UiUtils.styledButton("Clear results", b -> clearResults(),
-			left, footerY, splitWidth, rowH));
-		addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(this.minecraft, parent),
-			stacked ? left : left + splitWidth + 10, footerY, splitWidth, rowH));
+		});
 	}
 
 	private void refreshScannerModeLabel() {
@@ -157,133 +255,8 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		expandedPlugins.clear();
 		expandedCommandLetters.clear();
 		vulnerableListExpanded = false;
-		resultsScroll = 0;
-		draggingScrollbar = false;
 		commandOutputVisible = false;
-		rebuildWidgets();
-	}
-
-	@Override
-	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX,
-		int mouseY, float partialTicks) {
-		super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
-
-		int left = panelLeft;
-		int top = resultsTop;
-		int bottom = Math.max(top + 40, resultsBottom);
-
-		graphics.fill(left, top, left + panelWidth, bottom, 0xAA000000);
-		graphics.fill(left, top, left + panelWidth, top + 1, 0xFF2A2A2A);
-		graphics.fill(left, bottom - 1, left + panelWidth, bottom, 0xFF2A2A2A);
-
-		List<Line> lines = buildLines();
-		clickableRows.clear();
-		int lineHeight = this.font.lineHeight + 1;
-		int visibleRows = Math.max(1, (bottom - top - 8) / lineHeight);
-		int maxScroll = Math.max(0, lines.size() - visibleRows);
-		if (resultsScroll > maxScroll)
-			resultsScroll = maxScroll;
-
-		int y = top + 4;
-		for (int i = resultsScroll; i < lines.size() && y + lineHeight <= bottom - 4; i++) {
-			Line line = lines.get(i);
-			graphics.text(this.font, line.text, left + 6, y, line.color, false);
-			if (line.clickKey != null) {
-				clickableRows.add(new ClickTargetRow(line.clickKey, left + 4,
-					y - 1, panelWidth - 10, lineHeight + 1));
-			}
-			y += lineHeight;
-		}
-
-		lastScrollbar = computeScrollbar(left + panelWidth - 5, top + 2, bottom - 2,
-			lines.size(), visibleRows, resultsScroll);
-		renderScrollbar(graphics, lastScrollbar);
-		if (commandOutputVisible)
-			renderCommandOutput(graphics);
-	}
-
-	@Override
-	public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-		int left = panelLeft;
-		if (mouseX < left || mouseX > left + panelWidth || mouseY < resultsTop || mouseY > resultsBottom)
-			return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
-
-		if (scrollY < 0)
-			resultsScroll++;
-		else if (scrollY > 0)
-			resultsScroll = Math.max(0, resultsScroll - 1);
-		return true;
-	}
-
-	@Override
-	public boolean mouseClicked(MouseButtonEvent context, boolean doubleClick) {
-		if (context.button() == McCompat.LEFT_BUTTON) {
-			double mouseX = context.x();
-			double mouseY = context.y();
-
-			if (lastScrollbar.hasScroll && lastScrollbar.contains(mouseX, mouseY)) {
-				if (mouseY >= lastScrollbar.thumbY && mouseY <= lastScrollbar.thumbY + lastScrollbar.thumbH) {
-					draggingScrollbar = true;
-					scrollbarGrabOffset = (int)Math.max(0, Math.round(mouseY) - lastScrollbar.thumbY);
-				} else {
-					jumpScrollToMouse((int)Math.round(mouseY), 0);
-				}
-				return true;
-			}
-
-			for (ClickTargetRow row : clickableRows) {
-				if (!row.contains(mouseX, mouseY))
-					continue;
-				if (row.clickKey.startsWith("plugin:")) {
-					if (expandedPlugins.contains(row.clickKey))
-						expandedPlugins.remove(row.clickKey);
-					else
-						expandedPlugins.add(row.clickKey);
-				} else if (row.clickKey.startsWith("letter:")) {
-					if (expandedCommandLetters.contains(row.clickKey))
-						expandedCommandLetters.remove(row.clickKey);
-					else
-						expandedCommandLetters.add(row.clickKey);
-				} else if (row.clickKey.startsWith("command:")) {
-					selectCommand(row.clickKey.substring("command:".length()));
-				} else if ("vuln:list".equals(row.clickKey)) {
-					vulnerableListExpanded = !vulnerableListExpanded;
-				}
-				return true;
-			}
-		}
-		return super.mouseClicked(context, doubleClick);
-	}
-
-	@Override
-	public boolean mouseDragged(MouseButtonEvent context, double dragX, double dragY) {
-		if (draggingScrollbar && context.button() == McCompat.LEFT_BUTTON && lastScrollbar.hasScroll) {
-			jumpScrollToMouse((int)Math.round(context.y()), scrollbarGrabOffset);
-			return true;
-		}
-		return super.mouseDragged(context, dragX, dragY);
-	}
-
-	@Override
-	public boolean mouseReleased(MouseButtonEvent context) {
-		if (context.button() == McCompat.LEFT_BUTTON && draggingScrollbar) {
-			draggingScrollbar = false;
-		commandOutputVisible = false;
-		rebuildWidgets();
-			return true;
-		}
-		return super.mouseReleased(context);
-	}
-
-	private void jumpScrollToMouse(int mouseY, int grabOffset) {
-		if (!lastScrollbar.hasScroll)
-			return;
-		int maxScroll = Math.max(1, lastScrollbar.totalRows - lastScrollbar.visibleRows);
-		int travel = Math.max(1, lastScrollbar.trackBottom - lastScrollbar.trackTop - lastScrollbar.thumbH);
-		int thumbTop = Math.max(lastScrollbar.trackTop,
-			Math.min(lastScrollbar.trackBottom - lastScrollbar.thumbH, mouseY - grabOffset));
-		double ratio = (thumbTop - lastScrollbar.trackTop) / (double)travel;
-		resultsScroll = Math.max(0, Math.min(maxScroll, (int)Math.round(ratio * maxScroll)));
+		Minecraft.getInstance().execute(this::rebuildWidgets);
 	}
 
 	@Override
@@ -292,8 +265,11 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 	}
 
 	private List<Line> buildLines() {
-		List<Line> lines = new ArrayList<>();
-		lines.add(new Line("Command Scanner", 0xFF8CC8FF));
+		return buildLines(true);
+	}
+
+	private List<Line> buildLines(boolean applySearch) {		List<Line> lines = new ArrayList<>();
+		lines.add(new Line("Command Scanner", 0xFFFFB347));
 		lines.add(new Line("Status: " + UiUtilsCommandScanner.getStatusLine(), 0xFFEAEAEA));
 		List<String> commands = UiUtilsCommandScanner.getFoundCommandsSnapshot();
 		boolean commandResultsTruncated = UiUtilsCommandScanner.hasTruncatedResponses();
@@ -399,7 +375,8 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		for (int i = Math.max(0, legacyEvents.size() - 8); i < legacyEvents.size(); i++)
 			lines.add(new Line("LGC: " + legacyEvents.get(i), 0xFFAAAAAA));
 
-		String query = searchField == null ? "" : searchField.getValue().trim().toLowerCase();
+		String query = !applySearch || searchField == null ? ""
+			: searchField.getValue().trim().toLowerCase();
 		if (query.isEmpty())
 			return lines;
 
@@ -428,44 +405,6 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		rebuildWidgets();
 	}
 
-	private void renderCommandOutput(GuiGraphicsExtractor graphics) {
-		graphics.fill(panelLeft, outputTop, panelLeft + panelWidth, outputBottom, 0xB0000000);
-		graphics.fill(panelLeft, outputTop, panelLeft + panelWidth, outputTop + 1, 0xFF2A2A2A);
-		graphics.text(this.font, "Command output (after Send packet cmds)", panelLeft + 6, outputTop + 4, 0xFFFFDE7A, false);
-		List<String> output = UiUtilsCommandScanner.getManualCommandOutputSnapshot();
-		if (output.isEmpty()) {
-			graphics.text(this.font, "Select a command, then press Send packet cmds.", panelLeft + 6,
-				outputTop + 4 + this.font.lineHeight + 2, 0xFF909090, false);
-			return;
-		}
-		int y = outputTop + 4 + this.font.lineHeight + 2;
-		int first = Math.max(0, output.size() - 3);
-		for (int i = first; i < output.size() && y + this.font.lineHeight <= outputBottom - 3; i++) {
-			String line = this.font.plainSubstrByWidth(output.get(i), panelWidth - 12);
-			graphics.text(this.font, line, panelLeft + 6, y, 0xFFEAEAEA, false);
-			y += this.font.lineHeight + 1;
-		}
-	}
-	private ScrollbarMetrics computeScrollbar(int x, int top, int bottom, int totalRows,
-		int visibleRows, int scroll) {
-		int trackH = Math.max(1, bottom - top);
-		if (totalRows <= visibleRows)
-			return new ScrollbarMetrics(x, top, bottom, top, trackH, false, totalRows, visibleRows);
-		double ratio = visibleRows / (double)Math.max(1, totalRows);
-		int thumbH = Math.max(12, (int)Math.round(trackH * ratio));
-		int maxScroll = Math.max(1, totalRows - visibleRows);
-		int travel = Math.max(1, trackH - thumbH);
-		int thumbY = top + (int)Math.round((Math.max(0, Math.min(scroll, maxScroll)) / (double)maxScroll) * travel);
-		return new ScrollbarMetrics(x, top, bottom, thumbY, thumbH, true, totalRows, visibleRows);
-	}
-
-	private void renderScrollbar(GuiGraphicsExtractor graphics, ScrollbarMetrics m) {
-		graphics.fill(m.x, m.trackTop, m.x + 3, m.trackBottom, 0xFF353535);
-		if (m.hasScroll)
-			graphics.fill(m.x, m.thumbY, m.x + 3, m.thumbY + m.thumbH,
-				draggingScrollbar ? 0xFFFFFFFF : 0xFFCFCFCF);
-	}
-
 	private static Map<String, VulnerableHit> collectVulnerableHits(List<UiUtilsPluginScanner.PluginResultRow> plugins) {
 		Map<String, VulnerableHit> hits = new LinkedHashMap<>();
 		Map<String, UiUtilsVulnerablePlugins.VulnerableEntry> vulnEntries = UiUtilsVulnerablePlugins.entriesByKey();
@@ -492,23 +431,12 @@ public final class UiUtilsCommandScannerScreen extends Screen {
 		}
 	}
 
-	private record ScrollbarMetrics(int x, int trackTop, int trackBottom, int thumbY,
-		int thumbH, boolean hasScroll, int totalRows, int visibleRows) {
-		private static ScrollbarMetrics none() {
-			return new ScrollbarMetrics(0, 0, 0, 0, 0, false, 0, 0);
-		}
-
-		private boolean contains(double mx, double my) {
-			return mx >= x && mx <= x + 3 && my >= trackTop && my <= trackBottom;
-		}
-	}
-
 	private static final class VulnerableHit {
 		private final String displayName;
 		private final Set<String> versions = new LinkedHashSet<>();
+
 		private VulnerableHit(String displayName) {
 			this.displayName = displayName;
 		}
 	}
-
 }

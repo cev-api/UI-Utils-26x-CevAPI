@@ -66,15 +66,15 @@ public final class NbtSyntaxEditor extends AbstractTextAreaWidget
 		setScrollAmount(0);
 	}
 	
-	public String getValue()
-	{
-		return value;
-	}
-	
 	@Override
 	protected int getInnerHeight()
 	{
 		return visibleRows.size() * LINE_HEIGHT;
+	}
+	
+	public String getValue()
+	{
+		return value;
 	}
 	
 	private void rebuildVisibleRows()

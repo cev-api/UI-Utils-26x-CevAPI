@@ -5,6 +5,7 @@ import java.util.Queue;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ContainerInput;
@@ -89,15 +90,17 @@ public final class UiUtilsContainerTransfer {
 		}
 
 		AbstractContainerMenu menu = container.getMenu();
-		int containerSlots = containerSlots(menu);
+		boolean playerInventory = screen instanceof InventoryScreen
+			|| mc.player.containerMenu == mc.player.inventoryMenu;
+		int containerSlots = playerInventory ? 9 : containerSlots(menu);
 		if (containerSlots <= 0) {
 			UiUtils.chatIfEnabled("There is nothing to " + action + " here");
 			return;
 		}
 
 		int total = menu.slots.size();
-		int from = steal ? 0 : containerSlots;
-		int to = steal ? containerSlots : total;
+		int from = playerInventory ? 9 : steal ? 0 : containerSlots;
+		int to = playerInventory ? total : steal ? containerSlots : total;
 		for (int i = from; i < to && i < total; i++) {
 			if (menu.slots.get(i).hasItem())
 				PENDING.add(i);

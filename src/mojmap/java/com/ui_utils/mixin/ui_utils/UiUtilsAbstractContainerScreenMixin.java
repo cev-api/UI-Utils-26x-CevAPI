@@ -7,6 +7,8 @@
  */
 package com.ui_utils.mixin.ui_utils;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -24,12 +26,13 @@ import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import com.ui_utils.uiutils.UiUtils;
-import com.ui_utils.uiutils.UiUtilsAutoduper;
 import com.ui_utils.uiutils.UiUtilsContainerTransfer;
+import com.ui_utils.uiutils.UiUtilsMainPanelDrag;
 import com.ui_utils.uiutils.UiUtilsSettings;
 import com.ui_utils.uiutils.UiUtilsState;
 import com.ui_utils.uiutils.UiUtilsTimedClickSlot;
@@ -40,6 +43,8 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 {
 	@Unique
 	private EditBox uiUtilsChatField;
+	@Unique
+	private final List<AbstractWidget> uiUtilsMainWidgets = new ArrayList<>();
 	
 	@Shadow
 	protected int leftPos;
@@ -49,6 +54,9 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 	
 	@Shadow
 	protected int imageWidth;
+
+	@Shadow
+	protected int imageHeight;
 	
 	// Steal / Store / Dump buttons above the open container. Vanilla styled so
 	// they match the current resource pack.
@@ -85,30 +93,37 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 		int spacing = 4;
 		int chatHeight = 20;
 		// Keep the stack near top-left so it does not bury in-game chat.
-		// "UI-Utils by CevAPI" ends up just below common Wurst headers.
-		int preferredTop = 24;
-		int startY = Mth.clamp(preferredTop, 5, Math.max(5,
+		// "UI-utils by CevAPI" ends up just below common Wurst headers.
+		int preferredTop = 10;
+		UiUtilsSettings.Data settings = UiUtilsSettings.get();
+		int baseX = settings.mainUiX >= 0 ? settings.mainUiX : 8;
+		baseX = Mth.clamp(baseX, 4, Math.max(4, this.width - 140));
+		int requestedTop = settings.mainUiY >= 0 ? settings.mainUiY : preferredTop;
+		int startY = Mth.clamp(requestedTop, 10, Math.max(10,
 			this.height - chatHeight - 5));
-		int baseX = 8;
-		int maxRight = Math.max(baseX + 160,
-			Math.min(this.leftPos - 8, this.width - 8));
+		int maxRight = this.width - 8;
+		uiUtilsMainWidgets.clear();
 		UiUtils.UiWidgetLayout layout = UiUtils.addUiWidgets(mc, baseX, startY,
-			spacing, this.height - startY - chatHeight - 8, maxRight,
-			this::addRenderableWidget);
+			spacing, this.height - startY - chatHeight - 8, maxRight, widget -> {
+				uiUtilsMainWidgets.add(widget);
+				addRenderableWidget(widget);
+			});
 		uiUtilsChatField = UiUtils.createChatField(mc, this.font,
 			layout.chatX(), layout.chatY(), layout.chatWidth(),
-			layout.chatHeight());
+			layout.chatHeight(), 1F);
 		addRenderableWidget(uiUtilsChatField);
+		uiUtilsMainWidgets.add(uiUtilsChatField);
+		UiUtilsMainPanelDrag.attach(this, uiUtilsMainWidgets, layout, baseX,
+			startY);
 		
 		initContainerButtons();
+		updateContainerButtons();
 	}
 	
 	/** True when this screen is a container GUI rather than an inventory. */
 	@Unique
 	private boolean isContainerGui()
 	{
-		if((Object)this instanceof InventoryScreen)
-			return false;
 		return !((Object)this instanceof CreativeModeInventoryScreen);
 	}
 	
@@ -118,6 +133,10 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 	{
 		Button button = Button.builder(Component.literal(label), onPress)
 			.bounds(0, 0, CONTAINER_BUTTON_WIDTH, CONTAINER_BUTTON_HEIGHT).build();
+		button.visible = false;
+		button.active = false;
+		button.setX(-2000);
+		button.setY(-2000);
 		addRenderableWidget(button);
 		return button;
 	}
@@ -147,12 +166,20 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 	@Unique
 	private boolean containerButtonsAllowed()
 	{
-		if(!UiUtilsState.isUiEnabled()
-			|| !UiUtilsSettings.get().showStealDumpButtons || !isContainerGui())
+		if(!UiUtilsSettings.get().showStealDumpButtons || !isContainerGui())
 			return false;
 		Minecraft mc = Minecraft.getInstance();
 		return mc.player != null && mc.player.containerMenu != null
-			&& mc.player.containerMenu != mc.player.inventoryMenu;
+			&& (mc.player.containerMenu != mc.player.inventoryMenu
+				|| isPlayerInventory());
+	}
+
+	@Unique
+	private boolean isPlayerInventory()
+	{
+		Minecraft mc = Minecraft.getInstance();
+		return (Object)this instanceof InventoryScreen || mc.player != null
+			&& mc.player.containerMenu == mc.player.inventoryMenu;
 	}
 	
 	@Unique
@@ -163,24 +190,46 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 		boolean show = containerButtonsAllowed();
 		AbstractWidget[] buttons = {containerStealButton, containerStoreButton,
 			containerDumpButton};
-		for(AbstractWidget button : buttons)
-		{
-			button.visible = show;
-			button.active = show;
-		}
+		boolean playerInventory = isPlayerInventory();
+		containerStealButton.visible = show && !playerInventory;
+		containerStealButton.active = containerStealButton.visible;
+		containerStoreButton.visible = show && !playerInventory;
+		containerStoreButton.active = containerStoreButton.visible;
+		containerDumpButton.visible = show;
+		containerDumpButton.active = show;
 		if(!show)
 		{
 			for(AbstractWidget button : buttons)
 			{
-				button.setX(-2000);
+		button.setX(-2000);
 				button.setY(-2000);
 			}
 			return;
 		}
 		int total = buttons.length * CONTAINER_BUTTON_WIDTH
 			+ (buttons.length - 1) * CONTAINER_BUTTON_GAP;
-		int x = this.leftPos + (this.imageWidth - total) / 2;
 		int y = this.topPos - CONTAINER_BUTTON_HEIGHT - 4;
+		if(playerInventory)
+		{
+			containerStealButton.setX(-2000);
+			containerStoreButton.setX(-2000);
+			containerStealButton.setY(-2000);
+			containerStoreButton.setY(-2000);
+			int guiWidth = this.imageWidth > 0 ? this.imageWidth : 176;
+			int guiHeight = Math.max(this.imageHeight, 166);
+			int guiLeft = this.leftPos > 0 ? this.leftPos
+				: (this.width - guiWidth) / 2;
+			int guiTop = this.topPos > 4 ? this.topPos
+				: (this.height - guiHeight) / 2;
+			// InventoryScreen's GUI is centered. Keep the single Dump control
+			// directly above it, never anchored to the screen's top corner.
+			containerDumpButton.setX(guiLeft
+				+ (guiWidth - CONTAINER_BUTTON_WIDTH) / 2);
+			containerDumpButton.setY(Math.max(4, guiTop
+				- CONTAINER_BUTTON_HEIGHT - 4));
+			return;
+		}
+		int x = this.leftPos + (this.imageWidth - total) / 2;
 		for(AbstractWidget button : buttons)
 		{
 			button.setX(x);
@@ -194,9 +243,36 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 	private void uiutils$updateContainerButtons(GuiGraphicsExtractor graphics,
 		int mouseX, int mouseY, float partialTicks, CallbackInfo ci)
 	{
-		if(!UiUtilsState.isUiEnabled())
-			return;
 		updateContainerButtons();
+	}
+
+	@Inject(method = "mouseClicked(Lnet/minecraft/client/input/MouseButtonEvent;Z)Z",
+		at = @At("HEAD"), cancellable = true)
+	private void uiutils$beginMainPanelDrag(MouseButtonEvent event,
+		boolean doubleClick, CallbackInfoReturnable<Boolean> cir)
+	{
+		if(UiUtilsState.isUiEnabled()
+			&& UiUtilsMainPanelDrag.mouseClicked((Screen)(Object)this, event))
+			cir.setReturnValue(true);
+	}
+
+	@Inject(method = "mouseDragged(Lnet/minecraft/client/input/MouseButtonEvent;DD)Z",
+		at = @At("HEAD"), cancellable = true)
+	private void uiutils$dragMainPanel(MouseButtonEvent event, double deltaX,
+		double deltaY, CallbackInfoReturnable<Boolean> cir)
+	{
+		if(UiUtilsMainPanelDrag.mouseDragged((Screen)(Object)this, event,
+			deltaX, deltaY))
+			cir.setReturnValue(true);
+	}
+
+	@Inject(method = "mouseReleased(Lnet/minecraft/client/input/MouseButtonEvent;)Z",
+		at = @At("HEAD"), cancellable = true)
+	private void uiutils$finishMainPanelDrag(MouseButtonEvent event,
+		CallbackInfoReturnable<Boolean> cir)
+	{
+		if(UiUtilsMainPanelDrag.mouseReleased((Screen)(Object)this))
+			cir.setReturnValue(true);
 	}
 	
 	@Inject(at = @At("HEAD"),
@@ -225,21 +301,6 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 		}
 		
 		cir.setReturnValue(true);
-	}
-	
-	@Inject(at = @At("HEAD"),
-		method = "mouseClicked(Lnet/minecraft/client/input/MouseButtonEvent;Z)Z",
-		cancellable = true)
-	private void uiutils$abortAutoduperClick(
-		net.minecraft.client.input.MouseButtonEvent context,
-		boolean doubleClick, CallbackInfoReturnable<Boolean> cir)
-	{
-		if(UiUtilsAutoduper.handleAbortOverlayClick(context.x(), context.y(),
-			context.button()))
-		{
-			cir.setReturnValue(true);
-			cir.cancel();
-		}
 	}
 	
 	@Inject(at = @At("HEAD"), method = "removed()V", cancellable = true)

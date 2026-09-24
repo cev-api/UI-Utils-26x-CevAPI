@@ -9,6 +9,8 @@ import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
+import com.ui_utils.uiutils.ui.UiScalable;
+import com.ui_utils.uiutils.ui.UiTheme;
 
 /**
  * Small dropdown used by the packet fabricator to pick the click action.
@@ -19,13 +21,14 @@ import net.minecraft.util.Mth;
  * mouse hook. The list itself is painted by the owning panel at the end of the
  * frame so it stays above the other controls.
  */
-public final class UiUtilsDropdown extends AbstractWidget {
+public final class UiUtilsDropdown extends AbstractWidget implements UiScalable {
 	private final Font font;
 	private final List<String> options;
 	private final String label;
 	private final int headerHeight;
 	private int selected;
 	private boolean expanded;
+	private float uiScale = 1F;
 
 	public UiUtilsDropdown(Font font, int x, int y, int width, int height,
 		String label, List<String> options) {
@@ -138,17 +141,28 @@ public final class UiUtilsDropdown extends AbstractWidget {
 		int w = getWidth();
 		// Only the header is painted here; the open list is drawn later by the
 		// owning panel so it ends up above the other controls.
-		int h = headerHeight;
-		int baseRgb = UiUtilsSettings.get().uiButtonColor & 0xFFFFFF;
-		graphics.fill(x, y, x + w, y + h, 0xFF000000 | baseRgb);
-		graphics.outline(x, y, w, h, 0xFF101010);
+		boolean scaled = UiTheme.pushWidgetScale(graphics, x, y, uiScale);
+		int h = UiTheme.localSize(headerHeight, uiScale, scaled);
+		int localW = UiTheme.localSize(w, uiScale, scaled);
+		int originX = scaled ? 0 : x;
+		int originY = scaled ? 0 : y;
+		int accent = UiTheme.accent();
+		graphics.fill(originX, originY, originX + localW, originY + h, accent);
+		UiTheme.border(graphics, originX, originY, localW, h,
+			UiTheme.scaleRgb(accent, 0.7F));
 		String text = label + ": " + selectedOption() + (expanded ? " \u25B4"
 			: " \u25BE");
-		int textColor = 0xFF000000
-			| (UiUtilsSettings.get().uiButtonTextColor & 0xFFFFFF);
-		int textY = y + Math.max(1, (h - Minecraft.getInstance().font.lineHeight) / 2);
-		UiUtils.renderScaledText(graphics, Minecraft.getInstance().font, text,
-			x + 4, textY, w - 8, h - 2, textColor, 0.35F);
+		Font font = Minecraft.getInstance().font;
+		int textY = UiTheme.textY(font, originY, h);
+		UiTheme.text(graphics, font,
+			UiTheme.ellipsize(font, text, localW - 8), originX + 4, textY,
+			UiTheme.accentText());
+		UiTheme.popWidgetScale(graphics, scaled);
+	}
+
+	@Override
+	public void applyUiScale(float value) {
+		this.uiScale = value <= 0F ? 1F : value;
 	}
 
 	@Override

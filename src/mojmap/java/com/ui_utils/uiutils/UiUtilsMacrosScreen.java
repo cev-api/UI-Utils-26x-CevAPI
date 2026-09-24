@@ -7,30 +7,31 @@ import com.ui_utils.uiutils.macro.UiUtilsMacroActionType;
 import com.ui_utils.uiutils.macro.UiUtilsMacroExecutor;
 import com.ui_utils.uiutils.macro.UiUtilsMacroManager;
 import com.ui_utils.uiutils.macroeditor.ActionFieldRegistry;
+import com.ui_utils.uiutils.ui.UiButton;
+import com.ui_utils.uiutils.ui.UiContent;
+import com.ui_utils.uiutils.ui.UiInput;
+import com.ui_utils.uiutils.ui.UiListRow;
+import com.ui_utils.uiutils.ui.UiModernScreen;
+import com.ui_utils.uiutils.ui.UiTheme;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.AbstractWidget;
-import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
-import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 
-public final class UiUtilsMacrosScreen extends Screen {
+public final class UiUtilsMacrosScreen extends UiModernScreen {
     private final Screen parent;
     private final String initialMacroName;
 
     private UiUtilsMacro editing;
     private String originalName;
     private boolean loaded;
-    private EditBox nameField;
+    private UiInput nameField;
     private boolean waitingForBindKey = false;
     private int selectedStep = -1;
     private int stepOffset = 0;
@@ -39,11 +40,8 @@ public final class UiUtilsMacrosScreen extends Screen {
     private final Deque<UiUtilsMacro> undoStack = new ArrayDeque<>();
     private final Deque<UiUtilsMacro> redoStack = new ArrayDeque<>();
 
-    private final List<StepRowWidget> stepRows = new ArrayList<>();
-    private final List<UiUtilsColoredButton> rowControls = new ArrayList<>();
-    private boolean draggingScrollbar;
-    private int scrollbarGrabOffset;
-    private ScrollbarMetrics lastScrollbar = ScrollbarMetrics.none();
+    private final List<UiListRow> stepRows = new ArrayList<>();
+    private final List<UiButton> rowControls = new ArrayList<>();
 
     public UiUtilsMacrosScreen(Screen parent) {
         this(parent, null);
@@ -56,110 +54,129 @@ public final class UiUtilsMacrosScreen extends Screen {
     }
 
     @Override
-    protected void init() {
-        clearWidgets();
+    protected int naturalWidth() {
+        return 420;
+    }
+
+    @Override
+    protected boolean expandWidth() {
+        return false;
+    }
+
+    @Override
+    protected void buildContent(UiContent c) {
         if (!loaded) {
             loadMacro();
             loaded = true;
         }
 
-        int width = panelWidth();
-        int left = (this.width - width) / 2;
-        int row = rowHeight();
-        int gap = rowGap();
-        int visibleRows = visibleRows(row, gap);
-        int top = contentTop(row, gap, visibleRows);
-        int controlButtonWidth = controlButtonWidth();
-        int controlGap = CONTROL_GAP;
-        int controlsWidth = 5 * controlButtonWidth + 4 * controlGap;
-        int rowWidth = stepRowWidth();
-        int half = (width - gap) / 2;
-
-        nameField = new EditBox(this.font, left, top + row + gap, width, row, Component.literal("Macro Name"));
+        nameField = c.input(editing.name == null ? "" : editing.name, value -> {});
         nameField.setHint(Component.literal("Macro Name"));
-        nameField.setValue(editing.name == null ? "" : editing.name);
-        addRenderableWidget(nameField);
 
-        int y = top + (row + gap) * 2;
-        // Five controls span the panel width, matching the footer row and the
-        // Add Action / Add Conditional row.
-        int topGap = width < 420 ? gap : 4;
-        int fifth = (width - topGap * 4) / 5;
-
-        addRenderableWidget(UiUtils.styledButton(bindLabel(), b -> {
-            waitingForBindKey = true;
-            status = "Press a key (ESC clears)";
-        }, left, y, fifth, row));
-
-        addRenderableWidget(UiUtils.styledButton(loopToggleLabel(), b -> {
-            pushUndo();
-            editing.loop = !editing.loop;
-            rebuild();
-        }, left + (fifth + topGap), y, fifth, row));
-
-        addRenderableWidget(UiUtils.styledButton("Once", b -> runOnce(),
-            left + (fifth + topGap) * 2, y, fifth, row));
-        addRenderableWidget(UiUtils.styledButton("Run", b -> runEditing(),
-            left + (fifth + topGap) * 3, y, fifth, row));
-        addRenderableWidget(UiUtils.styledButton("Stop", b -> UiUtilsMacroExecutor.stop(),
-            left + (fifth + topGap) * 4, y, fifth, row));
-
-        y += row + gap + 2;
-        addRenderableWidget(UiUtils.styledButton("Add Action", b ->
-            openPicker(UiUtilsMacroTypePickerScreen.Mode.ACTION),
-            left, y, half, row));
-        addRenderableWidget(UiUtils.styledButton("Add Conditional", b ->
-            openPicker(UiUtilsMacroTypePickerScreen.Mode.CONDITION),
-            left + half + gap, y, half, row));
-
-        y += row + gap;
-        int listY = y;
         stepRows.clear();
         rowControls.clear();
-        for (int i = 0; i < visibleRows; i++) {
-            int ry = listY + i * (row + gap);
-            StepRowWidget rw = addRenderableWidget(new StepRowWidget(left, ry, rowWidth, row, i));
-            stepRows.add(rw);
-            int bx = left + rowWidth + 4;
-            int idx = i;
-            rowControls.add(addRenderableWidget(UiUtils.styledButton("^", b -> moveStep(stepOffset + idx, -1), bx, ry, controlButtonWidth, row))); bx += controlButtonWidth + controlGap;
-            rowControls.add(addRenderableWidget(UiUtils.styledButton("v", b -> moveStep(stepOffset + idx, +1), bx, ry, controlButtonWidth, row))); bx += controlButtonWidth + controlGap;
-            rowControls.add(addRenderableWidget(UiUtils.styledButton("D", b -> duplicateStep(stepOffset + idx), bx, ry, controlButtonWidth, row))); bx += controlButtonWidth + controlGap;
-            rowControls.add(addRenderableWidget(UiUtils.styledButton("E", b -> editStep(stepOffset + idx), bx, ry, controlButtonWidth, row))); bx += controlButtonWidth + controlGap;
-            rowControls.add(addRenderableWidget(UiUtils.styledButton("X", b -> deleteStep(stepOffset + idx), bx, ry, controlButtonWidth, row)));
+        c.row(UiContent.of(bindButton()), UiContent.of(loopButton()),
+            UiContent.of(UiButton.of("Once", this::runOnce)),
+            UiContent.of(UiButton.of("Run", this::runEditing)),
+            UiContent.of(UiButton.of("Stop", UiUtilsMacroExecutor::stop)));
+        c.row(UiContent.of(UiButton.of("Add Action",
+                () -> openPicker(UiUtilsMacroTypePickerScreen.Mode.ACTION))),
+            UiContent.of(UiButton.of("Add Conditional",
+                () -> openPicker(UiUtilsMacroTypePickerScreen.Mode.CONDITION))));
+
+        // One row per step, always. The panel itself scrolls, so nothing is hidden
+        // behind the footer. A spare empty row keeps the edit controls reachable
+        // when the macro is empty, and the cap bounds the height for a huge macro.
+        int slots = Math.max(3, Math.min(40, editing.actions.size() + 1));
+        for (int slot = 0; slot < slots; slot++) {
+            final int rowSlot = slot;
+            UiListRow row = new UiListRow("", () -> selectStep(rowSlot, false));
+            row.doubleRun(() -> selectStep(rowSlot, true));
+            stepRows.add(row);
+            c.row(UiContent.of(row, 6F),
+                UiContent.fixed(control("^", rowSlot, c0 -> moveStep(stepOffset + c0, -1)), 22),
+                UiContent.fixed(control("v", rowSlot, c0 -> moveStep(stepOffset + c0, 1)), 22),
+                UiContent.fixed(control("D", rowSlot, c0 -> duplicateStep(stepOffset + c0)), 22),
+                UiContent.fixed(control("E", rowSlot, c0 -> editStep(stepOffset + c0)), 22),
+                UiContent.fixed(control("X", rowSlot, c0 -> deleteStep(stepOffset + c0)), 22));
         }
 
-        int by = listY + (row + gap) * visibleRows + 7;
-        int footerGap = width < 420 ? gap : 4;
-        int footerCols = width < 420 ? 2 : 5;
-        int footerWidth = footerCols == 5 ? 0 : (width - footerGap) / 2;
-        if (footerCols == 5) {
-            addRenderableWidget(UiUtils.styledButton("Save", b -> saveMacro(), left, by, 110, row));
-            addRenderableWidget(UiUtils.styledButton("Cancel", b -> McCompat.setScreen(minecraft, parent), left + 114, by, 110, row));
-            addRenderableWidget(UiUtils.styledButton("Undo", b -> undo(), left + 228, by, 86, row));
-            addRenderableWidget(UiUtils.styledButton("Redo", b -> redo(), left + 318, by, 86, row));
-            addRenderableWidget(UiUtils.styledButton("Done", b -> saveAndClose(), left + 408, by, 92, row));
-        } else {
-            addRenderableWidget(UiUtils.styledButton("Save", b -> saveMacro(), left, by, footerWidth, row));
-            addRenderableWidget(UiUtils.styledButton("Cancel", b -> McCompat.setScreen(minecraft, parent), left + footerWidth + footerGap, by, footerWidth, row));
-            by += row + gap;
-            addRenderableWidget(UiUtils.styledButton("Undo", b -> undo(), left, by, footerWidth, row));
-            addRenderableWidget(UiUtils.styledButton("Redo", b -> redo(), left + footerWidth + footerGap, by, footerWidth, row));
-            by += row + gap;
-            addRenderableWidget(UiUtils.styledButton("Done", b -> saveAndClose(), left, by, width, row));
-        }
+        // Breathing room so the footer reads as its own band under the step list.
+        c.space(6);
+        c.footerButton("Save", UiButton.Kind.SECONDARY, this::saveMacro);
+        c.footerButton("Cancel", UiButton.Kind.SECONDARY,
+            () -> McCompat.setScreen(minecraft, parent));
+        c.footerButton("Undo", UiButton.Kind.SECONDARY, this::undo);
+        c.footerButton("Redo", UiButton.Kind.SECONDARY, this::redo);
+        c.footerButton("Done", UiButton.Kind.PRIMARY, this::saveAndClose);
 
         refreshRows();
+    }
+
+    private UiButton bindButton() {
+        return UiButton.of(bindLabel(), () -> {
+            waitingForBindKey = true;
+            setStatusText("Press a key (ESC clears)");
+        });
+    }
+
+    private UiButton loopButton() {
+        return UiButton.of(loopToggleLabel(), () -> {
+            pushUndo();
+            editing.loop = !editing.loop;
+            scheduleRebuild();
+        });
+    }
+
+    private UiButton control(String label, int slot, java.util.function.IntConsumer action) {
+        UiButton button = UiButton.of(label, null);
+        button.action(() -> action.accept(slot));
+        rowControls.add(button);
+        return button;
+    }
+
+    private void selectStep(int slot, boolean open) {
+        int index = stepOffset + slot;
+        if (index < 0 || index >= editing.actions.size())
+            return;
+        selectedStep = index;
+        refreshRows();
+        if (open)
+            editStep(index);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX,
+        double scrollY) {
+        // Only take the wheel for the step list when it has more steps than slots;
+        // otherwise the panel needs it to reach the rest of the form.
+        if (!stepRows.isEmpty() && scrollY != 0
+            && editing.actions.size() > stepRows.size()) {
+            int designY = designY(mouseY);
+            UiListRow first = stepRows.get(0);
+            UiListRow last = stepRows.get(stepRows.size() - 1);
+            if (designY >= first.getY() && designY <= last.getY() + last.getHeight()) {
+                stepOffset = Mth.clamp(stepOffset + (scrollY < 0 ? 1 : -1), 0,
+                    maxStepOffset());
+                refreshRows();
+                return true;
+            }
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    private void scheduleRebuild() {
+        Minecraft.getInstance().execute(this::rebuildWidgets);
+    }
+
+    private void setStatusText(String value) {
+        status = value == null ? "" : value;
+        setStatus(status);
     }
 
     /** "Done" saves first; it used to be identical to Cancel and silently discarded edits. */
     private void saveAndClose() {
         if (saveMacro()) McCompat.setScreen(minecraft, parent);
-    }
-
-    private void rebuild() {
-        syncNameField();
-        init();
     }
 
     private void openPicker(UiUtilsMacroTypePickerScreen.Mode mode) {
@@ -195,7 +212,11 @@ public final class UiUtilsMacrosScreen extends Screen {
 
     private String bindLabel() {
         if (waitingForBindKey) return "Press Key...";
-        return editing.keyCode < 0 ? "Bind Key" : "Key: " + editing.keyCode;
+        if (editing.keyCode < 0)
+            return "Bind Key";
+        String name = InputConstants.Type.KEYBOARD.getOrCreate(editing.keyCode)
+            .getDisplayName().getString();
+        return "Key: " + name;
     }
 
     private String loopToggleLabel() {
@@ -211,24 +232,26 @@ public final class UiUtilsMacrosScreen extends Screen {
         for (int i = 0; i < stepRows.size(); i++) {
             int actual = stepOffset + i;
             boolean hasStep = actual >= 0 && actual < editing.actions.size();
-            stepRows.get(i).setMessage(Component.literal(rowText(i)));
+            UiListRow row = stepRows.get(i);
+            row.active = hasStep;
+            row.label(hasStep ? stepText(actual) : "");
+            row.selected(hasStep && actual == selectedStep);
             for (int c = 0; c < 5; c++) {
                 int controlIndex = i * 5 + c;
                 if (controlIndex < rowControls.size()) {
-                    rowControls.get(controlIndex).visible = hasStep;
-                    rowControls.get(controlIndex).active = hasStep;
+                    UiButton button = rowControls.get(controlIndex);
+                    button.visible = hasStep;
+                    button.active = hasStep;
                 }
             }
         }
+        setStatus(status);
     }
 
-    private String rowText(int row) {
-        int idx = stepOffset + row;
-        if (idx < 0 || idx >= editing.actions.size()) return "";
-        UiUtilsMacroAction a = editing.actions.get(idx);
-        String title = a.getType().name().replace('_', ' ');
-        String marker = idx == selectedStep ? "> " : "";
-        return marker + (idx + 1) + "  " + title;
+    private String stepText(int index) {
+        UiUtilsMacroAction action = editing.actions.get(index);
+        String title = action.getType().name().replace('_', ' ').toLowerCase(Locale.ROOT);
+        return (index + 1) + "  " + title;
     }
 
     private void pushUndo() {
@@ -240,16 +263,16 @@ public final class UiUtilsMacrosScreen extends Screen {
         if (undoStack.isEmpty()) return;
         redoStack.push(editing.deepCopy());
         editing = undoStack.pop();
-        if (nameField != null) nameField.setValue(editing.name == null ? "" : editing.name);
         refreshRows();
+        scheduleRebuild();
     }
 
     private void redo() {
         if (redoStack.isEmpty()) return;
         undoStack.push(editing.deepCopy());
         editing = redoStack.pop();
-        if (nameField != null) nameField.setValue(editing.name == null ? "" : editing.name);
         refreshRows();
+        scheduleRebuild();
     }
 
     private void moveStep(int index, int delta) {
@@ -288,7 +311,7 @@ public final class UiUtilsMacrosScreen extends Screen {
         syncNameField();
         selectedStep = index;
         if (ActionFieldRegistry.get(editing.actions.get(index).getType()).fields().isEmpty()) {
-            status = "No options for " + editing.actions.get(index).getType().name();
+            setStatusText("No options for " + editing.actions.get(index).getType().name());
             refreshRows();
             return;
         }
@@ -309,9 +332,9 @@ public final class UiUtilsMacrosScreen extends Screen {
 
     private boolean saveMacro() {
         syncNameField();
-        String n = nameField.getValue().trim();
-        if (n.isBlank()) {
-            status = "Name Required";
+        String n = nameField == null ? editing.name : nameField.getValue().trim();
+        if (n == null || n.isBlank()) {
+            setStatusText("Name Required");
             return false;
         }
         editing.name = n;
@@ -323,6 +346,7 @@ public final class UiUtilsMacrosScreen extends Screen {
             originalName = saved.name;
         }
         status = "Saved";
+        setStatus(status);
         return true;
     }
 
@@ -394,244 +418,16 @@ public final class UiUtilsMacrosScreen extends Screen {
                 editing.keyCode = InputConstants.getKey(keyEvent).getValue();
             }
             waitingForBindKey = false;
-            rebuild();
+            setStatusText("");
+            scheduleRebuild();
             return true;
         }
         return super.keyPressed(keyEvent);
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks) {
-        super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
-        int width = panelWidth();
-        int left = (this.width - width) / 2;
-        int row = rowHeight();
-        int gap = rowGap();
-        int visibleRows = visibleRows(row, gap);
-        int screenTop = contentTop(row, gap, visibleRows);
-        int top = screenTop - this.font.lineHeight - 3;
-        graphics.text(this.font, "Create Macro (" + editing.actions.size() + " steps)", left, top, 0xFFE6EEF7, false);
-        graphics.text(this.font, status, left, top + (row + gap) * (visibleRows + 7) + 4, 0xFFFFC66D, false);
-        int listTop = screenTop + (row + gap) * 4 + 2;
-        int listBottom = listTop + (row + gap) * visibleRows - 3;
-        lastScrollbar = computeScrollbar(left + width + 5, listTop, listBottom, editing.actions.size(), stepRows.size(), stepOffset);
-        renderScrollbar(graphics, lastScrollbar);
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        int width = panelWidth();
-        int left = (this.width - width) / 2;
-        int row = rowHeight();
-        int gap = rowGap();
-        int visibleRows = visibleRows(row, gap);
-        int listTop = contentTop(row, gap, visibleRows) + (row + gap) * 4 + 2;
-        int listBottom = listTop + (row + gap) * visibleRows - 3;
-        if (mouseX < left || mouseX > left + width || mouseY < listTop || mouseY > listBottom) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
-        if (scrollY < 0) stepOffset = Math.min(maxStepOffset(), stepOffset + 1);
-        else if (scrollY > 0) stepOffset = Math.max(0, stepOffset - 1);
-        refreshRows();
-        return true;
-    }
-
-    @Override
-    public boolean mouseClicked(MouseButtonEvent context, boolean doubleClick) {
-        if (context.button() == McCompat.LEFT_BUTTON && lastScrollbar.hasScroll && lastScrollbar.contains(context.x(), context.y())) {
-            if (context.y() >= lastScrollbar.thumbY && context.y() <= lastScrollbar.thumbY + lastScrollbar.thumbH) {
-                draggingScrollbar = true;
-                scrollbarGrabOffset = (int)Math.max(0, Math.round(context.y()) - lastScrollbar.thumbY);
-            } else {
-                jumpScrollToMouse((int)Math.round(context.y()), 0);
-                refreshRows();
-            }
-            return true;
-        }
-        // Hit-test the step list here rather than relying on getChildAt() dispatch.
-        if (context.button() == McCompat.LEFT_BUTTON && handleStepClick(context.x(), context.y(), doubleClick))
-            return true;
-        return super.mouseClicked(context, doubleClick);
-    }
-
-    private boolean handleStepClick(double mouseX, double mouseY, boolean doubleClick) {
-        int width = panelWidth();
-        int left = (this.width - width) / 2;
-        int row = rowHeight();
-        int gap = rowGap();
-        int visibleRows = visibleRows(row, gap);
-        int listTop = contentTop(row, gap, visibleRows) + (row + gap) * 4 + 2;
-        // Bound to the step row only. The ^ v D E X buttons sit to the right of it
-        // inside the panel, so a wider bound would swallow their clicks.
-        if (mouseX < left || mouseX > left + stepRowWidth() || mouseY < listTop)
-            return false;
-        int rowIndex = (int)((mouseY - listTop) / (row + gap));
-        if (rowIndex < 0 || rowIndex >= visibleRows)
-            return false;
-        int idx = stepOffset + rowIndex;
-        if (idx < 0 || idx >= editing.actions.size())
-            return false;
-        selectedStep = idx;
-        refreshRows();
-        if (doubleClick)
-            editStep(idx);
-        return true;
-    }
-
-    @Override
-    public boolean mouseDragged(MouseButtonEvent context, double dragX, double dragY) {
-        if (draggingScrollbar && context.button() == McCompat.LEFT_BUTTON && lastScrollbar.hasScroll) {
-            jumpScrollToMouse((int)Math.round(context.y()), scrollbarGrabOffset);
-            refreshRows();
-            return true;
-        }
-        return super.mouseDragged(context, dragX, dragY);
-    }
-
-    @Override
-    public boolean mouseReleased(MouseButtonEvent context) {
-        if (context.button() == McCompat.LEFT_BUTTON && draggingScrollbar) {
-            draggingScrollbar = false;
-            return true;
-        }
-        return super.mouseReleased(context);
-    }
-
-    @Override
     public void onClose() {
         McCompat.setScreen(Minecraft.getInstance(), parent);
-    }
-
-    private void jumpScrollToMouse(int mouseY, int grabOffset) {
-        if (!lastScrollbar.hasScroll) return;
-        int maxScroll = Math.max(1, lastScrollbar.totalRows - lastScrollbar.visibleRows);
-        int travel = Math.max(1, lastScrollbar.trackBottom - lastScrollbar.trackTop - lastScrollbar.thumbH);
-        int thumbTop = Math.max(lastScrollbar.trackTop, Math.min(lastScrollbar.trackBottom - lastScrollbar.thumbH, mouseY - grabOffset));
-        double ratio = (thumbTop - lastScrollbar.trackTop) / (double)travel;
-        stepOffset = Math.max(0, Math.min(maxScroll, (int)Math.round(ratio * maxScroll)));
-    }
-
-    private ScrollbarMetrics computeScrollbar(int x, int top, int bottom, int totalRows, int visibleRows, int scroll) {
-        int trackH = Math.max(1, bottom - top);
-        if (totalRows <= visibleRows) return new ScrollbarMetrics(x, top, bottom, top, trackH, false, totalRows, visibleRows);
-        double ratio = visibleRows / (double)Math.max(1, totalRows);
-        int thumbH = Math.max(12, (int)Math.round(trackH * ratio));
-        int maxScroll = Math.max(1, totalRows - visibleRows);
-        int travel = Math.max(1, trackH - thumbH);
-        int thumbY = top + (int)Math.round((Math.max(0, Math.min(scroll, maxScroll)) / (double)maxScroll) * travel);
-        return new ScrollbarMetrics(x, top, bottom, thumbY, thumbH, true, totalRows, visibleRows);
-    }
-
-    private void renderScrollbar(GuiGraphicsExtractor graphics, ScrollbarMetrics m) {
-        if (!m.hasScroll) return;
-        graphics.fill(m.x, m.trackTop, m.x + 3, m.trackBottom, 0xFF353535);
-        graphics.fill(m.x, m.thumbY, m.x + 3, m.thumbY + m.thumbH, draggingScrollbar ? 0xFFFFFFFF : 0xFFCFCFCF);
-    }
-
-    private final class StepRowWidget extends AbstractWidget {
-        private final int row;
-        private StepRowWidget(int x, int y, int w, int h, int row) {
-            super(x, y, w, h, Component.empty());
-            this.row = row;
-        }
-
-        @Override
-        public boolean mouseClicked(MouseButtonEvent context, boolean doubleClick) {
-            // 26.3 resolves clicks through getChildAt(), but keep the hit test so the
-            // row still behaves like a normal widget if the dispatch model changes.
-            if (!active || !visible || context.button() != McCompat.LEFT_BUTTON) return false;
-            if (!isMouseOver(context.x(), context.y())) return false;
-            int idx = stepOffset + row;
-            if (idx < 0 || idx >= editing.actions.size()) return false;
-            selectedStep = idx;
-            refreshRows();
-            if (doubleClick) editStep(idx);
-            return true;
-        }
-
-        @Override
-        protected void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks) {
-            int x = getX();
-            int y = getY();
-            int w = getWidth();
-            int h = getHeight();
-            boolean hasContent = !getMessage().getString().isBlank();
-            boolean selected = stepOffset + row == selectedStep;
-            int baseRgb = UiUtilsSettings.get().uiButtonColor & 0xFFFFFF;
-            int fill = hasContent ? (selected ? (0x99000000 | baseRgb) : 0x99000000) : 0x44000000;
-            int border = selected ? (0xFF000000 | scaleRgb(baseRgb, 1.35F)) : (hasContent ? 0xAA5D6A72 : 0x66505A60);
-            graphics.fill(x, y, x + w, y + h, fill);
-            graphics.outline(x, y, w, h, border);
-            if (hasContent)
-                graphics.fill(x, y, x + 3, y + h, selected ? 0xFFFFFFFF : (0xFF000000 | scaleRgb(baseRgb, 1.15F)));
-            int textColor = 0xFF000000 | (UiUtilsSettings.get().uiButtonTextColor & 0xFFFFFF);
-            int textY = y + Math.max(1,
-                (h - Minecraft.getInstance().font.lineHeight) / 2);
-            UiUtils.renderScaledText(graphics, Minecraft.getInstance().font,
-                getMessage().getString(), x + 6, textY, w - 12, h - 2,
-                textColor, 0.35F);
-        }
-
-        @Override
-        protected void updateWidgetNarration(NarrationElementOutput narration) {
-            defaultButtonNarrationText(narration);
-        }
-    }
-
-    private static int scaleRgb(int rgb, float factor) {
-        int r = (rgb >> 16) & 0xFF;
-        int g = (rgb >> 8) & 0xFF;
-        int b = rgb & 0xFF;
-        r = clamp((int)(r * factor));
-        g = clamp((int)(g * factor));
-        b = clamp((int)(b * factor));
-        return (r << 16) | (g << 8) | b;
-    }
-
-    private static int clamp(int value) {
-        return Math.max(0, Math.min(255, value));
-    }
-
-    private int panelWidth() {
-        return Math.min(500, Math.max(220, this.width - 20));
-    }
-
-    private static final int CONTROL_GAP = 2;
-
-    private int controlButtonWidth() {
-        return panelWidth() < 360 ? 18 : 22;
-    }
-
-    /** Width of one step row; the row controls occupy the space to its right. */
-    private int stepRowWidth() {
-        return Math.max(120, panelWidth()
-            - (5 * controlButtonWidth() + 4 * CONTROL_GAP) - 6);
-    }
-
-    private int rowHeight() {
-        return Mth.clamp((this.height - 140) / 18, 12, 18);
-    }
-
-    private int rowGap() {
-        return rowHeight() <= 14 ? 2 : 3;
-    }
-
-    private int visibleRows(int row, int gap) {
-        return Math.max(4, Math.min(10, (this.height - 190) / (row + gap)));
-    }
-
-    private int contentTop(int row, int gap, int visibleRows) {
-        int footerRows = panelWidth() < 420 ? 3 : 1;
-        int totalRows = visibleRows + 6 + footerRows;
-        return Math.max(8, (this.height - (totalRows * row + (totalRows - 1) * gap)) / 2);
-    }
-
-    private record ScrollbarMetrics(int x, int trackTop, int trackBottom, int thumbY, int thumbH, boolean hasScroll, int totalRows, int visibleRows) {
-        private static ScrollbarMetrics none() {
-            return new ScrollbarMetrics(0, 0, 0, 0, 0, false, 0, 0);
-        }
-
-        private boolean contains(double mx, double my) {
-            return mx >= x && mx <= x + 3 && my >= trackTop && my <= trackBottom;
-        }
     }
 
     private static void applyDefaults(UiUtilsMacroAction a) {

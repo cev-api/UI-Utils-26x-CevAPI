@@ -11,15 +11,26 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.CommonColors;
 
 import com.ui_utils.uiutils.McCompat;
+import com.ui_utils.uiutils.ui.UiButton;
+import com.ui_utils.uiutils.ui.UiTheme;
 
-/** Native, large-text SNBT editor with preset integration. */
+/**
+ * Native, large-text SNBT editor.
+ * <p>
+ * Deliberately laid out as a plain editor surface rather than a UI-Utils card:
+ * the title sits above the editor, the editor itself takes every pixel left over,
+ * and a thin validation strip plus two compact rows of grey Minecraft buttons sit
+ * underneath. Everything is derived from the screen size, so it stays correct at
+ * any GUI scale.
+ */
 public final class NbtEditorScreen extends Screen
 {
 	private final Screen previous;
@@ -27,9 +38,23 @@ public final class NbtEditorScreen extends Screen
 		Pattern.compile("(?:position|at)\\s+(\\d+)", Pattern.CASE_INSENSITIVE);
 	private static final Pattern RESOURCE_ID =
 		Pattern.compile("minecraft:[a-z0-9_./-]+");
+
+	/** Compact control metrics, in GUI pixels. */
+	private static final int MARGIN = 16;
+	private static final int BUTTON_HEIGHT = 20;
+	private static final int BUTTON_GAP = 6;
+	private static final int TITLE_TOP = 12;
+	private static final int ROW_GAP = 8;
+
 	private NbtSyntaxEditor editor;
-	private Button applyButton;
-	private int validationY;
+	private UiButton applyButton;
+	private UiButton targetButton;
+	private UiButton worldEditButton;
+	private EditBox presetName;
+	private int statusTop;
+	private int statusHeight;
+	private int statusLeft;
+	private int statusWidth;
 	private String validationStatus = "Validating...";
 	private String operationStatus = "";
 	private String lastValidatedText = "\u0000";
@@ -47,41 +72,100 @@ public final class NbtEditorScreen extends Screen
 	@Override
 	public void init()
 	{
-		int editorWidth = Math.min(1050, Math.max(420, width - 260));
-		int x = (width - editorWidth) / 2;
-		int y = 38;
-		int buttonY = height - 61;
-		// Keep the status strip immediately above the controls. This makes the
-		// raw editor consume every usable pixel instead of leaving a dead gap.
-		int editorHeight = Math.max(130, buttonY - y - 34);
-		editor = new NbtSyntaxEditor(font, x, y, editorWidth, editorHeight);
+		int editorWidth = Math.min(1050, Math.max(320, width - MARGIN * 2));
+		int left = (width - editorWidth) / 2;
+		int editorTop = TITLE_TOP + font.lineHeight + ROW_GAP;
+
+		// Laid out from the bottom up: the controls are fixed height and the editor
+		// takes whatever is left, so the editor dominates the screen.
+		int presetRowY = height - MARGIN - BUTTON_HEIGHT;
+		int mainRowY = presetRowY - BUTTON_GAP - BUTTON_HEIGHT;
+		// Keep validation and action feedback together in one two-line box below
+		// the editor, so neither status can overlap the controls.
+		statusHeight = font.lineHeight * 2 + 10;
+		statusTop = mainRowY - ROW_GAP - statusHeight;
+		int editorHeight = Math.max(60, statusTop - ROW_GAP - editorTop);
+
+		editor = new NbtSyntaxEditor(font, left, editorTop, editorWidth,
+			editorHeight);
 		editor.setValue(UiUtilsNbtEditor.getEditorText());
 		addRenderableWidget(editor);
 		setFocused(editor);
 
-		int editorBottom = y + editorHeight;
-		validationY = editorBottom + 10;
-		int buttonWidth = 118;
-		int gap = 6;
-		int total = buttonWidth * 5 + gap * 4;
-		int start = (width - total) / 2;
-		addRenderableWidget(
-			button("Read target", start, buttonY, b -> {
-				setText(UiUtilsNbtEditor.readTarget());
-				operationStatus = UiUtilsNbtEditor.getLastEditorMessage();
-			}));
-		addRenderableWidget(
-			button("New item", start + (buttonWidth + gap), buttonY, b -> {
-				setText(UiUtilsNbtEditor.newItem());
-				operationStatus = UiUtilsNbtEditor.getLastEditorMessage();
-			}));
-		applyButton = button("Apply / Give", start + (buttonWidth + gap) * 2,
-			buttonY, b -> apply());
-		addRenderableWidget(applyButton);		addRenderableWidget(button("Options", start + (buttonWidth + gap) * 3,
-			buttonY, b -> openOptions()));
-		addRenderableWidget(button("Cancel", start + (buttonWidth + gap) * 4,
-			buttonY, b -> close()));
+		statusLeft = left;
+		statusWidth = editorWidth;
+
+		// Main row: target selector, then the editor actions.
+		int targetWidth = Math.min(120, Math.max(80, editorWidth / 6));
+		int actionCount = 4;
+		int available = editorWidth - targetWidth - BUTTON_GAP * actionCount;
+		int actionWidth = Math.max(70, available / actionCount);
+		int rowWidth = targetWidth + (actionWidth + BUTTON_GAP) * actionCount;
+		int rowLeft = (width - rowWidth) / 2;
+
+		targetButton = button("", rowLeft, mainRowY, targetWidth, this::cycleTarget);
+		addRenderableWidget(targetButton);
+		refreshTargetLabel();
+
+		int x = rowLeft + targetWidth + BUTTON_GAP;
+		addRenderableWidget(button("Read target", x, mainRowY, actionWidth, () -> {
+			setText(UiUtilsNbtEditor.readTarget());
+			operationStatus = UiUtilsNbtEditor.getLastEditorMessage();
+		}));
+		x += actionWidth + BUTTON_GAP;
+		addRenderableWidget(button("New item", x, mainRowY, actionWidth, () -> {
+			setText(UiUtilsNbtEditor.newItem());
+			operationStatus = UiUtilsNbtEditor.getLastEditorMessage();
+		}));
+		x += actionWidth + BUTTON_GAP;
+		applyButton = button("Apply / Give", x, mainRowY, actionWidth, this::apply);
+		addRenderableWidget(applyButton);
+		x += actionWidth + BUTTON_GAP;
+		addRenderableWidget(button("Cancel", x, mainRowY, actionWidth,
+			this::close));
+
+		// Preset row: the name field with the preset actions. The OP world-editing
+		// switch lives here too: it used to be hidden behind an options screen, and
+		// it is the only setting this editor needs.
+		int optionsWidth = Math.min(128, Math.max(96, actionWidth));
+		int buttonCount = 3;
+		int presetsWidth = Math.max(120, editorWidth - (optionsWidth
+			+ BUTTON_GAP) * buttonCount - BUTTON_GAP * buttonCount);
+		int presetLeft = (width - (presetsWidth + (optionsWidth + BUTTON_GAP)
+			* buttonCount)) / 2;
+		presetName = new EditBox(font, presetLeft, presetRowY, presetsWidth,
+			BUTTON_HEIGHT, Component.literal("Preset name"));
+		presetName.setMaxLength(64);
+		presetName.setHint(Component.literal("Preset name"));
+		addRenderableWidget(presetName);
+
+		int bx = presetLeft + presetsWidth + BUTTON_GAP;
+		addRenderableWidget(button("Save preset", bx, presetRowY, optionsWidth,
+			this::savePreset));
+		bx += optionsWidth + BUTTON_GAP;
+		addRenderableWidget(button("Manage presets", bx, presetRowY, optionsWidth,
+			() -> McCompat.setScreen(minecraft,
+				new NbtPresetListScreen(this, this::loadPresetText))));
+		bx += optionsWidth + BUTTON_GAP;
+		worldEditButton = button(worldEditLabel(), bx, presetRowY, optionsWidth,
+			() -> {
+				// The button label carries the state, so no status text is raised.
+				UiUtilsNbtEditor.toggleWorldEdits();
+				refreshWorldEditLabel();
+			});
+		addRenderableWidget(worldEditButton);
+
 		requestValidation();
+	}
+
+	/** Themed button, matching the rest of the UI-Utils screens. */
+	private UiButton button(String label, int x, int y, int width,
+		Runnable action)
+	{
+		UiButton button = new UiButton(x, y, width, BUTTON_HEIGHT,
+			Component.literal(label), action);
+		button.style(UiButton.Kind.PRIMARY);
+		return button;
 	}
 
 	private void setText(String text)
@@ -90,9 +174,46 @@ public final class NbtEditorScreen extends Screen
 		requestValidation();
 	}
 
-	private void openOptions()
+	private static String worldEditLabel()
 	{
-		McCompat.setScreen(minecraft, new NbtEditorOptionsScreen(this));
+		return "OP World Edit: "
+			+ (UiUtilsNbtEditor.isWorldEditsEnabled() ? "ON" : "OFF");
+	}
+
+	private void refreshWorldEditLabel()
+	{
+		if(worldEditButton != null)
+			worldEditButton.setMessage(Component.literal(worldEditLabel()));
+	}
+
+	private void cycleTarget()
+	{
+		UiUtilsNbtEditor.ReadFrom[] targets = UiUtilsNbtEditor.ReadFrom.values();
+		int next = (UiUtilsNbtEditor.getReadFrom().ordinal() + 1) % targets.length;
+		UiUtilsNbtEditor.setReadFrom(targets[next]);
+		UiUtilsNbtEditor.readTarget();
+		operationStatus = UiUtilsNbtEditor.getLastEditorMessage();
+		refreshTargetLabel();
+	}
+
+	private void refreshTargetLabel()
+	{
+		if(targetButton != null)
+			targetButton.setMessage(Component
+				.literal("Target: " + UiUtilsNbtEditor.getReadFrom().shortLabel()));
+	}
+
+	private void savePreset()
+	{
+		String name = presetName.getValue() == null ? "" : presetName.getValue().trim();
+		if(name.isBlank())
+		{
+			operationStatus = "Enter a preset name first.";
+			return;
+		}
+		UiUtilsNbtEditor.savePreset(name, UiUtilsNbtEditor.getEditorText());
+		operationStatus = UiUtilsNbtEditor.getLastEditorMessage();
+		presetName.setValue("");
 	}
 
 	private void requestValidation()
@@ -138,7 +259,8 @@ public final class NbtEditorScreen extends Screen
 		validationStatus =
 			error == null ? "Ready to apply" : errorWithLocation(text, error);
 		validationColor = error == null ? 0xFF86EFAC : 0xFFFF8A8A;
-		applyButton.active = error == null;
+		if(applyButton != null)
+			applyButton.active = error == null;
 	}
 
 	private void setApplyReadOnly(boolean readOnly)
@@ -152,12 +274,6 @@ public final class NbtEditorScreen extends Screen
 			applyButton.setMessage(Component.literal(
 				readOnly ? "Read-only" : "Apply / Give"));
 		}
-	}
-
-	private Button button(String label, int x, int y, Button.OnPress action)
-	{
-		return Button.builder(Component.literal(label), action)
-			.bounds(x, y, 118, 20).build();
 	}
 
 	private String errorWithLocation(String text, String error)
@@ -269,25 +385,27 @@ public final class NbtEditorScreen extends Screen
 	public void extractRenderState(GuiGraphicsExtractor context, int mouseX,
 		int mouseY, float partialTicks)
 	{
-		context.centeredText(font, "NBT Editor", width / 2, 14,
+		context.centeredText(font, "NBT Editor", width / 2, TITLE_TOP,
 			CommonColors.WHITE);
-		context.centeredText(font,
-			"Large SNBT editor. Ctrl+V pastes, mouse wheel scrolls, Ctrl+Enter applies.",
-			width / 2, 26, 0xAAAAAA);
 		super.extractRenderState(context, mouseX, mouseY, partialTicks);
-		int statusWidth = Math.min(1050, Math.max(420, width - 260));
-		int statusLeft = (width - statusWidth) / 2;
-		context.fill(statusLeft, validationY - 3, statusLeft + statusWidth,
-			validationY + 21, 0xDD121820);
-		context.fill(statusLeft, validationY - 3, statusLeft + statusWidth,
-			validationY - 2, 0xFF4B5563);
-		context.text(font, "Target: " + UiUtilsNbtEditor.getReadFrom().shortLabel(),
-			statusLeft + 4, validationY, 0xFFB8D8FF);
-		context.centeredText(font, validationStatus, width / 2, validationY,
-			validationColor);
-		if(!operationStatus.isEmpty())
-			context.centeredText(font, shortStatus(operationStatus), width / 2,
-				validationY + 11, 0xFFE2E8F0);
+
+		// A single box below the editor holds validation and the latest operation
+		// message, when an action has produced one.
+		context.fill(statusLeft, statusTop, statusLeft + statusWidth,
+			statusTop + statusHeight, 0xDD121820);
+		UiTheme.border(context, statusLeft, statusTop, statusWidth, statusHeight,
+			0xFF4B5563);
+		int lineOneY = statusTop + 4;
+		int lineTwoY = lineOneY + font.lineHeight + 2;
+		context.centeredText(font,
+			font.plainSubstrByWidth(validationStatus, Math.max(40, statusWidth - 12)),
+			statusLeft + statusWidth / 2, lineOneY, validationColor);
+		if(!operationStatus.isEmpty()) {
+			String message = font.plainSubstrByWidth(shortStatus(operationStatus),
+				Math.max(40, statusWidth - 16));
+			context.centeredText(font, message, statusLeft + statusWidth / 2,
+				lineTwoY, 0xFFE2E8F0);
+		}
 	}
 
 	@Override

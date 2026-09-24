@@ -5,21 +5,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import com.ui_utils.uiutils.ui.UiButton;
+import com.ui_utils.uiutils.ui.UiContent;
+import com.ui_utils.uiutils.ui.UiModernScreen;
+import com.ui_utils.uiutils.ui.UiTheme;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
 /** Scrollable, bounded presentation of the passive server fingerprint snapshot. */
-public final class UiUtilsVerboseServerScanScreen extends Screen {
+public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 	private final Screen parent;
-	private int scroll;
-	private int scrollbarX;
-	private int scrollbarTop;
-	private int scrollbarBottom;
-	private int scrollbarThumbY;
-	private int scrollbarThumbHeight;
-	private int scrollbarMaxScroll;
 
 	public UiUtilsVerboseServerScanScreen(Screen parent) {
 		super(Component.literal("Verbose Server Scan"));
@@ -27,16 +25,62 @@ public final class UiUtilsVerboseServerScanScreen extends Screen {
 	}
 
 	@Override
-	protected void init() {
+	protected int naturalWidth() {
+		return 460;
+	}
+
+	@Override
+	protected boolean expandWidth() {
+		return true;
+	}
+
+	@Override
+	protected int maxWidth() {
+		return 1100;
+	}
+
+	@Override
+	protected void buildContent(UiContent c) {
 		startMissingScans();
-		int width = Math.min(360, this.width - 24);
-		int left = (this.width - width) / 2;
-		addRenderableWidget(UiUtils.styledButton("Refresh", b -> startMissingScans(), left, this.height - 30, 86, 20));
-		addRenderableWidget(UiUtils.styledButton("Copy Report", b -> {
-			if (this.minecraft != null) this.minecraft.keyboardHandler.setClipboard(buildReport());
-		}, left + 91, this.height - 30, 100, 20));
-		addRenderableWidget(UiUtils.styledButton("Done", b -> McCompat.setScreen(this.minecraft, parent),
-			left + 196, this.height - 30, width - 196, 20));
+		c.note("Passive fingerprint of the current server. Scroll for the full report.");
+		int lineHeight = lineHeight();
+		List<String> lines = reportLines();
+		// Painted directly in the overlay, so its extent is declared for the same
+		// reason: text the screen draws is not covered by any widget.
+		c.reportBottom(lines.size() * lineHeight);
+		c.space(lines.size() * lineHeight);
+		c.footerButton("Refresh", UiButton.Kind.SECONDARY, () -> {
+			startMissingScans();
+			Minecraft.getInstance().execute(this::rebuildWidgets);
+		});
+		c.footerButton("Copy Report", UiButton.Kind.SECONDARY, () -> {
+			if (this.minecraft != null)
+				this.minecraft.keyboardHandler.setClipboard(buildReport());
+		});
+		c.footerButton("Done", UiButton.Kind.PRIMARY, this::onClose);
+	}
+
+	@Override
+	protected void drawContentOverlay(GuiGraphicsExtractor graphics, Font font,
+		int mouseX, int mouseY) {
+		List<String> lines = reportLines();
+		int lineHeight = lineHeight();
+		int top = (int)Math.round(scrollOffset());
+		int bottom = top + contentHeightUnits();
+		for (int i = 0; i < lines.size(); i++) {
+			int y = i * lineHeight;
+			if (y + lineHeight < top || y > bottom)
+				continue;
+			String line = lines.get(i);
+			int color = line.startsWith("[") ? 0xFFFFDE7A
+				: line.startsWith("  ") ? 0xFFB8D8FF : 0xFFEAEAEA;
+			UiTheme.text(graphics, font,
+				UiTheme.ellipsize(font, line, contentWidthUnits()), 0, y + 1, color);
+		}
+	}
+
+	private static int lineHeight() {
+		return Minecraft.getInstance().font.lineHeight + 2;
 	}
 
 	// Verbose Scan is a combined view; run missing active scans once for this server.
@@ -46,55 +90,9 @@ public final class UiUtilsVerboseServerScanScreen extends Screen {
 		if (!UiUtilsCommandScanner.isActive() && !UiUtilsCommandScanner.hasResultsForCurrentServer())
 			UiUtilsCommandScanner.startScan();
 	}
-	@Override
-	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks) {
-		super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
-		int width = Math.min(360, this.width - 24), left = (this.width - width) / 2;
-		int top = 26, bottom = this.height - 36, lineHeight = this.font.lineHeight + 2;
-		graphics.fill(left, top, left + width, bottom, 0xB0000000);
-		List<String> lines = reportLines();
-		int visible = Math.max(1, (bottom - top - 6) / lineHeight);
-		scroll = Math.max(0, Math.min(scroll, Math.max(0, lines.size() - visible)));
-		int y = top + 4;
-		for (int i = scroll; i < lines.size() && y < bottom - lineHeight; i++, y += lineHeight) {
-			String line = lines.get(i);
-			int color = line.startsWith("[") ? 0xFFFFDE7A : line.startsWith("  ") ? 0xFFB8D8FF : 0xFFEAEAEA;
-			graphics.text(this.font, line, left + 6, y, color, false);
-		}
-		// Visible scrollbar for long verbose reports.
-		scrollbarX = left + width - 5;
-		scrollbarTop = top + 2;
-		scrollbarBottom = bottom - 2;
-		scrollbarMaxScroll = Math.max(0, lines.size() - visible);
-		int trackHeight = Math.max(1, scrollbarBottom - scrollbarTop);
-		scrollbarThumbHeight = scrollbarMaxScroll == 0 ? trackHeight
-			: Math.max(12, (int)Math.round(trackHeight * (visible / (double)lines.size())));
-		int travel = Math.max(1, trackHeight - scrollbarThumbHeight);
-		scrollbarThumbY = scrollbarTop + (scrollbarMaxScroll == 0 ? 0
-			: (int)Math.round((scroll / (double)scrollbarMaxScroll) * travel));
-		graphics.fill(scrollbarX, scrollbarTop, scrollbarX + 3, scrollbarBottom, 0xFF353535);
-		graphics.fill(scrollbarX, scrollbarThumbY, scrollbarX + 3,
-			scrollbarThumbY + scrollbarThumbHeight, 0xFFCFCFCF);
-	}
 
 	@Override
-	public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-		if (scrollY < 0) scroll++; else if (scrollY > 0) scroll = Math.max(0, scroll - 1);
-		return true;
-	}
-
-	@Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-		if (event.button() == McCompat.LEFT_BUTTON && event.x() >= scrollbarX && event.x() <= scrollbarX + 4
-			&& event.y() >= scrollbarTop && event.y() <= scrollbarBottom && scrollbarMaxScroll > 0) {
-			int travel = Math.max(1, scrollbarBottom - scrollbarTop - scrollbarThumbHeight);
-			double ratio = Math.max(0.0D, Math.min(1.0D,
-				(event.y() - scrollbarTop - scrollbarThumbHeight / 2.0D) / travel));
-			scroll = (int)Math.round(ratio * scrollbarMaxScroll);
-			return true;
-		}
-		return super.mouseClicked(event, doubleClick);
-	}
-	@Override public void onClose() {
+	public void onClose() {
 		UiUtilsScanHistory.recordVerboseFingerprint(UiUtilsScanHistory.serverKey(this.minecraft),
 			UiUtilsServerFingerprintCollector.snapshot());
 		McCompat.setScreen(this.minecraft, parent);

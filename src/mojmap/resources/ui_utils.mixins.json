@@ -19,7 +19,6 @@
     "ui_utils.UiUtilsConnectionMixin",
     "ui_utils.UiUtilsConnectionReceiveMixin",
     "ui_utils.UiUtilsIngameHudMixin",
-    "ui_utils.UiUtilsScreenHudMixin",
     "ui_utils.UiUtilsInBedChatScreenMixin"
   ],
   "injectors": {

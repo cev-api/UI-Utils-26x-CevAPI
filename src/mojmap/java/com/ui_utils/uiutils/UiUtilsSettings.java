@@ -40,6 +40,8 @@ public final class UiUtilsSettings {
 				loaded.packetHudPosition = PacketHudPosition.OFF;
 			}
 			if (loaded != null) {
+				if (loaded.dupeDbApiKey == null)
+					loaded.dupeDbApiKey = "";
 				if (loaded.keyBinds == null)
 					loaded.keyBinds = new HashMap<>();
 				if (loaded.guiPacketModes == null)
@@ -115,6 +117,20 @@ public final class UiUtilsSettings {
 		public int uiButtonColor = 0x4A90E2;
 		// UI-Utils overlay button text color (RGB)
 		public int uiButtonTextColor = 0xFFFFFF;
+		// 0 = pick the largest scale that fits, otherwise 75/100/125/150/175
+		public int uiScalePercent = 0;
+		public int mainUiX = -1;
+		public int mainUiY = -1;
+		public boolean mainUiPinned = false;
+		public int fabricatePanelX = -1;
+		public int fabricatePanelY = -1;
+		public boolean fabricatePanelPinned = false;
+		public int guiToolsPanelX = -1;
+		public int guiToolsPanelY = -1;
+		public boolean guiToolsPanelPinned = false;
+		// Draws the card, content and widget boxes so layout issues can be measured
+		public boolean uiDebugBounds = false;
+		public String dupeDbApiKey = "";
 
 		public int fabricateOverlayBgAlpha = 120;
 

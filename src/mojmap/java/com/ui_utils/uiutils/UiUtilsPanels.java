@@ -1,7 +1,9 @@
 package com.ui_utils.uiutils;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -25,6 +27,11 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 
 import com.ui_utils.nbttools.UiUtilsNbtEditor;
+import com.ui_utils.uiutils.ui.UiButton;
+import com.ui_utils.uiutils.ui.UiInput;
+import com.ui_utils.uiutils.ui.UiScalable;
+import com.ui_utils.uiutils.ui.UiTheme;
+import com.ui_utils.uiutils.ui.UiToggle;
 
 /**
  * The Fabricate Packet and GUI Tools panels.
@@ -39,32 +46,97 @@ public final class UiUtilsPanels {
 	private static final int MODE_BUTTON_CLICK = 1;
 	private static final int MODE_TIMED_SPAM = 2;
 
-	private static final int OVERLAY_WIDTH = 260;
-	private static final int MODE_BUTTON_WIDTH = 82;
-	private static final int MODE_BUTTON_GAP = 6;
-	private static final int FIELD_WIDTH = 118;
+	private static final int OVERLAY_WIDTH = 240;
+	private static final int PANEL_HEADER_HEIGHT = 17;
+	private static final int MODE_BUTTON_WIDTH = 72;
+	private static final int MODE_BUTTON_GAP = 3;
+	private static final int FIELD_WIDTH = 108;
 	private static final int FIELD_GAP = 8;
-	private static final int ROW_SPACING = 32;
-	private static final int LABEL_OFFSET = 10;
-	private static final int SEND_BUTTON_WIDTH = 120;
-	private static final int DRAG_BAR_HEIGHT = 10;
-	private static final int INFO_LINE_HEIGHT = 10;
+	private static final int FIELD_HEIGHT = 15;
+	/** Height of the small caption drawn above a field. */
+	private static final int LABEL_HEIGHT = 8;
+	private static final int GAP = 3;
+	/** Extra gap between the last form row and the send button. */
+	private static final int SEND_GAP = 8;
+	/** Extra gap after the action dropdown, which is wider than the fields. */
+	private static final int ACTION_GAP = 6;
+	/** One labelled form row: caption plus field plus the gap to the next row. */
+	private static final int ROW_PITCH = LABEL_HEIGHT + FIELD_HEIGHT + GAP;
+	private static final int SEND_BUTTON_WIDTH = 104;
+	private static final int INFO_LINE_HEIGHT = 9;
 	private static final int INFO_LINES = 3;
 
-	private static final int OVERLAY_TITLE_TO_MODES = 24;
-	private static final int OVERLAY_INFO_TOP = 58;
-	private static final int OVERLAY_INFO_TO_CONTENT = 22;
-	private static final int OVERLAY_ACTION_TO_FIELDS = 40;
+	private static final int OVERLAY_INFO_TOP = PANEL_HEADER_HEIGHT + 5;
+	private static final int OVERLAY_MODES_TOP = OVERLAY_INFO_TOP
+		+ INFO_LINES * INFO_LINE_HEIGHT + 6;
+	private static final int OVERLAY_FORM_TOP = OVERLAY_MODES_TOP + FIELD_HEIGHT + 8;
 
-	private static final int TOOLS_WIDTH = 300;
-	private static final int TOOLS_ROW_SPACING = 22;
-	private static final int TOOLS_ROW_HEIGHT = 18;
+	private static final int TOOLS_WIDTH = 280;
+	private static final int TOOLS_ROW_SPACING = 24;
+	private static final int TOOLS_ROW_HEIGHT = 19;
 	private static final int TOOLS_ROW_GAP = 6;
 	private static final int TOOLS_INFO_LINES = 3;
-	private static final int FABRICATOR_TEXT_WIDTH = OVERLAY_WIDTH - 12;
-	private static final int TOOLS_TEXT_WIDTH = TOOLS_WIDTH - 12;
+	private static final int TOOLS_INFO_TOP = PANEL_HEADER_HEIGHT + 5;
+	private static final int TOOLS_FORM_TOP = TOOLS_INFO_TOP
+		+ TOOLS_INFO_LINES * INFO_LINE_HEIGHT + 7;
 	/** How long a panel status line stays on screen before clearing. */
 	private static final long STATUS_LINGER_MS = 4000L;
+
+	/** One scale for both panels, so every panel label renders at the same size. */
+	private static float panelScale = 1F;
+	private static final Map<AbstractWidget, int[]> designSizes = new IdentityHashMap<>();
+
+	/** Panel design units to screen pixels. */
+	private static int ps(int units)
+	{
+		return Math.round(units * panelScale);
+	}
+
+	/**
+	 * Picks the panel scale from the screen size, using the same value as the button
+	 * panel and every UI-Utils window. Both overlay panels share it, and it is
+	 * clamped against the larger panel, so they always match and always fit.
+	 */
+	private static void updatePanelScale()
+	{
+		if(attachedScreen == null) {
+			panelScale = 1F;
+			return;
+		}
+		float preferred = UiTheme.screenScale(attachedScreen.width,
+			attachedScreen.height);
+		int designWidth = Math.max(OVERLAY_WIDTH, TOOLS_WIDTH);
+		int designHeight = Math.max(fabricatorDesignHeight(), toolsDesignHeight());
+		float fit = Math.min(
+			(attachedScreen.width - 8F) / Math.max(1, designWidth),
+			(attachedScreen.height - 8F) / Math.max(1, designHeight));
+		panelScale = UiTheme.snapScaleDown(Math.min(preferred, fit), fit);
+	}
+
+	/**
+	 * Converts a laid-out panel widget from design units to screen pixels.
+	 * <p>
+	 * The design box is captured on the first pass and every later pass writes
+	 * absolute pixel values from it. Scaling the widget's own current position
+	 * instead would compound on each layout, which collapses the whole form toward
+	 * the panel origin.
+	 */
+	private static void scalePanelWidgets(List<? extends AbstractWidget> widgets,
+		int originX, int originY)
+	{
+		for(AbstractWidget widget : widgets) {
+			if(widget == null || widget.getX() <= -1000)
+				continue;
+			int[] design = designSizes.computeIfAbsent(widget, w -> new int[]{
+				w.getX() - originX, w.getY() - originY, w.getWidth(), w.getHeight()});
+			widget.setX(originX + ps(design[0]));
+			widget.setY(originY + ps(design[1]));
+			widget.setWidth(Math.max(8, ps(design[2])));
+			widget.setHeight(Math.max(8, ps(design[3])));
+			if(widget instanceof UiScalable scalable)
+				scalable.applyUiScale(panelScale);
+		}
+	}
 
 	// Fabricator state
 	private static boolean fabricatorInitialized;
@@ -77,12 +149,12 @@ public final class UiUtilsPanels {
 	private static EditBox clickRevisionField;
 	private static EditBox clickSlotField;
 	private static EditBox clickButtonField;
-	private static UiUtilsColoredButton clickDelayToggle;
+	private static UiToggle clickDelayToggle;
 	private static EditBox clickTimesField;
 	private static UiUtilsColoredButton clickSendButton;
 	private static EditBox buttonSyncIdField;
 	private static EditBox buttonIdField;
-	private static UiUtilsColoredButton buttonDelayToggle;
+	private static UiToggle buttonDelayToggle;
 	private static EditBox buttonTimesField;
 	private static UiUtilsColoredButton buttonSendButton;
 	private static EditBox timedSlotField;
@@ -95,12 +167,19 @@ public final class UiUtilsPanels {
 	private static String fabricateStatus = "";
 	private static int fabricateStatusColor = 0xFFAAAAAA;
 	private static long fabricateStatusAt;
-	private static final List<UiUtilsColoredButton> fabricatorButtons = new ArrayList<>();
+	private static final List<AbstractWidget> fabricatorButtons = new ArrayList<>();
 	private static int overlayX;
 	private static int overlayY;
 	private static int overlayBottomY;
 	private static int overlayActionRowY;
 	private static int overlayStatusRowY;
+	/** Caption above a field, in panel design units, rebuilt on every layout. */
+	private static final List<String> overlayLabelTexts = new ArrayList<>();
+	private static final List<Integer> overlayLabelDesignY = new ArrayList<>();
+	private static final List<AbstractWidget> overlayLabelFields = new ArrayList<>();
+	private static int overlayStatusDesignY;
+	/** Panel origin of the layout currently being built, for relative captions. */
+	private static int overlayLayoutY;
 	private static boolean overlayDragging;
 	private static int overlayDragX;
 	private static int overlayDragY;
@@ -261,6 +340,7 @@ public final class UiUtilsPanels {
 		// Screen#init clears its widget lists, so the old set is gone with it.
 		registered.clear();
 		pendingAdd.clear();
+		designSizes.clear();
 		attachClaimed = false;
 	}
 
@@ -310,17 +390,14 @@ public final class UiUtilsPanels {
 		int mouseX, int mouseY) {
 		UiUtilsPanels.mouseX = mouseX;
 		UiUtilsPanels.mouseY = mouseY;
-		// Only draw what was actually registered, so a failed attach cannot leave
-		// half a panel floating with no widgets.
 		if (!isAllowedScreen(screen))
 			return;
-		if (fabricatorInitialized && UiUtilsState.fabricateOverlayOpen) {
-			drawFabricatorForeground(graphics);
-			if (actionDropdown != null)
-				actionDropdown.renderExpandedList(graphics, mouseX, mouseY);
-		}
-		if (toolsInitialized && UiUtilsState.guiToolsOverlayOpen)
-			drawToolsForeground(graphics);
+		// Only the open dropdown list is drawn here: it has to sit above the other
+		// controls. Everything else is panel chrome and is drawn in the background
+		// pass, above the panel body but below the widgets.
+		if (fabricatorInitialized && UiUtilsState.fabricateOverlayOpen
+			&& actionDropdown != null)
+			actionDropdown.renderExpandedList(graphics, mouseX, mouseY);
 	}
 
 	/**
@@ -334,14 +411,32 @@ public final class UiUtilsPanels {
 		mouseX = mx;
 		mouseY = my;
 		if (UiUtilsState.fabricateOverlayOpen
-			&& isOverDragBar(mx, my, overlayX, overlayY, OVERLAY_WIDTH)) {
+			&& isOverPinControl(mx, my, overlayX, overlayY, ps(OVERLAY_WIDTH))) {
+			UiUtilsSettings.get().fabricatePanelPinned =
+				!UiUtilsSettings.get().fabricatePanelPinned;
+			UiUtilsSettings.save();
+			return true;
+		}
+		if (UiUtilsState.fabricateOverlayOpen
+			&& isOverDragBar(mx, my, overlayX, overlayY, ps(OVERLAY_WIDTH))) {
+			if (UiUtilsSettings.get().fabricatePanelPinned)
+				return true;
 			overlayDragging = true;
 			overlayDragX = (int)Math.round(mx - overlayX);
 			overlayDragY = (int)Math.round(my - overlayY);
 			return true;
 		}
 		if (UiUtilsState.guiToolsOverlayOpen
-			&& isOverDragBar(mx, my, toolsX, toolsY, TOOLS_WIDTH)) {
+			&& isOverPinControl(mx, my, toolsX, toolsY, ps(TOOLS_WIDTH))) {
+			UiUtilsSettings.get().guiToolsPanelPinned =
+				!UiUtilsSettings.get().guiToolsPanelPinned;
+			UiUtilsSettings.save();
+			return true;
+		}
+		if (UiUtilsState.guiToolsOverlayOpen
+			&& isOverDragBar(mx, my, toolsX, toolsY, ps(TOOLS_WIDTH))) {
+			if (UiUtilsSettings.get().guiToolsPanelPinned)
+				return true;
 			toolsDragging = true;
 			toolsDragX = (int)Math.round(mx - toolsX);
 			toolsDragY = (int)Math.round(my - toolsY);
@@ -356,6 +451,16 @@ public final class UiUtilsPanels {
 
 	/** Ends a panel drag. A release is never consumed, so this returns nothing. */
 	public static void onMouseRelease() {
+		if (overlayDragging) {
+			UiUtilsSettings.get().fabricatePanelX = UiUtilsState.fabricateOverlayX;
+			UiUtilsSettings.get().fabricatePanelY = UiUtilsState.fabricateOverlayY;
+			UiUtilsSettings.save();
+		}
+		if (toolsDragging) {
+			UiUtilsSettings.get().guiToolsPanelX = UiUtilsState.guiToolsOverlayX;
+			UiUtilsSettings.get().guiToolsPanelY = UiUtilsState.guiToolsOverlayY;
+			UiUtilsSettings.save();
+		}
 		overlayDragging = false;
 		toolsDragging = false;
 	}
@@ -408,8 +513,15 @@ public final class UiUtilsPanels {
 
 	private static boolean isOverDragBar(double mx, double my, int px, int py,
 		int panelWidth) {
+		// The whole title bar drags, so clicking the panel title works too.
 		return mx >= px && mx <= px + panelWidth && my >= py
-			&& my <= py + DRAG_BAR_HEIGHT;
+			&& my <= py + ps(PANEL_HEADER_HEIGHT);
+	}
+
+	private static boolean isOverPinControl(double mx, double my, int px, int py,
+		int panelWidth) {
+		return mx >= px + panelWidth - ps(42) && mx <= px + panelWidth
+			&& my >= py && my <= py + ps(PANEL_HEADER_HEIGHT);
 	}
 
 	// ### Fabricator panel ###
@@ -422,17 +534,17 @@ public final class UiUtilsPanels {
 		fabricatorButtons.clear();
 
 		modeClickSlotButton = add(fabricatorButtons, UiUtils.styledButton(
-			"Click Slot", b -> switchMode(MODE_CLICK_SLOT), 0, 0, MODE_BUTTON_WIDTH, 20));
+			"Slot Click", b -> switchMode(MODE_CLICK_SLOT), 0, 0, MODE_BUTTON_WIDTH, FIELD_HEIGHT));
 		modeButtonClickButton = add(fabricatorButtons,
-			UiUtils.styledButton("Button Click", b -> switchMode(MODE_BUTTON_CLICK), 0, 0,
-				MODE_BUTTON_WIDTH, 20));
+			UiUtils.styledButton("Btn Click", b -> switchMode(MODE_BUTTON_CLICK), 0, 0,
+				MODE_BUTTON_WIDTH, FIELD_HEIGHT));
 		modeTimedSpamButton = add(fabricatorButtons, UiUtils.styledButton(
-			"Timed Spam", b -> switchMode(MODE_TIMED_SPAM), 0, 0, MODE_BUTTON_WIDTH, 20));
+			"Timed", b -> switchMode(MODE_TIMED_SPAM), 0, 0, MODE_BUTTON_WIDTH, FIELD_HEIGHT));
 
 		List<String> actions = new ArrayList<>();
 		for (ContainerInput input : ContainerInput.values())
 			actions.add(input.name());
-		actionDropdown = new UiUtilsDropdown(font, 0, 0, FIELD_WIDTH * 2 + FIELD_GAP, 20,
+		actionDropdown = new UiUtilsDropdown(font, 0, 0, FIELD_WIDTH * 2 + FIELD_GAP, FIELD_HEIGHT,
 			"Action", actions);
 		pendingAdd.add(actionDropdown);
 
@@ -441,41 +553,37 @@ public final class UiUtilsPanels {
 		clickSlotField = field(font, "Slot", "0");
 		clickButtonField = field(font, "Button", "0");
 		clickDelayEnabled = false;
-		clickDelayToggle = add(fabricatorButtons, UiUtils.styledButton("Delay: OFF", b -> {
-			clickDelayEnabled = !clickDelayEnabled;
-			b.setMessage(
-				Component.literal("Delay: " + (clickDelayEnabled ? "ON" : "OFF")));
-		}, 0, 0, FIELD_WIDTH, 20));
+		clickDelayToggle = add(fabricatorButtons, new UiToggle("Delay",
+			() -> clickDelayEnabled, value -> clickDelayEnabled = value));
+		setSize(clickDelayToggle, FIELD_WIDTH, FIELD_HEIGHT);
 		clickTimesField = field(font, "Times to send", "1");
 		clickSendButton = add(fabricatorButtons, UiUtils.styledButton("Send",
-			b -> sendClickSlot(), 0, 0, SEND_BUTTON_WIDTH, 20));
+			b -> sendClickSlot(), 0, 0, SEND_BUTTON_WIDTH, FIELD_HEIGHT));
 
 		buttonSyncIdField = field(font, "Sync Id");
 		buttonIdField = field(font, "Button Id", "0");
 		buttonDelayEnabled = false;
-		buttonDelayToggle = add(fabricatorButtons, UiUtils.styledButton("Delay: OFF", b -> {
-			buttonDelayEnabled = !buttonDelayEnabled;
-			b.setMessage(
-				Component.literal("Delay: " + (buttonDelayEnabled ? "ON" : "OFF")));
-		}, 0, 0, FIELD_WIDTH, 20));
+		buttonDelayToggle = add(fabricatorButtons, new UiToggle("Delay",
+			() -> buttonDelayEnabled, value -> buttonDelayEnabled = value));
+		setSize(buttonDelayToggle, FIELD_WIDTH, FIELD_HEIGHT);
 		buttonTimesField = field(font, "Times to send", "1");
 		buttonSendButton = add(fabricatorButtons, UiUtils.styledButton("Send",
-			b -> sendButtonClick(), 0, 0, SEND_BUTTON_WIDTH, 20));
+			b -> sendButtonClick(), 0, 0, SEND_BUTTON_WIDTH, FIELD_HEIGHT));
 
 		timedSlotField = field(font, "Slot", "0");
 		timedButtonField = field(font, "Button", "0");
 		timedCountField = field(font, "Clicks", "40");
 		timedIntervalField = field(font, "Interval (ms)", "50");
 		timedStartButton = add(fabricatorButtons, UiUtils.styledButton("Start Spam",
-			b -> toggleTimedSpam(), 0, 0, SEND_BUTTON_WIDTH, 20));
+			b -> toggleTimedSpam(), 0, 0, SEND_BUTTON_WIDTH, FIELD_HEIGHT));
 
 		fabricatorInitialized = true;
 		switchMode(fabricateMode);
 		updateFabricatorVisibility();
 	}
 
-	private static UiUtilsColoredButton add(List<UiUtilsColoredButton> tracked,
-		UiUtilsColoredButton widget) {
+	private static <T extends AbstractWidget> T add(List<AbstractWidget> tracked,
+		T widget) {
 		pendingAdd.add(widget);
 		tracked.add(widget);
 		return widget;
@@ -486,14 +594,20 @@ public final class UiUtilsPanels {
 	}
 
 	private static EditBox field(Font font, String label, String value) {
-		EditBox box = new EditBox(font, 0, 0, FIELD_WIDTH, 20, Component.literal(label));
-		if (!value.isEmpty())
-			box.setValue(value);
+		UiInput box = new UiInput(font, FIELD_WIDTH, value,
+			Component.literal(label));
+		setSize(box, FIELD_WIDTH, FIELD_HEIGHT);
 		pendingAdd.add(box);
 		return box;
 	}
 
-	private static boolean allStillAttached(Screen screen, List<UiUtilsColoredButton> widgets) {
+	/** Fixes a panel widget's design size, which the scale pass reads back. */
+	private static void setSize(AbstractWidget widget, int width, int height) {
+		widget.setWidth(width);
+		widget.setHeight(height);
+	}
+
+	private static boolean allStillAttached(Screen screen, List<AbstractWidget> widgets) {
 		if (widgets.isEmpty())
 			return false;
 		try {
@@ -507,13 +621,13 @@ public final class UiUtilsPanels {
 		fabricateMode = mode;
 		if (modeClickSlotButton != null)
 			modeClickSlotButton.setMessage(Component
-				.literal("Click Slot" + (mode == MODE_CLICK_SLOT ? " \u2713" : "")));
+			.literal("Slot Click" + (mode == MODE_CLICK_SLOT ? " \u2713" : "")));
 		if (modeButtonClickButton != null)
 			modeButtonClickButton.setMessage(Component
-				.literal("Button Click" + (mode == MODE_BUTTON_CLICK ? " \u2713" : "")));
+			.literal("Btn Click" + (mode == MODE_BUTTON_CLICK ? " \u2713" : "")));
 		if (modeTimedSpamButton != null)
 			modeTimedSpamButton.setMessage(Component
-				.literal("Timed Spam" + (mode == MODE_TIMED_SPAM ? " \u2713" : "")));
+			.literal("Timed" + (mode == MODE_TIMED_SPAM ? " \u2713" : "")));
 
 		boolean showClick = mode == MODE_CLICK_SLOT;
 		boolean showButton = mode == MODE_BUTTON_CLICK;
@@ -606,7 +720,7 @@ public final class UiUtilsPanels {
 			widget.setX(-2000);
 			widget.setY(-2000);
 		}
-		for (UiUtilsColoredButton widget : fabricatorButtons) {
+		for (AbstractWidget widget : fabricatorButtons) {
 			show(widget, false);
 			widget.setX(-2000);
 			widget.setY(-2000);
@@ -616,74 +730,146 @@ public final class UiUtilsPanels {
 	private static void layoutFabricator() {
 		if (!fabricatorInitialized || attachedScreen == null)
 			return;
+		updatePanelScale();
 		int panelWidth = attachedScreen.width;
 		int overlayWidth = panelWidth == 0 ? OVERLAY_WIDTH : panelWidth;
+		int designHeight = fabricatorDesignHeight();
+		int maxY = Math.max(4, attachedScreen.height - ps(designHeight) - 4);
+		if (UiUtilsState.fabricateOverlayX < 0
+			&& UiUtilsSettings.get().fabricatePanelX >= 0) {
+			UiUtilsState.fabricateOverlayX = UiUtilsSettings.get().fabricatePanelX;
+			UiUtilsState.fabricateOverlayY = UiUtilsSettings.get().fabricatePanelY;
+		}
 		int x = UiUtilsState.fabricateOverlayX >= 0 ? UiUtilsState.fabricateOverlayX
-			: overlayWidth - OVERLAY_WIDTH - 8;
-		x = Mth.clamp(x, 4, Math.max(4, overlayWidth - OVERLAY_WIDTH - 4));
+			: overlayWidth - ps(OVERLAY_WIDTH) - 8;
+		x = clampOverlayX(x, overlayWidth, ps(OVERLAY_WIDTH));
 		int y = UiUtilsState.fabricateOverlayY >= 0 ? UiUtilsState.fabricateOverlayY : 8;
-		y = Mth.clamp(y, 4, Math.max(4, attachedScreen.height - 40));
+		y = Mth.clamp(y, 4, maxY);
 
 		if (overlayDragging) {
-			x = Mth.clamp((int)mouseX - overlayDragX, 4,
-				Math.max(4, overlayWidth - OVERLAY_WIDTH - 4));
-			y = Mth.clamp((int)mouseY - overlayDragY, 4,
-				Math.max(4, attachedScreen.height - 40));
+			x = clampOverlayX((int)mouseX - overlayDragX, overlayWidth,
+				ps(OVERLAY_WIDTH));
+			y = Mth.clamp((int)mouseY - overlayDragY, 4, maxY);
 			UiUtilsState.fabricateOverlayX = x;
 			UiUtilsState.fabricateOverlayY = y;
 		}
 
 		int modeGroup = MODE_BUTTON_WIDTH * 3 + MODE_BUTTON_GAP * 2;
 		int modeStart = x + (OVERLAY_WIDTH - modeGroup) / 2;
-		int modeY = y + OVERLAY_TITLE_TO_MODES;
+		int modeY = y + OVERLAY_MODES_TOP;
 		place(modeClickSlotButton, modeStart, modeY);
 		place(modeButtonClickButton, modeStart + MODE_BUTTON_WIDTH + MODE_BUTTON_GAP,
 			modeY);
 		place(modeTimedSpamButton,
 			modeStart + (MODE_BUTTON_WIDTH + MODE_BUTTON_GAP) * 2, modeY);
 
-		int rowY = y + OVERLAY_INFO_TOP + INFO_LINES * INFO_LINE_HEIGHT
-			+ OVERLAY_INFO_TO_CONTENT;
-		overlayActionRowY = rowY;
 		int left = x + (OVERLAY_WIDTH - (FIELD_WIDTH * 2 + FIELD_GAP)) / 2;
 		int right = left + FIELD_WIDTH + FIELD_GAP;
-		place(actionDropdown, left, rowY);
+		int sendX = x + (OVERLAY_WIDTH - SEND_BUTTON_WIDTH) / 2;
+		// Every row is a caption above a field, laid out from a cursor so the form
+		// cannot overlap itself or the info block above it.
+		overlayLabelTexts.clear();
+		overlayLabelDesignY.clear();
+		overlayLabelFields.clear();
+		overlayLayoutY = y;
+		int cy = y + OVERLAY_FORM_TOP;
+		if (fabricateMode == MODE_CLICK_SLOT) {
+			addLabel("Action", cy, actionDropdown);
+			place(actionDropdown, left, cy + LABEL_HEIGHT);
+			cy += ROW_PITCH + ACTION_GAP;
+			addLabel("Sync Id", cy, clickSyncIdField);
+			addLabel("Revision", cy, clickRevisionField);
+			placePair(clickSyncIdField, clickRevisionField, left, right,
+				cy + LABEL_HEIGHT);
+			cy += ROW_PITCH;
+			addLabel("Slot", cy, clickSlotField);
+			addLabel("Button", cy, clickButtonField);
+			placePair(clickSlotField, clickButtonField, left, right,
+				cy + LABEL_HEIGHT);
+			cy += ROW_PITCH;
+			addLabel("Times", cy, clickTimesField);
+			placePair(clickDelayToggle, clickTimesField, left, right,
+				cy + LABEL_HEIGHT);
+			cy += ROW_PITCH + SEND_GAP;
+			place(clickSendButton, sendX, cy);
+			cy += FIELD_HEIGHT + GAP;
+		} else if (fabricateMode == MODE_BUTTON_CLICK) {
+			addLabel("Sync Id", cy, buttonSyncIdField);
+			addLabel("Button Id", cy, buttonIdField);
+			placePair(buttonSyncIdField, buttonIdField, left, right,
+				cy + LABEL_HEIGHT);
+			cy += ROW_PITCH;
+			addLabel("Times", cy, buttonTimesField);
+			placePair(buttonDelayToggle, buttonTimesField, left, right,
+				cy + LABEL_HEIGHT);
+			cy += ROW_PITCH + SEND_GAP;
+			place(buttonSendButton, sendX, cy);
+			cy += FIELD_HEIGHT + GAP;
+		} else {
+			addLabel("Action", cy, actionDropdown);
+			place(actionDropdown, left, cy + LABEL_HEIGHT);
+			cy += ROW_PITCH + ACTION_GAP;
+			addLabel("Slot", cy, timedSlotField);
+			addLabel("Button", cy, timedButtonField);
+			placePair(timedSlotField, timedButtonField, left, right,
+				cy + LABEL_HEIGHT);
+			cy += ROW_PITCH;
+			addLabel("Clicks", cy, timedCountField);
+			addLabel("Interval (ms)", cy, timedIntervalField);
+			placePair(timedCountField, timedIntervalField, left, right,
+				cy + LABEL_HEIGHT);
+			cy += ROW_PITCH + SEND_GAP;
+			place(timedStartButton, sendX, cy);
+			cy += FIELD_HEIGHT + GAP;
+		}
 
-		int fieldsTop = fabricateMode == MODE_BUTTON_CLICK ? rowY
-			: rowY + OVERLAY_ACTION_TO_FIELDS;
-
-		int clickY = fieldsTop;
-		placePair(clickSyncIdField, clickRevisionField, left, right, clickY);
-		clickY += ROW_SPACING;
-		placePair(clickSlotField, clickButtonField, left, right, clickY);
-		clickY += ROW_SPACING;
-		placePlacePairDelayed(clickDelayToggle, clickTimesField, left, right, clickY);
-		clickY += ROW_SPACING;
-		place(clickSendButton, x + (OVERLAY_WIDTH - SEND_BUTTON_WIDTH) / 2, clickY);
-
-		int buttonY = fieldsTop;
-		placePair(buttonSyncIdField, buttonIdField, left, right, buttonY);
-		buttonY += ROW_SPACING;
-		placePlacePairDelayed(buttonDelayToggle, buttonTimesField, left, right, buttonY);
-		buttonY += ROW_SPACING;
-		place(buttonSendButton, x + (OVERLAY_WIDTH - SEND_BUTTON_WIDTH) / 2, buttonY);
-
-		int timedY = fieldsTop;
-		placePair(timedSlotField, timedButtonField, left, right, timedY);
-		timedY += ROW_SPACING;
-		placePair(timedCountField, timedIntervalField, left, right, timedY);
-		timedY += ROW_SPACING;
-		place(timedStartButton, x + (OVERLAY_WIDTH - SEND_BUTTON_WIDTH) / 2, timedY);
-
-		overlayStatusRowY = switch (fabricateMode) {
-			case MODE_BUTTON_CLICK -> buttonY + 28;
-			case MODE_TIMED_SPAM -> timedY + 28;
-			default -> clickY + 28;
-		};
+		overlayStatusDesignY = cy - y + 2;
 
 		overlayX = x;
 		overlayY = y;
-		overlayBottomY = overlayStatusRowY + 12;
+		overlayBottomY = y + ps(overlayStatusDesignY + INFO_LINE_HEIGHT + 4);
+		UiUtilsState.fabricateOverlayX = x;
+		UiUtilsState.fabricateOverlayY = y;
+		scalePanelWidgets(fabricatorButtons, x, y);
+		scalePanelWidgets(fabricatorFields(), x, y);
+	}
+
+	/** Design height of the fabricator panel for a given mode. */
+	private static int fabricatorDesignHeight(int mode) {
+		// One row per caption line: Action, then the field rows, then the send button.
+		int labelRows = switch (mode) {
+			case MODE_BUTTON_CLICK -> 2;
+			case MODE_TIMED_SPAM -> 3;
+			default -> 4;
+		};
+		return OVERLAY_FORM_TOP + labelRows * ROW_PITCH + FIELD_HEIGHT
+			+ SEND_GAP + FIELD_HEIGHT + GAP + INFO_LINE_HEIGHT + 4;
+	}
+
+	/** Largest design height across modes, so the panel never resizes on switch. */
+	private static int fabricatorDesignHeight() {
+		return Math.max(fabricatorDesignHeight(MODE_CLICK_SLOT),
+			Math.max(fabricatorDesignHeight(MODE_BUTTON_CLICK),
+				fabricatorDesignHeight(MODE_TIMED_SPAM)));
+	}
+
+	/** Design height of the GUI Tools panel, used to keep it on screen. */
+	private static int toolsDesignHeight() {
+		return TOOLS_FORM_TOP + toolsRows.size() * TOOLS_ROW_SPACING + 6;
+	}
+
+	/** Every fabricator field, in the order the form lays them out. */
+	private static List<AbstractWidget> fabricatorFields() {
+		List<AbstractWidget> fields = new ArrayList<>();
+		for (AbstractWidget widget : new AbstractWidget[] { clickSyncIdField,
+			clickRevisionField, clickSlotField, clickButtonField, clickTimesField,
+			buttonSyncIdField, buttonIdField, buttonTimesField, timedSlotField,
+			timedButtonField, timedCountField, timedIntervalField })
+			if (widget != null)
+				fields.add(widget);
+		if (actionDropdown != null)
+			fields.add(actionDropdown);
+		return fields;
 	}
 
 	private static void place(AbstractWidget widget, int x, int y) {
@@ -693,18 +879,18 @@ public final class UiUtilsPanels {
 		widget.setY(y);
 	}
 
-	private static void placePair(AbstractWidget a, AbstractWidget b, int left, int right,
-		int y) {
-		place(a, left, y);
-		place(b, right, y);
+	/** Records a caption that the foreground pass draws above its field. */
+	private static void addLabel(String text, int designY, AbstractWidget field) {
+		if (field == null)
+			return;
+		overlayLabelTexts.add(text);
+		// Stored relative to the panel, so the draw pass can scale it directly.
+		overlayLabelDesignY.add(designY - overlayLayoutY);
+		overlayLabelFields.add(field);
 	}
 
-	private static void placePlacePairDelayed(AbstractWidget a, AbstractWidget b, int left,
-		int right, int y) {
-		if (a != null)
-			a.setWidth(FIELD_WIDTH);
-		if (b != null)
-			b.setWidth(FIELD_WIDTH);
+	private static void placePair(AbstractWidget a, AbstractWidget b, int left, int right,
+		int y) {
 		place(a, left, y);
 		place(b, right, y);
 	}
@@ -712,69 +898,63 @@ public final class UiUtilsPanels {
 	private static void renderFabricatorBackground(GuiGraphicsExtractor graphics) {
 		if (!fabricatorInitialized || !UiUtilsState.fabricateOverlayOpen)
 			return;
-		int alpha = UiUtilsSettings.get().fabricateOverlayBgAlpha;
-		if (alpha <= 0)
-			return;
-		int x1 = Math.max(0, overlayX - 6);
-		int y1 = Math.max(0, overlayY - 6);
-		int x2 = Math.min(attachedScreen.width, overlayX + OVERLAY_WIDTH + 6);
-		int y2 = Math.min(attachedScreen.height, overlayBottomY + 6);
-		graphics.fill(x1, y1, x2, y2, alpha << 24);
+		// The body, the header and every label are chrome, so they are drawn here,
+		// in the background pass: after the screen background but before the
+		// widgets. That keeps them underneath the controls instead of being covered
+		// by them, whatever order the screen events happen to fire in.
+		drawPanelChrome(graphics, overlayX, overlayY, ps(OVERLAY_WIDTH),
+			overlayBottomY, UiUtilsSettings.get().fabricateOverlayBgAlpha);
+		drawFabricatorForeground(graphics);
+	}
+
+	/** Flat panel: body, top bar and a one pixel border. */
+	private static void drawPanelChrome(GuiGraphicsExtractor graphics, int panelX,
+		int panelY, int panelWidth, int panelBottom, int alpha) {
+		// Panels sit over the game, so they stay readable even when the configured
+		// background alpha is low.
+		int bodyAlpha = Math.max(0xD8, Math.min(0xFF, alpha + 0x80));
+		int headerAlpha = Math.min(0xFF, bodyAlpha + 0x10);
+		int body = UiTheme.withAlpha(UiTheme.SURFACE, bodyAlpha);
+		int header = UiTheme.withAlpha(UiTheme.SURFACE_HEADER, headerAlpha);
+		int height = Math.max(1, panelBottom - panelY);
+		graphics.fill(panelX, panelY, panelX + panelWidth, panelY + height, body);
+		graphics.fill(panelX, panelY, panelX + panelWidth,
+			panelY + ps(PANEL_HEADER_HEIGHT), header);
+		graphics.fill(panelX, panelY + ps(PANEL_HEADER_HEIGHT) - 1,
+			panelX + panelWidth, panelY + ps(PANEL_HEADER_HEIGHT),
+			UiTheme.withAlpha(UiTheme.accent(), Math.min(255, headerAlpha)));
+		UiTheme.border(graphics, panelX, panelY, panelWidth, height,
+			UiTheme.BORDER);
 	}
 
 	private static void drawFabricatorForeground(GuiGraphicsExtractor graphics) {
 		Font font = font();
 		Minecraft mc = Minecraft.getInstance();
-		graphics.text(font, "Fabricate Packet", overlayX + 6, overlayY + 4, 0xFFEAEAEA,
-			false);
-		drawGrip(graphics, overlayX, overlayY, OVERLAY_WIDTH);
+		int titleY = overlayY + (ps(PANEL_HEADER_HEIGHT) - Math.round(font.lineHeight * panelScale)) / 2 + 1;
+		drawPanelText(graphics, "Fabricate Packet", overlayX + ps(6), titleY,
+			0xFFEAEAEA);
+		drawPinControl(graphics, overlayX, overlayY, ps(OVERLAY_WIDTH),
+			UiUtilsSettings.get().fabricatePanelPinned);
 
 		AbstractContainerMenu menu = mc.player == null ? null : mc.player.containerMenu;
-		drawPanelLine(graphics, "GUI: " + UiUtilsGuiCache.currentGuiName(mc), overlayX + 6,
-			overlayY + OVERLAY_INFO_TOP, FABRICATOR_TEXT_WIDTH, 0xFFB8D8FF);
-		String state = menu != null && mc.getConnection() != null ? "LIVE" : "CLIENT-ONLY";
-		drawPanelLine(graphics, "syncId=" + (menu == null ? "-" : menu.containerId)
-			+ "  revision=" + (menu == null ? "-" : menu.getStateId()) + "  " + state,
-			overlayX + 6, overlayY + OVERLAY_INFO_TOP + INFO_LINE_HEIGHT,
-			FABRICATOR_TEXT_WIDTH, 0xFFB8D8FF);
+		int infoColor = UiTheme.TEXT_DIM;
+		drawPanelText(graphics, "syncId=" + (menu == null ? "-" : menu.containerId),
+			overlayX + ps(6), overlayY + ps(OVERLAY_INFO_TOP), infoColor);
+		drawPanelText(graphics,
+			"revision=" + (menu == null ? "-" : menu.getStateId()),
+			overlayX + ps(6), overlayY + ps(OVERLAY_INFO_TOP + INFO_LINE_HEIGHT),
+			infoColor);
 		UiUtilsGuiCache.Status saved = UiUtilsGuiCache.status(mc);
-		drawPanelLine(graphics, saved.present()
-			? "Saved: " + saved.name() + " [" + saved.syncId() + "/" + saved.revision()
-				+ "] " + (saved.active() ? "LIVE" : "STALE")
-			: "Saved: none", overlayX + 6,
-			overlayY + OVERLAY_INFO_TOP + INFO_LINE_HEIGHT * 2, FABRICATOR_TEXT_WIDTH,
-			0xFFB8D8FF);
+		int savedColor = !saved.present() ? UiTheme.TEXT_MUTED
+			: saved.active() ? UiTheme.OK : UiTheme.WARN;
+		drawPanelText(graphics, saved.present()
+			? "Saved: " + saved.name() + " [" + saved.syncId() + "/"
+				+ saved.revision() + "] " + (saved.active() ? "LIVE" : "STALE")
+			: "Saved: none",
+			overlayX + ps(6),
+			overlayY + ps(OVERLAY_INFO_TOP + INFO_LINE_HEIGHT * 2), savedColor);
 
-		int labelTop = overlayActionRowY;
-		if (fabricateMode == MODE_CLICK_SLOT) {
-			drawLabel(graphics, "Action", actionDropdown, labelTop);
-			drawLabel(graphics, "Sync Id", clickSyncIdField, labelTop
-				+ OVERLAY_ACTION_TO_FIELDS);
-			drawLabel(graphics, "Revision", clickRevisionField, labelTop
-				+ OVERLAY_ACTION_TO_FIELDS);
-			drawLabel(graphics, "Slot", clickSlotField,
-				labelTop + OVERLAY_ACTION_TO_FIELDS + ROW_SPACING);
-			drawLabel(graphics, "Button", clickButtonField,
-				labelTop + OVERLAY_ACTION_TO_FIELDS + ROW_SPACING);
-			drawLabel(graphics, "Delay", clickDelayToggle,
-				labelTop + OVERLAY_ACTION_TO_FIELDS + ROW_SPACING * 2);
-			drawLabel(graphics, "Times", clickTimesField,
-				labelTop + OVERLAY_ACTION_TO_FIELDS + ROW_SPACING * 2);
-		} else if (fabricateMode == MODE_BUTTON_CLICK) {
-			drawLabel(graphics, "Sync Id", buttonSyncIdField, labelTop);
-			drawLabel(graphics, "Button Id", buttonIdField, labelTop);
-			drawLabel(graphics, "Delay", buttonDelayToggle, labelTop + ROW_SPACING);
-			drawLabel(graphics, "Times", buttonTimesField, labelTop + ROW_SPACING);
-		} else {
-			drawLabel(graphics, "Action", actionDropdown, labelTop);
-			drawLabel(graphics, "Slot", timedSlotField, labelTop + OVERLAY_ACTION_TO_FIELDS);
-			drawLabel(graphics, "Button", timedButtonField,
-				labelTop + OVERLAY_ACTION_TO_FIELDS);
-			drawLabel(graphics, "Clicks", timedCountField,
-				labelTop + OVERLAY_ACTION_TO_FIELDS + ROW_SPACING);
-			drawLabel(graphics, "Interval (ms)", timedIntervalField,
-				labelTop + OVERLAY_ACTION_TO_FIELDS + ROW_SPACING);
-		}
+		drawLabels(graphics);
 
 		String status = fabricateStatus;
 		int color = fabricateStatusColor;
@@ -783,15 +963,20 @@ public final class UiUtilsPanels {
 			color = 0xFF8BE88B;
 		}
 		if (status != null && !status.isBlank())
-			drawPanelLine(graphics, status, overlayX + 6, overlayStatusRowY,
-				FABRICATOR_TEXT_WIDTH, color);
+			drawPanelText(graphics, fitPanelText(status, OVERLAY_WIDTH - 12), overlayX + ps(6),
+				overlayY + ps(overlayStatusDesignY), color);
 	}
 
-	private static void drawLabel(GuiGraphicsExtractor graphics, String text,
-		AbstractWidget field, int fieldY) {
-		if (field == null)
-			return;
-		graphics.text(font(), text, field.getX(), fieldY - LABEL_OFFSET, 0xFFAAAAAA, false);
+	/** Draws every caption recorded by the layout, above its own field. */
+	private static void drawLabels(GuiGraphicsExtractor graphics) {
+		for(int i = 0; i < overlayLabelTexts.size(); i++) {
+			AbstractWidget field = i < overlayLabelFields.size()
+				? overlayLabelFields.get(i) : null;
+			if(field == null)
+				continue;
+			drawPanelText(graphics, overlayLabelTexts.get(i), field.getX(),
+				overlayY + ps(overlayLabelDesignY.get(i)), 0xFFAAAAAA);
+		}
 	}
 
 	private static ContainerInput selectedAction() {
@@ -1089,27 +1274,59 @@ public final class UiUtilsPanels {
 	private static void layoutTools() {
 		if (!toolsInitialized || attachedScreen == null)
 			return;
+		updatePanelScale();
 		int screenWidth = attachedScreen.width;
 		int screenHeight = attachedScreen.height;
+		int maxY = Math.max(4, screenHeight - ps(toolsDesignHeight()) - 4);
+		if (UiUtilsState.guiToolsOverlayX < 0
+			&& UiUtilsSettings.get().guiToolsPanelX >= 0) {
+			UiUtilsState.guiToolsOverlayX = UiUtilsSettings.get().guiToolsPanelX;
+			UiUtilsState.guiToolsOverlayY = UiUtilsSettings.get().guiToolsPanelY;
+		}
 		int x = UiUtilsState.guiToolsOverlayX >= 0 ? UiUtilsState.guiToolsOverlayX
-			: screenWidth - TOOLS_WIDTH - 8;
-		x = Mth.clamp(x, 4, Math.max(4, screenWidth - TOOLS_WIDTH - 4));
+			: screenWidth - ps(TOOLS_WIDTH) - 8;
+		x = clampOverlayX(x, screenWidth, ps(TOOLS_WIDTH));
 		int y = UiUtilsState.guiToolsOverlayY >= 0 ? UiUtilsState.guiToolsOverlayY
 			: UiUtilsState.fabricateOverlayOpen && overlayBottomY > 0
-				? overlayBottomY + 8 : 8;
-		y = Mth.clamp(y, 4, Math.max(4, screenHeight - 40));
-
+				? overlayBottomY + 4 : 8;
+		y = Mth.clamp(y, 4, maxY);
 		if (toolsDragging) {
-			x = Mth.clamp((int)mouseX - toolsDragX, 4,
-				Math.max(4, screenWidth - TOOLS_WIDTH - 4));
-			y = Mth.clamp((int)mouseY - toolsDragY, 4, Math.max(4, screenHeight - 40));
+			x = clampOverlayX((int)mouseX - toolsDragX, screenWidth,
+				ps(TOOLS_WIDTH));
+			y = Mth.clamp((int)mouseY - toolsDragY, 4, maxY);
 			UiUtilsState.guiToolsOverlayX = x;
 			UiUtilsState.guiToolsOverlayY = y;
 		}
+		// Keep the panels from sharing a hit area. Resolve after applying drag
+		// coordinates too, so releasing GUI Tools over Fabricate Packet cannot leave
+		// their widgets stacked or steal clicks from one another.
+		if (UiUtilsState.fabricateOverlayOpen && overlayBottomY > overlayY
+			&& rectanglesOverlap(x, y, ps(TOOLS_WIDTH), ps(toolsDesignHeight()),
+				overlayX, overlayY, ps(OVERLAY_WIDTH), overlayBottomY - overlayY)) {
+			int toolsHeight = ps(toolsDesignHeight());
+			int belowY = overlayBottomY + 4;
+			int aboveY = overlayY - toolsHeight - 4;
+			int rightX = overlayX + ps(OVERLAY_WIDTH) + 4;
+			int leftX = overlayX - ps(TOOLS_WIDTH) - 4;
+			if (belowY + toolsHeight <= screenHeight - 4)
+				y = belowY;
+			else if (aboveY >= 4)
+				y = aboveY;
+			else if (rightX + ps(TOOLS_WIDTH) <= screenWidth - 4)
+				x = rightX;
+			else if (leftX >= 4)
+				x = leftX;
+			else
+				y = Mth.clamp(overlayY - toolsHeight - 4, 4, maxY);
+			UiUtilsState.guiToolsOverlayX = x;
+			UiUtilsState.guiToolsOverlayY = y;
+		}
+		x = clampOverlayX(x, screenWidth, ps(TOOLS_WIDTH));
+		UiUtilsState.guiToolsOverlayX = x;
 
-		int contentX = x + 6;
+		int contentX = x + ps(6);
 		int contentWidth = TOOLS_WIDTH - 12;
-		int contentTop = y + 4 + 14 + TOOLS_INFO_LINES * INFO_LINE_HEIGHT + 10;
+		int contentTop = y + TOOLS_FORM_TOP;
 		for (int i = 0; i < toolsRows.size(); i++) {
 			List<AbstractWidget> row = toolsRows.get(i);
 			if (row.isEmpty())
@@ -1128,40 +1345,60 @@ public final class UiUtilsPanels {
 		}
 		toolsX = x;
 		toolsY = y;
-		toolsBottomY = contentTop + toolsRows.size() * TOOLS_ROW_SPACING + 14;
+		toolsBottomY = y + ps(contentTop + toolsRows.size() * TOOLS_ROW_SPACING
+			+ INFO_LINE_HEIGHT + 10 - y);
+		UiUtilsState.guiToolsOverlayX = x;
+		UiUtilsState.guiToolsOverlayY = y;
+		scalePanelWidgets(toolsWidgets, x, y);
+	}
+
+	private static boolean rectanglesOverlap(int ax, int ay, int aw, int ah,
+		int bx, int by, int bw, int bh) {
+		return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+	}
+
+	/** Keep floating panels on screen while allowing placement across its full width. */
+	private static int clampOverlayX(int x, int screenWidth, int panelWidth) {
+		int maxX = Math.max(4, screenWidth - panelWidth - 4);
+		return Mth.clamp(x, 4, maxX);
 	}
 
 	private static void renderToolsBackground(GuiGraphicsExtractor graphics) {
 		if (!toolsInitialized || !UiUtilsState.guiToolsOverlayOpen)
 			return;
-		int alpha = UiUtilsSettings.get().fabricateOverlayBgAlpha;
-		if (alpha <= 0)
-			return;
-		int x1 = Math.max(0, toolsX - 6);
-		int y1 = Math.max(0, toolsY - 6);
-		int x2 = Math.min(attachedScreen.width, toolsX + TOOLS_WIDTH + 6);
-		int y2 = Math.min(attachedScreen.height, toolsBottomY + 6);
-		graphics.fill(x1, y1, x2, y2, alpha << 24);
+		drawPanelChrome(graphics, toolsX, toolsY, ps(TOOLS_WIDTH), toolsBottomY,
+			UiUtilsSettings.get().fabricateOverlayBgAlpha);
+		drawToolsForeground(graphics);
 	}
 
 	private static void drawToolsForeground(GuiGraphicsExtractor graphics) {
-		graphics.text(font(), "GUI Tools", toolsX + 6, toolsY + 4, 0xFFEAEAEA, false);
-		drawGrip(graphics, toolsX, toolsY, TOOLS_WIDTH);
+		Font font = font();
+		int titleY = toolsY + (ps(PANEL_HEADER_HEIGHT) - Math.round(font.lineHeight * panelScale)) / 2 + 1;
+		drawPanelText(graphics, "GUI Tools", toolsX + ps(6), titleY, 0xFFEAEAEA);
+		drawPinControl(graphics, toolsX, toolsY, ps(TOOLS_WIDTH),
+			UiUtilsSettings.get().guiToolsPanelPinned);
 
 		Minecraft mc = Minecraft.getInstance();
-		drawPanelLine(graphics, "Current: " + UiUtilsGuiCache.currentStatus(mc).label(),
-			toolsX + 6, toolsY + 22, TOOLS_TEXT_WIDTH, 0xFFB8D8FF);
+		AbstractContainerMenu menu = mc.player == null ? null : mc.player.containerMenu;
+		int infoColor = UiTheme.TEXT_DIM;
+		drawPanelText(graphics, "syncId=" + (menu == null ? "-" : menu.containerId),
+			toolsX + ps(6), toolsY + ps(TOOLS_INFO_TOP), infoColor);
+		drawPanelText(graphics,
+			"revision=" + (menu == null ? "-" : menu.getStateId()),
+			toolsX + ps(6), toolsY + ps(TOOLS_INFO_TOP + INFO_LINE_HEIGHT),
+			infoColor);
 		UiUtilsGuiCache.Status saved = UiUtilsGuiCache.status(mc);
-		int savedColor = !saved.present() ? 0xFF888888
-			: saved.active() ? 0xFF8BE88B : 0xFFFF9B6B;
-		drawPanelLine(graphics, "Saved: " + saved.label(), toolsX + 6, toolsY + 32,
-			TOOLS_TEXT_WIDTH, savedColor);
+		int savedColor = !saved.present() ? UiTheme.TEXT_MUTED
+			: saved.active() ? UiTheme.OK : UiTheme.WARN;
+		drawPanelText(graphics, "Saved: " + saved.label(), toolsX + ps(6),
+			toolsY + ps(TOOLS_INFO_TOP + INFO_LINE_HEIGHT * 2), savedColor);
 		if (UiUtilsContainerTransfer.isBusy())
-			drawPanelLine(graphics, UiUtilsContainerTransfer.status(), toolsX + 6,
-				toolsY + 42, TOOLS_TEXT_WIDTH, 0xFF8BE88B);
+			drawPanelText(graphics, UiUtilsContainerTransfer.status(),
+				toolsX + ps(6),
+				toolsY + ps(TOOLS_INFO_TOP + INFO_LINE_HEIGHT * 3), UiTheme.OK);
 		if (toolsStatus != null && !toolsStatus.isBlank())
-			drawPanelLine(graphics, toolsStatus, toolsX + 6, toolsBottomY - 11,
-				TOOLS_TEXT_WIDTH, toolsStatusColor);
+			drawPanelText(graphics, fitPanelText(toolsStatus, TOOLS_WIDTH - 12), toolsX + ps(6),
+				toolsBottomY - ps(INFO_LINE_HEIGHT + 5), toolsStatusColor);
 	}
 
 	// ### Shared helpers ###
@@ -1171,19 +1408,32 @@ public final class UiUtilsPanels {
 	}
 
 	/** Clipped panel line: scales down instead of spilling past the panel. */
-	private static void drawPanelLine(GuiGraphicsExtractor graphics, String text, int x,
-		int y, int maxWidth, int color) {
-		UiUtils.renderScaledText(graphics, font(), text, x, y, maxWidth, font().lineHeight,
-			color, 0.5F);
+	/** Draws one line of panel text at a raw pixel position, scaled with it. */
+	private static void drawPanelText(GuiGraphicsExtractor graphics, String text,
+		int x, int y, int color) {
+		UiTheme.textScaled(graphics, font(), text, x, y, panelScale, color);
 	}
 
-	/** Three-dash grip in the panel's top-right corner. */
-	private static void drawGrip(GuiGraphicsExtractor graphics, int panelX, int panelY,
-		int panelWidth) {
-		int right = panelX + panelWidth - 6;
-		for (int i = 0; i < 3; i++)
-			graphics.fill(right - 10, panelY + 4 + i * 3, right, panelY + 5 + i * 3,
-				0xFF9A9A9A);
+	/** Keep transient status text inside the panel while preserving its useful ending. */
+	private static String fitPanelText(String text, int maxWidth) {
+		Font font = font();
+		if (font.width(text) <= maxWidth)
+			return text;
+		String suffix = "…";
+		int end = text.length();
+		while (end > 0 && font.width(text.substring(0, end) + suffix) > maxWidth)
+			end--;
+		return text.substring(0, end) + suffix;
+	}
+
+	/** Clickable title-bar control that locks or unlocks a panel's position. */
+	private static void drawPinControl(GuiGraphicsExtractor graphics, int panelX,
+		int panelY, int panelWidth, boolean pinned) {
+		int color = pinned ? UiTheme.DANGER : UiTheme.TEXT_DIM;
+		int x = panelX + panelWidth - ps(15);
+		int y = panelY + ps(5);
+		for(int i = 0; i < 3; i++)
+			graphics.fill(x, y + ps(i * 3), x + ps(9), y + ps(i * 3 + 1), color);
 	}
 
 	private static int parseInt(String raw) {

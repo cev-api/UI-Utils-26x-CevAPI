@@ -26,11 +26,11 @@ import net.minecraft.client.input.MouseButtonEvent;
 
 public final class DualPacketListWidget
 {
-	private static final int HEADER_HEIGHT = 48;
-	private static final int PADDING = 4;
-	private static final int GAP = 8;
+	private static final int HEADER_HEIGHT = 54;
+	private static final int PADDING = 6;
+	private static final int GAP = 14;
 	private static final int ITEM_HEIGHT = 14;
-	private static final int SEARCH_TO_LIST_GAP = 6;
+	private static final int SEARCH_TO_LIST_GAP = 8;
 	
 	private final Font font = Minecraft.getInstance().font;
 	private final int x;
@@ -119,12 +119,12 @@ public final class DualPacketListWidget
 	public void extractRenderState(GuiGraphicsExtractor context, int mouseX,
 		int mouseY, float partialTicks)
 	{
-		int listWidth = (width - GAP) / 2;
+		int listWidth = (width - PADDING * 2 - GAP) / 2;
 		int listY = y + HEADER_HEIGHT;
 		int listHeight = height - HEADER_HEIGHT - PADDING;
 		int leftX = x + PADDING;
-		int rightX = x + listWidth + GAP / 2;
-		int panelListWidth = listWidth - PADDING;
+		int rightX = leftX + listWidth + GAP;
+		int panelListWidth = listWidth;
 		
 		context.fill(x, y, x + width, y + height, 0xC0101010);
 		context.fill(x, y, x + width, y + 1, 0xFF3A3A3A);
@@ -206,14 +206,14 @@ public final class DualPacketListWidget
 		double mouseX = event.x();
 		double mouseY = event.y();
 		
-		int listWidth = (width - GAP) / 2;
+		int listWidth = (width - PADDING * 2 - GAP) / 2;
 		int listY = y + HEADER_HEIGHT;
 		int listHeight = height - HEADER_HEIGHT - PADDING;
 		int visible = Math.max(1,
 			Math.max(0, listHeight - SEARCH_TO_LIST_GAP) / ITEM_HEIGHT);
 		int leftX = x + PADDING;
-		int rightX = x + listWidth + GAP / 2;
-		int panelListWidth = listWidth - PADDING;
+		int rightX = leftX + listWidth + GAP;
+		int panelListWidth = listWidth;
 		
 		if(event.button() == InputConstants.MOUSE_BUTTON_LEFT)
 		{
@@ -343,12 +343,12 @@ public final class DualPacketListWidget
 	
 	public boolean mouseScrolled(double mouseX, double mouseY, double amount)
 	{
-		int listWidth = (width - GAP) / 2;
+		int listWidth = (width - PADDING * 2 - GAP) / 2;
 		int listY = y + HEADER_HEIGHT;
 		int listHeight = height - HEADER_HEIGHT - PADDING;
 		int leftX = x + PADDING;
-		int rightX = x + listWidth + GAP / 2;
-		int panelListWidth = listWidth - PADDING;
+		int rightX = leftX + listWidth + GAP;
+		int panelListWidth = listWidth;
 		int visible = Math.max(1,
 			Math.max(0, listHeight - SEARCH_TO_LIST_GAP) / ITEM_HEIGHT);
 		
