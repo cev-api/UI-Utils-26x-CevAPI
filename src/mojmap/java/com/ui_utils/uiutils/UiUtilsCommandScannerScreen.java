@@ -46,6 +46,11 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 	}
 
 	@Override
+	protected boolean expandHeight() {
+		return true;
+	}
+
+	@Override
 	protected void buildContent(UiContent c) {
 		scannerModeButton = c.button("", () -> {
 			boolean packet = !"CLIENT_SIDE_ENUMERATION"
@@ -61,6 +66,12 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 				UiUtilsCommandScanner::startScan)),
 			UiContent.of(UiButton.of("Run plugin scan",
 				UiUtilsPluginScanner::startScan)));
+		c.slider("Scanner speed", UiUtilsSettings.Data.MIN_PROBES_PER_SECOND,
+			UiUtilsSettings.Data.MAX_PROBES_PER_SECOND,
+			UiUtilsSettings.getProbesPerSecond(), value -> {
+				UiUtilsSettings.get().scannerProbesPerSecond = value;
+				UiUtilsSettings.save();
+			}).suffix(" probes/s");
 		c.button("Verbose Server Scan", () -> {
 			UiUtilsScanHistory.recordVerboseFingerprint(
 				UiUtilsScanHistory.serverKey(this.minecraft),
@@ -82,7 +93,6 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 				})));
 		c.button("Legacy Plugin Scan (Safer)",
 			UiUtilsLegacyPluginScanner::startScan);
-
 		c.section("Commands");
 		searchField = c.input("", value ->
 			Minecraft.getInstance().execute(this::rebuildWidgets));

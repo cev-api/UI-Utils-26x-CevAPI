@@ -150,6 +150,14 @@ public abstract class UiModernScreen extends Screen {
 		return scale;
 	}
 
+	/** Rebuilds dynamic content without throwing away the user's scroll position. */
+	protected final void rebuildWidgetsPreservingScroll() {
+		double previousScroll = scroll;
+		rebuildWidgets();
+		scroll = Mth.clamp(previousScroll, 0, maxScroll);
+		placeItems();
+	}
+
 	/** Scroller handed to screens that manage their own text blocks. */
 	protected final Consumer<Double> scroller() {
 		return this::scrollBy;
@@ -367,6 +375,15 @@ public abstract class UiModernScreen extends Screen {
 		int required = UiTheme.HEADER_HEIGHT + naturalExtent
 			+ UiTheme.FOOTER_HEIGHT;
 		if (required <= viewportHeight) {
+			if (expandHeight()) {
+				// Full-height screens, such as the scanner dashboard, deliberately keep
+				// the taller viewport even when the current result set is short.
+				cardHeight = viewportHeight;
+				maxScroll = 0;
+				scroll = 0;
+				updateScrollbar();
+				return;
+			}
 			// The window has room: grow the card so every child is inside it.
 			maxScroll = 0;
 			scroll = 0;

@@ -18,6 +18,7 @@ import net.minecraft.network.chat.Component;
 /** Scrollable, bounded presentation of the passive server fingerprint snapshot. */
 public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 	private final Screen parent;
+	private int renderedLineCount;
 
 	public UiUtilsVerboseServerScanScreen(Screen parent) {
 		super(Component.literal("Verbose Server Scan"));
@@ -42,13 +43,14 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 	@Override
 	protected void buildContent(UiContent c) {
 		startMissingScans();
-		c.note("Passive fingerprint of the current server. Scroll for the full report.");
 		int lineHeight = lineHeight();
 		List<String> lines = reportLines();
+		renderedLineCount = lines.size();
 		// Painted directly in the overlay, so its extent is declared for the same
 		// reason: text the screen draws is not covered by any widget.
-		c.reportBottom(lines.size() * lineHeight);
-		c.space(lines.size() * lineHeight);
+		int reportHeight = lines.size() * lineHeight + 4;
+		c.reportBottom(reportHeight);
+		c.space(reportHeight);
 		c.footerButton("Refresh", UiButton.Kind.SECONDARY, () -> {
 			startMissingScans();
 			Minecraft.getInstance().execute(this::rebuildWidgets);
@@ -58,6 +60,15 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 				this.minecraft.keyboardHandler.setClipboard(buildReport());
 		});
 		c.footerButton("Done", UiButton.Kind.PRIMARY, this::onClose);
+	}
+
+	@Override
+	public void tick() {
+		super.tick();
+		startMissingScans();
+		int lineCount = reportLines().size();
+		if (lineCount != renderedLineCount)
+			rebuildWidgetsPreservingScroll();
 	}
 
 	@Override

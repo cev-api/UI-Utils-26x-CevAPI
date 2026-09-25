@@ -19,7 +19,6 @@ import net.minecraft.network.protocol.game.ServerboundCommandSuggestionPacket;
 
 public final class UiUtilsCommandScanner {
 	private static final int RESPONSE_TIMEOUT_TICKS = 20;
-	private static final int REQUEST_COOLDOWN_TICKS = 2;
 	private static final int EXECUTE_COOLDOWN_TICKS = 40;
 	private static final int MAX_SUGGESTIONS_PER_RESPONSE = 1000;
 	private static final int MAX_ADAPTIVE_PROBES = 128;
@@ -845,7 +844,7 @@ public final class UiUtilsCommandScanner {
 				awaitingResponse = false;
 				awaitingRequestId = -1;
 				awaitingProbe = "";
-				cooldownTicks = REQUEST_COOLDOWN_TICKS;
+				cooldownTicks = UiUtilsSettings.getProbeDelayTicks();
 			}
 			return;
 		}
@@ -904,7 +903,7 @@ public final class UiUtilsCommandScanner {
 		awaitingResponse = false;
 		awaitingRequestId = -1;
 		awaitingProbe = "";
-		cooldownTicks = REQUEST_COOLDOWN_TICKS;
+		cooldownTicks = UiUtilsSettings.getProbeDelayTicks();
 	}
 
 	public static String sendManualPacketCommands() {

@@ -61,7 +61,6 @@ public final class UiUtilsPluginScanner {
 			Map.entry("plots", "plotsquared"),
 			Map.entry("sv", "supervanish"));
 
-	private static final int DEFAULT_PROBE_DELAY_TICKS = 1;
 	private static final int RESPONSE_TIMEOUT_TICKS = 30;
 	private static final int HARD_TIMEOUT_TICKS = 20 * 15;
 
@@ -318,7 +317,7 @@ public final class UiUtilsPluginScanner {
 			UiUtils.LOGGER.warn("Failed to send plugin probe {}", request.spec.query, e);
 			pendingProbeIds.remove(request.id);
 		}
-		ticksUntilNextProbe = DEFAULT_PROBE_DELAY_TICKS;
+		ticksUntilNextProbe = UiUtilsSettings.getProbeDelayTicks();
 	}
 
 	private static void addObservedPluginCommand(String raw) {

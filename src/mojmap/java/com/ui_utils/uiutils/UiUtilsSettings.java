@@ -27,6 +27,16 @@ public final class UiUtilsSettings {
 		return data;
 	}
 
+	public static int getProbesPerSecond() {
+		int value = data.scannerProbesPerSecond;
+		return Math.max(Data.MIN_PROBES_PER_SECOND,
+			Math.min(Data.MAX_PROBES_PER_SECOND, value));
+	}
+
+	public static int getProbeDelayTicks() {
+		return Math.max(1, (int)Math.ceil(20D / getProbesPerSecond()));
+	}
+
 	public static void load() {
 		if (!Files.exists(SETTINGS_PATH)) {
 			save();
@@ -87,6 +97,10 @@ public final class UiUtilsSettings {
 	}
 
 	public static final class Data {
+		public static final int MIN_PROBES_PER_SECOND = 1;
+		public static final int MAX_PROBES_PER_SECOND = 30;
+		public static final int DEFAULT_PROBES_PER_SECOND = 10;
+
 		public boolean bypassResourcePack = false;
 		public boolean resourcePackForceDeny = false;
 		public boolean showResourcePackButtons = true;
@@ -150,6 +164,7 @@ public final class UiUtilsSettings {
 		public boolean commandScannerRunFoundCommands = false;
 		public String commandScannerDontSendFilter = "";
 		public String commandScannerPacketCommands = "I Love Cevapcici!";
+		public int scannerProbesPerSecond = DEFAULT_PROBES_PER_SECOND;
 
 		// Autoduper private plugin-GUI test options
 		public String autoduperOpenCommand = "/pv 1";
