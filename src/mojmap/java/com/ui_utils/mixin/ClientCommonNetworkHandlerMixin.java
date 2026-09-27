@@ -4,6 +4,7 @@ import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsSettings;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientCommonPacketListenerImpl;
+import net.minecraft.network.DisconnectionDetails;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.common.ClientboundResourcePackPushPacket;
 import net.minecraft.network.protocol.common.ServerboundResourcePackPacket;
@@ -54,5 +55,11 @@ public abstract class ClientCommonNetworkHandlerMixin
 		UiUtils.LOGGER.info("[UI Utils] Resource pack request intercepted. required={}, forceDeny={}, url={} ",
 			packet.required(), settings.resourcePackForceDeny, packet.url());
 		ci.cancel();
+	}
+
+	@Inject(at = @At("HEAD"), method = "onDisconnect")
+	private void uiutils$onDisconnect(DisconnectionDetails details, CallbackInfo ci)
+	{
+		UiUtils.onServerDisconnect();
 	}
 }

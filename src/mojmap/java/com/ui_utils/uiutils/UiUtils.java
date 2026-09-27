@@ -79,6 +79,8 @@ public final class UiUtils {
 		UiUtilsPanels.onClientTick(mc);
 		UiUtilsVersionChecker.onClientTick(mc);
 		UiUtilsGuiPacketLog.flush();
+		if (mc == null || mc.getConnection() == null)
+			onServerDisconnect();
 		if (mc == null || mc.getWindow() == null)
 			return;
 
@@ -89,6 +91,23 @@ public final class UiUtils {
 			return;
 		}
 		updateKeybindEdges(mc, true);
+		if (mc.getConnection() == null)
+			onServerDisconnect();
+	}
+
+	/**
+	 * Clears connection-scoped packet delay state after the server connection
+	 * goes away. This is intentionally centralized so every source that can
+	 * enable packet delay gets the same disconnect behavior.
+	 */
+	public static void onServerDisconnect() {
+		boolean wasDelayed = UiUtilsState.delayUiPackets;
+		int queued = UiUtilsState.delayedUiPackets.size();
+		UiUtilsState.delayUiPackets = false;
+		UiUtilsState.delayedUiPackets.clear();
+		refreshQueueCounterButtons();
+		if (wasDelayed || queued > 0)
+			LOGGER.info("Disabled packet delay after disconnect; discarded {} queued packets", queued);
 	}
 
 	private static void updateKeybindEdges(Minecraft mc, boolean execute) {
