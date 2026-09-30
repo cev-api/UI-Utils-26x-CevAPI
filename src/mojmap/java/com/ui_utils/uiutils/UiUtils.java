@@ -744,9 +744,9 @@ public final class UiUtils {
 		// the panel fits: it cannot scroll, so it must fit both ways. A second column
 		// is tried as well, which keeps the text full size in a short window instead
 		// of shrinking the whole panel.
-		float preferred = UiTheme.screenScale(
+		float preferred = Math.max(0.875F, UiTheme.screenScale(
 			mc.getWindow().getGuiScaledWidth(),
-			mc.getWindow().getGuiScaledHeight());
+			mc.getWindow().getGuiScaledHeight()));
 		int columns = 1;
 		int split = lines.size();
 		double scale = bestPanelScale(lines, 1, lines.size(), naturalFullWidth,
@@ -943,7 +943,7 @@ public final class UiUtils {
 		float fitHeight = Math.max(0.2F,
 			(usableHeight - 6) / (float)naturalHeight);
 		float target = Math.min(preferred, Math.min(fitWidth, fitHeight));
-		return Math.floor(Math.max(0.25F, target) * 8D) / 8D;
+		return Math.floor(Math.max(0.25F, target) * 16D) / 16D;
 	}
 
 	private static int groupHeightUnits(java.util.List<Object> group, int rowHeight,

@@ -63,13 +63,10 @@ public final class UiUtilsPanels {
 	/** One labelled form row: caption plus field plus the gap to the next row. */
 	private static final int ROW_PITCH = LABEL_HEIGHT + FIELD_HEIGHT + GAP;
 	private static final int SEND_BUTTON_WIDTH = 104;
-	private static final int INFO_LINE_HEIGHT = 9;
+	private static final int INFO_LINE_HEIGHT = 11;
 	private static final int INFO_LINES = 3;
 
 	private static final int OVERLAY_INFO_TOP = PANEL_HEADER_HEIGHT + 5;
-	private static final int OVERLAY_MODES_TOP = OVERLAY_INFO_TOP
-		+ INFO_LINES * INFO_LINE_HEIGHT + 6;
-	private static final int OVERLAY_FORM_TOP = OVERLAY_MODES_TOP + FIELD_HEIGHT + 8;
 
 	private static final int TOOLS_WIDTH = 280;
 	private static final int TOOLS_ROW_SPACING = 24;
@@ -77,8 +74,6 @@ public final class UiUtilsPanels {
 	private static final int TOOLS_ROW_GAP = 6;
 	private static final int TOOLS_INFO_LINES = 3;
 	private static final int TOOLS_INFO_TOP = PANEL_HEADER_HEIGHT + 5;
-	private static final int TOOLS_FORM_TOP = TOOLS_INFO_TOP
-		+ TOOLS_INFO_LINES * INFO_LINE_HEIGHT + 7;
 	/** How long a panel status line stays on screen before clearing. */
 	private static final long STATUS_LINGER_MS = 4000L;
 
@@ -90,6 +85,33 @@ public final class UiUtilsPanels {
 	private static int ps(int units)
 	{
 		return Math.round(units * panelScale);
+	}
+
+	/**
+	 * Status text stays at the readable native font size while panel geometry is
+	 * scaled. Expand its design-unit line pitch so those lines keep a small gap at
+	 * every configured panel scale.
+	 */
+	private static int infoLinePitch()
+	{
+		int screenPitch = font().lineHeight + 2;
+		return Math.max(INFO_LINE_HEIGHT,
+			(int)Math.ceil(screenPitch / (double)Math.max(0.01F, panelScale)));
+	}
+
+	private static int overlayModesTop()
+	{
+		return OVERLAY_INFO_TOP + INFO_LINES * infoLinePitch() + 6;
+	}
+
+	private static int overlayFormTop()
+	{
+		return overlayModesTop() + FIELD_HEIGHT + 8;
+	}
+
+	private static int toolsFormTop()
+	{
+		return TOOLS_INFO_TOP + TOOLS_INFO_LINES * infoLinePitch() + 7;
 	}
 
 	/**
@@ -110,7 +132,9 @@ public final class UiUtilsPanels {
 		float fit = Math.min(
 			(attachedScreen.width - 8F) / Math.max(1, designWidth),
 			(attachedScreen.height - 8F) / Math.max(1, designHeight));
-		panelScale = UiTheme.snapScaleDown(Math.min(preferred, fit), fit);
+		// Keep native-font buttons and fields from being compressed against their
+		// text at smaller user scales. The fit still wins on narrow or short screens.
+		panelScale = Math.min(Math.max(preferred, 0.875F), fit);
 	}
 
 	/**
@@ -134,7 +158,7 @@ public final class UiUtilsPanels {
 			widget.setWidth(Math.max(8, ps(design[2])));
 			widget.setHeight(Math.max(8, ps(design[3])));
 			if(widget instanceof UiScalable scalable)
-				scalable.applyUiScale(panelScale);
+				scalable.applyUiScale(1F);
 		}
 	}
 
@@ -757,7 +781,7 @@ public final class UiUtilsPanels {
 
 		int modeGroup = MODE_BUTTON_WIDTH * 3 + MODE_BUTTON_GAP * 2;
 		int modeStart = x + (OVERLAY_WIDTH - modeGroup) / 2;
-		int modeY = y + OVERLAY_MODES_TOP;
+		int modeY = y + overlayModesTop();
 		place(modeClickSlotButton, modeStart, modeY);
 		place(modeButtonClickButton, modeStart + MODE_BUTTON_WIDTH + MODE_BUTTON_GAP,
 			modeY);
@@ -773,7 +797,7 @@ public final class UiUtilsPanels {
 		overlayLabelDesignY.clear();
 		overlayLabelFields.clear();
 		overlayLayoutY = y;
-		int cy = y + OVERLAY_FORM_TOP;
+		int cy = y + overlayFormTop();
 		if (fabricateMode == MODE_CLICK_SLOT) {
 			addLabel("Action", cy, actionDropdown);
 			place(actionDropdown, left, cy + LABEL_HEIGHT);
@@ -828,7 +852,7 @@ public final class UiUtilsPanels {
 
 		overlayX = x;
 		overlayY = y;
-		overlayBottomY = y + ps(overlayStatusDesignY + INFO_LINE_HEIGHT + 4);
+		overlayBottomY = y + ps(overlayStatusDesignY + infoLinePitch() + 4);
 		UiUtilsState.fabricateOverlayX = x;
 		UiUtilsState.fabricateOverlayY = y;
 		scalePanelWidgets(fabricatorButtons, x, y);
@@ -843,8 +867,8 @@ public final class UiUtilsPanels {
 			case MODE_TIMED_SPAM -> 3;
 			default -> 4;
 		};
-		return OVERLAY_FORM_TOP + labelRows * ROW_PITCH + FIELD_HEIGHT
-			+ SEND_GAP + FIELD_HEIGHT + GAP + INFO_LINE_HEIGHT + 4;
+		return overlayFormTop() + labelRows * ROW_PITCH + FIELD_HEIGHT
+			+ SEND_GAP + FIELD_HEIGHT + GAP + infoLinePitch() + 4;
 	}
 
 	/** Largest design height across modes, so the panel never resizes on switch. */
@@ -856,7 +880,7 @@ public final class UiUtilsPanels {
 
 	/** Design height of the GUI Tools panel, used to keep it on screen. */
 	private static int toolsDesignHeight() {
-		return TOOLS_FORM_TOP + toolsRows.size() * TOOLS_ROW_SPACING + 6;
+		return toolsFormTop() + toolsRows.size() * TOOLS_ROW_SPACING + 6;
 	}
 
 	/** Every fabricator field, in the order the form lays them out. */
@@ -928,7 +952,7 @@ public final class UiUtilsPanels {
 	private static void drawFabricatorForeground(GuiGraphicsExtractor graphics) {
 		Font font = font();
 		Minecraft mc = Minecraft.getInstance();
-		int titleY = overlayY + (ps(PANEL_HEADER_HEIGHT) - Math.round(font.lineHeight * panelScale)) / 2 + 1;
+		int titleY = overlayY + (ps(PANEL_HEADER_HEIGHT) - font.lineHeight) / 2 + 1;
 		drawPanelText(graphics, "Fabricate Packet", overlayX + ps(6), titleY,
 			0xFFEAEAEA);
 		drawPinControl(graphics, overlayX, overlayY, ps(OVERLAY_WIDTH),
@@ -940,17 +964,17 @@ public final class UiUtilsPanels {
 			overlayX + ps(6), overlayY + ps(OVERLAY_INFO_TOP), infoColor);
 		drawPanelText(graphics,
 			"revision=" + (menu == null ? "-" : menu.getStateId()),
-			overlayX + ps(6), overlayY + ps(OVERLAY_INFO_TOP + INFO_LINE_HEIGHT),
+			overlayX + ps(6), overlayY + ps(OVERLAY_INFO_TOP + infoLinePitch()),
 			infoColor);
 		UiUtilsGuiCache.Status saved = UiUtilsGuiCache.status(mc);
 		int savedColor = !saved.present() ? UiTheme.TEXT_MUTED
 			: saved.active() ? UiTheme.OK : UiTheme.WARN;
-		drawPanelText(graphics, saved.present()
+		drawPanelText(graphics, fitPanelText(saved.present()
 			? "Saved: " + saved.name() + " [" + saved.syncId() + "/"
 				+ saved.revision() + "] " + (saved.active() ? "LIVE" : "STALE")
-			: "Saved: none",
+			: "Saved: none", OVERLAY_WIDTH - 12),
 			overlayX + ps(6),
-			overlayY + ps(OVERLAY_INFO_TOP + INFO_LINE_HEIGHT * 2), savedColor);
+			overlayY + ps(OVERLAY_INFO_TOP + infoLinePitch() * 2), savedColor);
 
 		drawLabels(graphics);
 
@@ -1324,7 +1348,7 @@ public final class UiUtilsPanels {
 
 		int contentX = x + ps(6);
 		int contentWidth = TOOLS_WIDTH - 12;
-		int contentTop = y + TOOLS_FORM_TOP;
+		int contentTop = y + toolsFormTop();
 		for (int i = 0; i < toolsRows.size(); i++) {
 			List<AbstractWidget> row = toolsRows.get(i);
 			if (row.isEmpty())
@@ -1343,8 +1367,8 @@ public final class UiUtilsPanels {
 		}
 		toolsX = x;
 		toolsY = y;
-		toolsBottomY = y + ps(contentTop + toolsRows.size() * TOOLS_ROW_SPACING
-			+ INFO_LINE_HEIGHT + 10 - y);
+		toolsBottomY = y + ps(toolsFormTop() + toolsRows.size() * TOOLS_ROW_SPACING
+			+ infoLinePitch() + 10);
 		UiUtilsState.guiToolsOverlayX = x;
 		UiUtilsState.guiToolsOverlayY = y;
 		scalePanelWidgets(toolsWidgets, x, y);
@@ -1371,7 +1395,7 @@ public final class UiUtilsPanels {
 
 	private static void drawToolsForeground(GuiGraphicsExtractor graphics) {
 		Font font = font();
-		int titleY = toolsY + (ps(PANEL_HEADER_HEIGHT) - Math.round(font.lineHeight * panelScale)) / 2 + 1;
+		int titleY = toolsY + (ps(PANEL_HEADER_HEIGHT) - font.lineHeight) / 2 + 1;
 		drawPanelText(graphics, "GUI Tools", toolsX + ps(6), titleY, 0xFFEAEAEA);
 		drawPinControl(graphics, toolsX, toolsY, ps(TOOLS_WIDTH),
 			UiUtilsSettings.get().guiToolsPanelPinned);
@@ -1383,20 +1407,21 @@ public final class UiUtilsPanels {
 			toolsX + ps(6), toolsY + ps(TOOLS_INFO_TOP), infoColor);
 		drawPanelText(graphics,
 			"revision=" + (menu == null ? "-" : menu.getStateId()),
-			toolsX + ps(6), toolsY + ps(TOOLS_INFO_TOP + INFO_LINE_HEIGHT),
+			toolsX + ps(6), toolsY + ps(TOOLS_INFO_TOP + infoLinePitch()),
 			infoColor);
 		UiUtilsGuiCache.Status saved = UiUtilsGuiCache.status(mc);
 		int savedColor = !saved.present() ? UiTheme.TEXT_MUTED
 			: saved.active() ? UiTheme.OK : UiTheme.WARN;
-		drawPanelText(graphics, "Saved: " + saved.label(), toolsX + ps(6),
-			toolsY + ps(TOOLS_INFO_TOP + INFO_LINE_HEIGHT * 2), savedColor);
+		drawPanelText(graphics, fitPanelText("Saved: " + saved.label(),
+			TOOLS_WIDTH - 12), toolsX + ps(6),
+			toolsY + ps(TOOLS_INFO_TOP + infoLinePitch() * 2), savedColor);
 		if (UiUtilsContainerTransfer.isBusy())
 			drawPanelText(graphics, UiUtilsContainerTransfer.status(),
 				toolsX + ps(6),
-				toolsY + ps(TOOLS_INFO_TOP + INFO_LINE_HEIGHT * 3), UiTheme.OK);
+				toolsY + ps(TOOLS_INFO_TOP + infoLinePitch() * 3), UiTheme.OK);
 		if (toolsStatus != null && !toolsStatus.isBlank())
 			drawPanelText(graphics, fitPanelText(toolsStatus, TOOLS_WIDTH - 12), toolsX + ps(6),
-				toolsBottomY - ps(INFO_LINE_HEIGHT + 5), toolsStatusColor);
+				toolsBottomY - ps(infoLinePitch() + 5), toolsStatusColor);
 	}
 
 	// ### Shared helpers ###
@@ -1409,12 +1434,13 @@ public final class UiUtilsPanels {
 	/** Draws one line of panel text at a raw pixel position, scaled with it. */
 	private static void drawPanelText(GuiGraphicsExtractor graphics, String text,
 		int x, int y, int color) {
-		UiTheme.textScaled(graphics, font(), text, x, y, panelScale, color);
+		UiTheme.text(graphics, font(), text, x, y, color);
 	}
 
 	/** Keep transient status text inside the panel while preserving its useful ending. */
 	private static String fitPanelText(String text, int maxWidth) {
 		Font font = font();
+		maxWidth = ps(maxWidth);
 		if (font.width(text) <= maxWidth)
 			return text;
 		String suffix = "…";

@@ -183,7 +183,10 @@ To compile specifically against Minecraft `26.3`, override the versions at build
     - Overlay number color
     - Packet HUD text color
   - Overlay alpha and XY offsets
-  - Resource‑pack bypass/deny toggles
+  - Resource-pack bypass and force-deny options, plus an optional registry-sync workaround
+  - When “Show resource pack buttons” is enabled, these three options also appear as checkboxes near the bottom-left of the Multiplayer screen
+  - The bypass accepts required server-pack requests and reports them as loaded without downloading or applying the pack. Force deny instead declines intercepted requests; it only takes effect while the bypass option is enabled.
+  - Ignore registry sync filters unknown entries before Fabric remaps the server registry data. Unknown mob effects get inert placeholders to help preserve raw-ID alignment; other unknown registry data is left unsynced and reported in the log.
   - Close Delay and Command Delay sliders (tick based)
   - Dedicated Keybinds screen for rebinding UI-Utils actions
   - Legacy direct key fields still present: restore GUI and delay toggle
@@ -242,9 +245,11 @@ Main commands:
 - Slot overlay mode: `OFF` / `HOVER` / `ALWAYS`
 - Packet HUD toggle
 - Log to chat toggle
-- Bypass resource-pack toggle
-- Force-deny resource-pack toggle
-- Show RP Buttons toggle
+- Bypass resource-pack toggle (master switch for interception; required server-pack requests are reported as accepted and loaded without downloading or applying the pack)
+- Force-deny resource-pack toggle (while bypass is enabled, declines intercepted requests, including optional offers)
+- Ignore registry-sync toggle (adds inert placeholders for unknown mob effects to help preserve raw-ID alignment; other unknown registry data is skipped and logged, which can leave client and server IDs mismatched)
+- Show resource-pack buttons toggle (when enabled, shows all three protection checkboxes near the bottom-left of the Multiplayer screen)
+- If another mod already provides an equivalent checkbox, UI-Utils hides its duplicate. The Multiplayer screen’s Back button is hidden while any protection checkbox is visible.
 - Steal/Store/Dump buttons toggle (shows or hides the container-page Steal / Store / Dump buttons)
 - AntiCheat detector toggle
 - Disconnect method selector

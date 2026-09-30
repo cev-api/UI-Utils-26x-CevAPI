@@ -7,8 +7,10 @@
   "client": [
     "ChatScreenMixin",
     "ClientCommonNetworkHandlerMixin",
+    "ClientRegistrySyncHandlerMixin",
     "ClientPacketListenerChatMixin",
     "ClientPacketListenerMixin",
+    "MappedRegistryFrozenAccessor",
     "MultiplayerScreenMixin",
     "ui_utils.ChestSlotOverlayMixin",
     "ui_utils.UiUtilsHudMixin",

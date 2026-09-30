@@ -542,10 +542,11 @@ public final class UiContent {
 			int textY = y + 1;
 			String shown = UiTheme.ellipsize(font, title, width - 4);
 			UiTheme.text(graphics, font, shown, 0, textY, UiTheme.TEXT_DIM);
-			int lineX = font.width(shown) + 5;
+			int lineX = UiTheme.designTextWidth(font.width(shown)) + 5;
 			if (lineX < width)
-				graphics.fill(lineX, textY + font.lineHeight / 2, width,
-					textY + font.lineHeight / 2 + 1, UiTheme.BORDER_SOFT);
+				graphics.fill(lineX, textY + UiTheme.lineHeight(font) / 2, width,
+					textY + UiTheme.lineHeight(font) / 2 + 1,
+					UiTheme.BORDER_SOFT);
 		}
 	}
 
@@ -570,7 +571,7 @@ public final class UiContent {
 		@Override
 		public void draw(GuiGraphicsExtractor graphics, Font font, int cardWidth) {
 			String shown = UiTheme.ellipsize(font, text, width);
-			int textY = y + (height - font.lineHeight) / 2;
+			int textY = UiTheme.textY(font, y, height);
 			if (centered)
 				UiTheme.textCentered(graphics, font, shown, width / 2, textY,
 					color);
@@ -593,9 +594,10 @@ public final class UiContent {
 		@Override
 		public void draw(GuiGraphicsExtractor graphics, Font font, int cardWidth) {
 			int lineY = y;
-			for(FormattedCharSequence line : font.split(text, width)) {
-				graphics.text(font, line, 0, lineY, UiTheme.TEXT_DIM);
-				lineY += font.lineHeight;
+			for(FormattedCharSequence line : font.split(text,
+				UiTheme.textWidth(width))) {
+				UiTheme.text(graphics, font, line, 0, lineY, UiTheme.TEXT_DIM);
+				lineY += UiTheme.lineHeight(font);
 			}
 		}
 	}

@@ -106,6 +106,9 @@ public final class UiUtilsSettingsScreen extends UiModernScreen {
 		c.toggle("Force deny resource pack",
 			() -> UiUtilsSettings.get().resourcePackForceDeny,
 			v -> UiUtilsSettings.get().resourcePackForceDeny = v);
+		c.toggle("Ignore registry sync",
+			() -> UiUtilsSettings.get().ignoreRegistrySync,
+			v -> UiUtilsSettings.get().ignoreRegistrySync = v);
 		c.toggle("Show resource pack buttons",
 			() -> UiUtilsSettings.get().showResourcePackButtons,
 			v -> UiUtilsSettings.get().showResourcePackButtons = v);

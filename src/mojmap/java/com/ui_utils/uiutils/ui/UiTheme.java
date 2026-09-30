@@ -3,6 +3,7 @@ package com.ui_utils.uiutils.ui;
 import com.ui_utils.uiutils.UiUtilsSettings;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.util.FormattedCharSequence;
 import org.joml.Matrix3x2fStack;
 
 /**
@@ -12,6 +13,11 @@ import org.joml.Matrix3x2fStack;
  * inside a normally GUI-scaled window.
  */
 public final class UiTheme {
+	private static final ThreadLocal<Float> ACTIVE_TEXT_SCALE =
+		ThreadLocal.withInitial(() -> 1F);
+	private static final ThreadLocal<Boolean> PIXEL_SNAP_TEXT =
+		ThreadLocal.withInitial(() -> false);
+
 	/** Row metrics. One row is one button or one setting. */
 	public static final int ROW_HEIGHT = 20;
 	public static final int ROW_HEIGHT_COMPACT = 15;
@@ -177,17 +183,106 @@ public final class UiTheme {
 
 	public static void text(GuiGraphicsExtractor graphics, Font font, String value,
 		int x, int y, int color) {
-		graphics.text(font, value, x, y, color, false);
+		float textScale = ACTIVE_TEXT_SCALE.get();
+		if (Math.abs(textScale - 1F) < 0.001F && !PIXEL_SNAP_TEXT.get()) {
+			graphics.text(font, value, x, y, color, false);
+			return;
+		}
+		Matrix3x2fStack pose = graphics.pose();
+		pose.pushMatrix();
+		pose.translate(x, y);
+		if (Math.abs(textScale - 1F) >= 0.001F)
+			pose.scale(1F / textScale, 1F / textScale);
+		snapTextOrigin(pose);
+		graphics.text(font, value, 0, 0, color, false);
+		pose.popMatrix();
+	}
+
+	public static void text(GuiGraphicsExtractor graphics, Font font,
+		FormattedCharSequence value, int x, int y, int color) {
+		float textScale = ACTIVE_TEXT_SCALE.get();
+		if (Math.abs(textScale - 1F) < 0.001F && !PIXEL_SNAP_TEXT.get()) {
+			graphics.text(font, value, x, y, color);
+			return;
+		}
+		Matrix3x2fStack pose = graphics.pose();
+		pose.pushMatrix();
+		pose.translate(x, y);
+		if (Math.abs(textScale - 1F) >= 0.001F)
+			pose.scale(1F / textScale, 1F / textScale);
+		snapTextOrigin(pose);
+		graphics.text(font, value, 0, 0, color);
+		pose.popMatrix();
 	}
 
 	public static void textCentered(GuiGraphicsExtractor graphics, Font font,
 		String value, int centerX, int y, int color) {
-		graphics.centeredText(font, value, centerX, y, color);
+		float textScale = ACTIVE_TEXT_SCALE.get();
+		if (Math.abs(textScale - 1F) < 0.001F && !PIXEL_SNAP_TEXT.get()) {
+			graphics.centeredText(font, value, centerX, y, color);
+			return;
+		}
+		Matrix3x2fStack pose = graphics.pose();
+		pose.pushMatrix();
+		pose.translate(centerX, y);
+		if (Math.abs(textScale - 1F) >= 0.001F)
+			pose.scale(1F / textScale, 1F / textScale);
+		snapTextOrigin(pose);
+		graphics.centeredText(font, value, 0, 0, color);
+		pose.popMatrix();
 	}
 
 	public static void textRight(GuiGraphicsExtractor graphics, Font font,
 		String value, int rightX, int y, int color) {
-		graphics.text(font, value, rightX - font.width(value), y, color, false);
+		int x = rightX - Math.round(font.width(value)
+			/ ACTIVE_TEXT_SCALE.get());
+		text(graphics, font, value, x, y, color);
+	}
+
+	/** Keeps font glyphs at normal screen size inside a scaled modern screen. */
+	public static float pushTextScale(float scale) {
+		float previous = ACTIVE_TEXT_SCALE.get();
+		ACTIVE_TEXT_SCALE.set(scale > 0F ? scale : 1F);
+		return previous;
+	}
+
+	public static void popTextScale(float previous) {
+		ACTIVE_TEXT_SCALE.set(previous > 0F ? previous : 1F);
+	}
+
+	/** Enables whole-pixel glyph placement for a screen rendered with fractional layout scaling. */
+	public static boolean pushPixelSnapText() {
+		boolean previous = PIXEL_SNAP_TEXT.get();
+		PIXEL_SNAP_TEXT.set(true);
+		return previous;
+	}
+
+	public static void popPixelSnapText(boolean previous) {
+		PIXEL_SNAP_TEXT.set(previous);
+	}
+
+	private static void snapTextOrigin(Matrix3x2fStack pose) {
+		if (!PIXEL_SNAP_TEXT.get())
+			return;
+		// The inverse text scale leaves one screen pixel per local unit. Correct only
+		// the origin's fractional part so glyph size stays at Minecraft's native scale.
+		float x = pose.m20();
+		float y = pose.m21();
+		pose.translate(Math.round(x) - x, Math.round(y) - y);
+	}
+
+	public static int textWidth(int designWidth) {
+		return Math.max(1, (int)Math.floor(designWidth * ACTIVE_TEXT_SCALE.get()));
+	}
+
+	public static int designTextWidth(int screenTextWidth) {
+		return Math.max(0,
+			(int)Math.ceil(screenTextWidth / ACTIVE_TEXT_SCALE.get()));
+	}
+
+	public static int lineHeight(Font font) {
+		return Math.max(1,
+			Math.round(font.lineHeight / ACTIVE_TEXT_SCALE.get()));
 	}
 
 	/**
@@ -200,26 +295,30 @@ public final class UiTheme {
 	 */
 	public static void textScaled(GuiGraphicsExtractor graphics, Font font,
 		String value, int x, int y, float scale, int color) {
-		if (Math.abs(scale - 1F) < 0.001F) {
-			graphics.text(font, value, x, y, color, false);
+		float effectiveScale = scale / ACTIVE_TEXT_SCALE.get();
+		if (Math.abs(effectiveScale - 1F) < 0.001F) {
+			text(graphics, font, value, x, y, color);
 			return;
 		}
 		Matrix3x2fStack pose = graphics.pose();
 		pose.pushMatrix();
 		pose.translate(x, y);
-		pose.scale(scale, scale);
+		pose.scale(effectiveScale, effectiveScale);
 		graphics.text(font, value, 0, 0, color, false);
 		pose.popMatrix();
 	}
 
 	/** Baseline y that vertically centres one line of text inside a row. */
 	public static int textY(Font font, int rowY, int rowHeight) {
-		return rowY + (rowHeight - font.lineHeight + 1) / 2;
+		return rowY + (rowHeight - lineHeight(font) + 1) / 2;
 	}
 
 	public static String ellipsize(Font font, String value, int maxWidth) {
 		if (value == null)
 			return "";
+		if (maxWidth <= 0)
+			return "";
+		maxWidth = textWidth(maxWidth);
 		if (maxWidth <= 0)
 			return "";
 		if (font.width(value) <= maxWidth)

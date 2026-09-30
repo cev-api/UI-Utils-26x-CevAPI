@@ -153,6 +153,9 @@ public final class McCompat {
 	private static boolean invokeScreenSetter(Object owner, Screen screen) {
 		if (owner == null)
 			return false;
+		// Only inspect public methods. Walking declared methods also finds private
+		// synthetic callbacks that accept Screen; invoking one reports success but
+		// does not change the active screen.
 		for (Method method : owner.getClass().getMethods()) {
 			if (method.getParameterCount() != 1
 				|| method.getParameterTypes()[0] != Screen.class
@@ -161,7 +164,7 @@ public final class McCompat {
 			try {
 				method.invoke(owner, screen);
 				return true;
-			} catch (ReflectiveOperationException ignored) {
+			} catch (ReflectiveOperationException | RuntimeException ignored) {
 			}
 		}
 		return false;

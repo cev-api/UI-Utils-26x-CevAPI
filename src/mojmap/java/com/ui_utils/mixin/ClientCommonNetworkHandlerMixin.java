@@ -1,6 +1,7 @@
 package com.ui_utils.mixin;
 
 import com.ui_utils.uiutils.UiUtils;
+import com.ui_utils.uiutils.UiUtilsMultiplayerCompat;
 import com.ui_utils.uiutils.UiUtilsSettings;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientCommonPacketListenerImpl;
@@ -29,6 +30,9 @@ public abstract class ClientCommonNetworkHandlerMixin
 	private void uiutils$onResourcePack(ClientboundResourcePackPushPacket packet,
 		CallbackInfo ci)
 	{
+		if(UiUtilsMultiplayerCompat.hasExternalResourcePackControls())
+			return;
+
 		var settings = UiUtilsSettings.get();
 		if(!settings.bypassResourcePack)
 			return;

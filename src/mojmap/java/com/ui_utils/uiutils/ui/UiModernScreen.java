@@ -282,7 +282,10 @@ public abstract class UiModernScreen extends Screen {
 		float preferred = UiTheme.screenScale(this.width, this.height);
 		// Grow into spare width, but never above what fits and never above the
 		// user's target. snapScaleDown cannot round up past the fit.
-		scale = UiTheme.snapScaleDown(Math.min(preferred, fitWidth), fitWidth);
+		// Small scales keep the box geometry and native-size glyphs too close
+		// together. Preserve a practical layout floor while still honoring smaller
+		// scales when the card must fit horizontally.
+		scale = Math.min(Math.max(preferred, 0.875F), fitWidth);
 
 		// The viewport height MUST be known before the content is built: screens use
 		// availableContentHeight() to size their own lists while building. Setting it
@@ -461,42 +464,49 @@ public abstract class UiModernScreen extends Screen {
 		int contentBottom = cardHeight - UiTheme.FOOTER_HEIGHT;
 		int clipHeight = Math.max(1, contentBottom - CONTENT_Y);
 
-		Matrix3x2fStack pose = graphics.pose();
-		pose.pushMatrix();
-		pose.translate(originX, originY);
-		pose.scale(scale, scale);
+		float previousTextScale = UiTheme.pushTextScale(scale);
+		boolean previousPixelSnap = UiTheme.pushPixelSnapText();
+		try {
+			Matrix3x2fStack pose = graphics.pose();
+			pose.pushMatrix();
+			pose.translate(originX, originY);
+			pose.scale(scale, scale);
 
-		drawPanel(graphics);
+			drawPanel(graphics);
 
-		// Clip only scrollable content. A scissor left enabled when scrolling is off
-		// also clips the pinned header, footer, chrome, and later GUI rendering.
-		boolean clipped = maxScroll > 0;
-		if (clipped)
-			graphics.enableScissor(0, CONTENT_Y - 1, cardWidth,
-			contentBottom + 1);
-		pose.pushMatrix();
-		pose.translate(CONTENT_X, CONTENT_Y - offset);
-		for (UiContent.Underlay underlay : underlays)
-			underlay.draw(graphics, this.font, contentWidth());
-		drawContentOverlay(graphics, this.font, designMouseX - CONTENT_X,
-			designMouseY - CONTENT_Y + offset);
-		pose.popMatrix();
-		for (AbstractWidget widget : contentWidgets)
-			renderWidget(graphics, widget, designMouseX, designMouseY,
-				partialTicks);
-		if (clipped)
-			graphics.disableScissor();
+			// Clip only scrollable content. A scissor left enabled when scrolling is off
+			// also clips the pinned header, footer, chrome, and later GUI rendering.
+			boolean clipped = maxScroll > 0;
+			if (clipped)
+				graphics.enableScissor(0, CONTENT_Y - 1, cardWidth,
+					contentBottom + 1);
+			pose.pushMatrix();
+			pose.translate(CONTENT_X, CONTENT_Y - offset);
+			for (UiContent.Underlay underlay : underlays)
+				underlay.draw(graphics, this.font, contentWidth());
+			drawContentOverlay(graphics, this.font, designMouseX - CONTENT_X,
+				designMouseY - CONTENT_Y + offset);
+			pose.popMatrix();
+			for (AbstractWidget widget : contentWidgets)
+				renderWidget(graphics, widget, designMouseX, designMouseY,
+					partialTicks);
+			if (clipped)
+				graphics.disableScissor();
 
-		for (AbstractWidget widget : headerWidgets)
-			renderWidget(graphics, widget, designMouseX, designMouseY,
-				partialTicks);
-		for (AbstractWidget widget : footerWidgets)
-			renderWidget(graphics, widget, designMouseX, designMouseY,
-				partialTicks);
+			for (AbstractWidget widget : headerWidgets)
+				renderWidget(graphics, widget, designMouseX, designMouseY,
+					partialTicks);
+			for (AbstractWidget widget : footerWidgets)
+				renderWidget(graphics, widget, designMouseX, designMouseY,
+					partialTicks);
 
-		drawChrome(graphics, designMouseX, designMouseY);
-		drawDebugBounds(graphics, offset);
-		pose.popMatrix();
+			drawChrome(graphics, designMouseX, designMouseY);
+			drawDebugBounds(graphics, offset);
+			pose.popMatrix();
+		} finally {
+			UiTheme.popPixelSnapText(previousPixelSnap);
+			UiTheme.popTextScale(previousTextScale);
+		}
 
 		renderForeignWidgets(graphics, mouseX, mouseY, partialTicks);
 	}
@@ -551,7 +561,7 @@ public abstract class UiModernScreen extends Screen {
 			"naturalContentH=" + measuredContentHeight,
 			"maxScroll=" + (int)maxScroll + " scroll=" + (int)Math.round(scroll),
 		};
-		int lineHeight = 9;
+		int lineHeight = UiTheme.lineHeight(font);
 		int line = 0;
 		for (String metric : metrics) {
 			UiTheme.text(graphics, font, metric, textX, textY + line * lineHeight,
@@ -578,8 +588,26 @@ public abstract class UiModernScreen extends Screen {
 
 	private void renderWidget(GuiGraphicsExtractor graphics, AbstractWidget widget,
 		int mouseX, int mouseY, float partialTicks) {
-		if (widget != null && widget.visible)
+		if (widget == null || !widget.visible)
+			return;
+
+		float previousTextScale = UiTheme.pushTextScale(1F);
+		Matrix3x2fStack pose = graphics.pose();
+		pose.pushMatrix();
+		// Fractional screen scaling otherwise places widgets between GUI pixels.
+		// Snap the frame and native text together, including vanilla EditBox text.
+		float screenX = originX + widget.getX() * scale;
+		float screenY = originY + widget.getY() * scale;
+		pose.translate((Math.round(screenX) - screenX) / scale,
+			(Math.round(screenY) - screenY) / scale);
+		try {
+			if (widget instanceof UiScalable scalable)
+				scalable.applyUiScale(1F / scale);
 			widget.extractRenderState(graphics, mouseX, mouseY, partialTicks);
+		} finally {
+			pose.popMatrix();
+			UiTheme.popTextScale(previousTextScale);
+		}
 	}
 
 	/** Widgets owned by other systems keep rendering in raw screen space. */
@@ -609,7 +637,8 @@ public abstract class UiModernScreen extends Screen {
 		UiTheme.border(graphics, 0, 0, cardWidth, cardHeight, UiTheme.BORDER);
 
 		int titleY = UiTheme.textY(this.font, 0, UiTheme.HEADER_HEIGHT);
-		int statusWidth = status.isEmpty() ? 0 : this.font.width(status) + 8;
+		int statusWidth = status.isEmpty() ? 0
+			: UiTheme.designTextWidth(this.font.width(status)) + 8;
 		String title = UiTheme.ellipsize(this.font, this.title.getString(),
 			cardWidth - CONTENT_X * 2 - 8 - statusWidth);
 		UiTheme.text(graphics, this.font, title, CONTENT_X, titleY, UiTheme.TEXT);

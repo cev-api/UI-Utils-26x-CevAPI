@@ -103,6 +103,7 @@ public final class UiUtilsSettings {
 
 		public boolean bypassResourcePack = false;
 		public boolean resourcePackForceDeny = false;
+		public boolean ignoreRegistrySync = false;
 		public boolean showResourcePackButtons = true;
 		public boolean logToChat = true;
 		public boolean antiCheatDetectorEnabled = true;
