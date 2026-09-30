@@ -9,6 +9,7 @@ import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import com.ui_utils.uiutils.McCompat;
 
 /**
  * Setting row: a label on the left and a small switch on the right. Clicking
@@ -56,7 +57,7 @@ public class UiToggle extends AbstractWidget implements UiScalable {
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-		if (!active || !visible || !isValidClickButton(event.buttonInfo())
+		if (!active || !visible || event.button() != McCompat.LEFT_BUTTON
 			|| !isMouseOver(event.x(), event.y()))
 			return false;
 		onChange.accept(!getter.getAsBoolean());

@@ -33,6 +33,7 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsContainerTransfer;
 import com.ui_utils.uiutils.UiUtilsMainPanelDrag;
+import com.ui_utils.uiutils.McCompat;
 import com.ui_utils.uiutils.UiUtilsSettings;
 import com.ui_utils.uiutils.UiUtilsState;
 import com.ui_utils.uiutils.UiUtilsTimedClickSlot;
@@ -251,8 +252,23 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 	private void uiutils$beginMainPanelDrag(MouseButtonEvent event,
 		boolean doubleClick, CallbackInfoReturnable<Boolean> cir)
 	{
-		if(UiUtilsState.isUiEnabled()
-			&& UiUtilsMainPanelDrag.mouseClicked((Screen)(Object)this, event))
+		if(!UiUtilsState.isUiEnabled())
+			return;
+
+		// Dispatch UI-Utils controls here before container-specific click handling.
+		if(event.button() == McCompat.LEFT_BUTTON)
+			for(AbstractWidget widget : uiUtilsMainWidgets)
+				if(widget.active && widget.visible
+					&& widget.isMouseOver(event.x(), event.y())
+					&& widget.mouseClicked(event, doubleClick))
+				{
+					setFocused(widget);
+					setDragging(true);
+					cir.setReturnValue(true);
+					return;
+				}
+
+		if(UiUtilsMainPanelDrag.mouseClicked((Screen)(Object)this, event))
 			cir.setReturnValue(true);
 	}
 

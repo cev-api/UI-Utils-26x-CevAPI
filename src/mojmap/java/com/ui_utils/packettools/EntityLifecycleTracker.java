@@ -8,6 +8,7 @@
 package com.ui_utils.packettools;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -118,18 +119,45 @@ public final class EntityLifecycleTracker
 	{
 		try
 		{
-			for(int id : packet.entityIds())
-			{
-				EntitySnapshot snap = byId.get(id);
-				if(snap != null)
-				{
-					snap.removed = true;
-					snap.removedTick = tickCounter;
-					snap.eventLog.add("REMOVED @ tick " + tickCounter);
+			Object ids = readRemovedEntityIds(packet);
+			if(ids instanceof Iterable<?> iterable) {
+				for(Object value : iterable)
+					if(value instanceof Number number)
+						markRemoved(number.intValue());
+			} else if(ids != null && ids.getClass().isArray()) {
+				for(int i = 0; i < Array.getLength(ids); i++) {
+					Object value = Array.get(ids, i);
+					if(value instanceof Number number)
+						markRemoved(number.intValue());
 				}
 			}
 		}catch(Exception ignored)
 		{}
+	}
+
+	private void markRemoved(int id) {
+		EntitySnapshot snap = byId.get(id);
+		if(snap != null) {
+			snap.removed = true;
+			snap.removedTick = tickCounter;
+			snap.eventLog.add("REMOVED @ tick " + tickCounter);
+		}
+	}
+
+	/** Reads the removed-id collection without linking against its changing accessor name. */
+	private static Object readRemovedEntityIds(ClientboundRemoveEntitiesPacket packet) {
+		for(Method method : packet.getClass().getMethods()) {
+			if(method.getParameterCount() != 0)
+				continue;
+			Class<?> returnType = method.getReturnType();
+			if(!Iterable.class.isAssignableFrom(returnType) && !returnType.isArray())
+				continue;
+			try {
+				return method.invoke(packet);
+			}catch(ReflectiveOperationException ignored) {
+			}
+		}
+		return null;
 	}
 	
 	/**

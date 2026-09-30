@@ -126,7 +126,7 @@ public final class UiUtilsVersionChecker {
 		return best;
 	}
 
-	/** Reads the "v0.11" part out of the mod version, e.g. "26.3_v0.11". */
+	/** Reads the release part from versions such as "26.3.0+v0.12" or "26.3_v0.12". */
 	private static String readOwnVersion() {
 		try {
 			return FabricLoader.getInstance().getModContainer(MOD_ID)
@@ -143,6 +143,9 @@ public final class UiUtilsVersionChecker {
 		if (raw == null)
 			return "";
 		String value = raw.trim();
+		int build = value.lastIndexOf('+');
+		if (build >= 0 && build + 1 < value.length())
+			value = value.substring(build + 1);
 		int underscore = value.lastIndexOf('_');
 		if (underscore >= 0 && underscore + 1 < value.length())
 			value = value.substring(underscore + 1);

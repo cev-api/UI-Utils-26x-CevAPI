@@ -8,6 +8,7 @@ import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.InputWithModifiers;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import com.ui_utils.uiutils.McCompat;
 
 /**
  * Themed button. It never rescales its own label: the owning canvas keeps text at
@@ -105,10 +106,14 @@ public class UiButton extends AbstractButton implements UiScalable {
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-		if (active && visible && isValidClickButton(event.buttonInfo())
-			&& isMouseOver(event.x(), event.y()))
-			pressed = true;
-		return super.mouseClicked(event, doubleClick);
+		if (!active || !visible || event.button() != McCompat.LEFT_BUTTON
+			|| !isMouseOver(event.x(), event.y()))
+			return false;
+
+		pressed = true;
+		playDownSound(Minecraft.getInstance().getSoundManager());
+		onClick(event, doubleClick);
+		return true;
 	}
 
 	@Override

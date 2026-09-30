@@ -47,10 +47,8 @@ public final class UiUtilsPanelHost {
 	private static void attachTo(Screen screen) {
 		UiUtilsPanels.attach(screen);
 
-		ScreenEvents.afterBackground(screen).register((s, graphics, mouseX, mouseY,
-			partialTicks) -> UiUtilsPanels.renderBackground(s, graphics));
-		ScreenEvents.afterForeground(screen).register((s, graphics, mouseX, mouseY,
-			partialTicks) -> UiUtilsPanels.renderForeground(s, graphics, mouseX, mouseY));
+		ScreenRenderCompat.registerBackground(screen);
+		ScreenRenderCompat.registerForeground(screen);
 		ScreenEvents.afterTick(screen)
 			.register(s -> UiUtilsPanels.onClientTick(UiUtilsPanels.minecraft()));
 

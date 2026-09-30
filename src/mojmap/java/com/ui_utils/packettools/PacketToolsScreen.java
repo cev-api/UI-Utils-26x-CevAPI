@@ -7,8 +7,6 @@
  */
 package com.ui_utils.packettools;
 
-import com.mojang.blaze3d.platform.InputConstants;
-
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.CharacterEvent;
@@ -239,7 +237,7 @@ public final class PacketToolsScreen extends Screen
 		boolean selectorHandled = s2cSelector.mouseClicked(event, doubleClick)
 			|| c2sSelector.mouseClicked(event, doubleClick);
 
-		boolean leftClick = event.button() == InputConstants.MOUSE_BUTTON_LEFT;
+		boolean leftClick = event.button() == McCompat.LEFT_BUTTON;
 		holdingDelayMinus = leftClick && delayMinusButton != null
 			&& delayMinusButton.isHoveredOrFocused();
 		holdingDelayPlus = leftClick && delayPlusButton != null

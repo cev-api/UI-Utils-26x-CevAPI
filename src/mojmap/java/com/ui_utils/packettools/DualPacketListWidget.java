@@ -7,8 +7,6 @@
  */
 package com.ui_utils.packettools;
 
-import com.mojang.blaze3d.platform.InputConstants;
-
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -23,6 +21,7 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import com.ui_utils.uiutils.McCompat;
 
 public final class DualPacketListWidget
 {
@@ -215,7 +214,7 @@ public final class DualPacketListWidget
 		int rightX = leftX + listWidth + GAP;
 		int panelListWidth = listWidth;
 		
-		if(event.button() == InputConstants.MOUSE_BUTTON_LEFT)
+		if(event.button() == McCompat.LEFT_BUTTON)
 		{
 			if(handleScrollbarClick(mouseX, mouseY, leftX, listY,
 				panelListWidth, listHeight, true))

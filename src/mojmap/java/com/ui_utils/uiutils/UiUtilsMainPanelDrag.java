@@ -67,10 +67,7 @@ public final class UiUtilsMainPanelDrag {
 		}
 
 		private boolean isLeftButton(MouseButtonEvent event) {
-			// 26.x exposes both GLFW's zero-based button and the event's one-based
-			// button mask. Accept either representation of the primary mouse button.
-			return event.buttonInfo().button() == McCompat.LEFT_BUTTON
-				|| event.button() == 1;
+			return event.button() == McCompat.LEFT_BUTTON;
 		}
 
 		private boolean inDraggableHeader(double mouseX, double mouseY) {

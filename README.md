@@ -21,13 +21,13 @@ Build with Gradle (Java 25+):
 ```
 
 Artifacts land in `build/libs/`.
-The default artifact version label is `26.3_v0.11`.
+The default artifact version label is `26.3.0+v0.12`.
 
-Default build target is Minecraft `26.3`, and the runtime compatibility layer keeps the jar working across Minecraft `26.x` releases.
-If you want to compile specifically against `26.1.2`, you can still override the versions at build time:
+The default build targets Minecraft `26.1`, the oldest supported release, so compilation catches accidental use of newer-only APIs. The resulting jar is designed to run across Minecraft `26.x`; runtime shims cover API changes introduced in later 26.x releases.
+To compile specifically against Minecraft `26.3`, override the versions at build time:
 
 ```powershell
-./gradlew build -Pminecraft_version=26.1.2 -Pfabric_version=0.145.4+26.1.2 -Ploader_version=0.18.4
+./gradlew build -Pminecraft_version=26.3 -Pfabric_version=0.160.6+26.3 -Ploader_version=0.19.5
 ```
 
 ## Getting Started
@@ -287,7 +287,7 @@ Path behavior:
 ## Notes on the Mojmap Migration
 
 - Entire codebase uses Mojang mappings for clarity and forward‑compat.
-- The current jar is built against 26.3 and includes runtime shims for 26.x input, screen and chat API differences.
+- The default jar is compiled against 26.1 and includes runtime shims for API differences through 26.3.
 - Packet types are discovered at runtime with a reflective catalog for resilience across dot‑releases.
 - APT is fully in-game: a custom dual-list widget backs the packet pickers, and the packet dumping engine is ported from [Wurst7-CevAPI](https://github.com/cev-api/Wurst7-CevAPI).
 

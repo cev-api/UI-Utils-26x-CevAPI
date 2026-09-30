@@ -11,6 +11,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
 
 /**
  * Layout builder for {@link UiModernScreen}.
@@ -591,7 +592,11 @@ public final class UiContent {
 
 		@Override
 		public void draw(GuiGraphicsExtractor graphics, Font font, int cardWidth) {
-			graphics.textWithWordWrap(font, text, 0, y, width, UiTheme.TEXT_DIM);
+			int lineY = y;
+			for(FormattedCharSequence line : font.split(text, width)) {
+				graphics.text(font, line, 0, lineY, UiTheme.TEXT_DIM);
+				lineY += font.lineHeight;
+			}
 		}
 	}
 

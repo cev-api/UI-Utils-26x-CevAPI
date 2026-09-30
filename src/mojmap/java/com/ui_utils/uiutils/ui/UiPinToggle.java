@@ -6,7 +6,9 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.InputWithModifiers;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import com.ui_utils.uiutils.McCompat;
 
 /** Minimal hamburger-style pin toggle shared by floating UI panels. */
 public final class UiPinToggle extends AbstractButton implements UiScalable {
@@ -24,6 +26,17 @@ public final class UiPinToggle extends AbstractButton implements UiScalable {
 	@Override
 	public void onPress(InputWithModifiers input) {
 		toggle.run();
+	}
+
+	@Override
+	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+		if(!active || !visible || event.button() != McCompat.LEFT_BUTTON
+			|| !isMouseOver(event.x(), event.y()))
+			return false;
+
+		playDownSound(Minecraft.getInstance().getSoundManager());
+		onClick(event, doubleClick);
+		return true;
 	}
 
 	public UiPinToggle uiScale(float value) {

@@ -4,9 +4,11 @@ plugins {
 }
 
 def releaseSuffix = (project.findProperty("release_version") ?: "").toString().trim()
-version = releaseSuffix.isEmpty()
-	? project.mod_version
-	: "${project.mod_version}_${releaseSuffix}"
+def normalizedReleaseVersion = releaseSuffix.replaceFirst("^_", "")
+	.replaceFirst("^[vV]", "")
+version = normalizedReleaseVersion.isEmpty()
+	? "${project.mod_version}.0"
+	: "${project.mod_version}.0+v${normalizedReleaseVersion}"
 group = project.maven_group
 
 base {

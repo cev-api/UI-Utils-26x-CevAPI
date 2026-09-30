@@ -7,6 +7,7 @@ import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import com.ui_utils.uiutils.McCompat;
 
 /**
  * Selectable list row: a label on the left, an optional detail on the right and
@@ -80,7 +81,7 @@ public class UiListRow extends AbstractWidget implements UiScalable {
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-		if (!active || !visible || !isValidClickButton(event.buttonInfo())
+		if (!active || !visible || event.button() != McCompat.LEFT_BUTTON
 			|| !isMouseOver(event.x(), event.y()))
 			return false;
 		Runnable run = doubleClick && doubleAction != null ? doubleAction : action;

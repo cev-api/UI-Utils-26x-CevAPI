@@ -316,7 +316,8 @@ public final class UiUtilsPanels {
 			return;
 		List<AbstractWidget> pending = new ArrayList<>(pendingAdd);
 		pendingAdd.clear();
-		Screens.getWidgets(screen).addAll(pending);
+		List<AbstractWidget> screenWidgets = Screens.getWidgets(screen);
+		screenWidgets.addAll(pending);
 		registered.addAll(pending);
 		ownedWidgets.addAll(pending);
 		if (!loggedAttach) {
@@ -377,8 +378,8 @@ public final class UiUtilsPanels {
 		if (!isAllowedScreen(screen))
 			return;
 		attachedScreen = screen;
-		// Self-heal if the host event never reached this screen. Guarded on the
-		// registered set so this can never add a second set of widgets.
+		// Self-heal if the host has not registered this screen's panel widgets.
+		// Guarded on the registered set so this cannot add duplicates.
 		if (!panelsRegisteredOn(screen))
 			attach(screen);
 		update(screen);
@@ -898,10 +899,7 @@ public final class UiUtilsPanels {
 	private static void renderFabricatorBackground(GuiGraphicsExtractor graphics) {
 		if (!fabricatorInitialized || !UiUtilsState.fabricateOverlayOpen)
 			return;
-		// The body, the header and every label are chrome, so they are drawn here,
-		// in the background pass: after the screen background but before the
-		// widgets. That keeps them underneath the controls instead of being covered
-		// by them, whatever order the screen events happen to fire in.
+		// Draw panel chrome after the screen background and before its widgets.
 		drawPanelChrome(graphics, overlayX, overlayY, ps(OVERLAY_WIDTH),
 			overlayBottomY, UiUtilsSettings.get().fabricateOverlayBgAlpha);
 		drawFabricatorForeground(graphics);

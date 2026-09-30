@@ -214,7 +214,7 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
         if (waitingForBindKey) return "Press Key...";
         if (editing.keyCode < 0)
             return "Bind Key";
-        String name = InputConstants.Type.KEYBOARD.getOrCreate(editing.keyCode)
+        String name = McCompat.getKeyboardKey(editing.keyCode)
             .getDisplayName().getString();
         return "Key: " + name;
     }

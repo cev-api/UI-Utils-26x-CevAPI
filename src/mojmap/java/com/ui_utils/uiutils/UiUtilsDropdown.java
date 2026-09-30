@@ -83,7 +83,8 @@ public final class UiUtilsDropdown extends AbstractWidget implements UiScalable 
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-		if (!visible || !active || !isMouseOver(event.x(), event.y()))
+		if (!visible || !active || event.button() != McCompat.LEFT_BUTTON
+			|| !isMouseOver(event.x(), event.y()))
 			return false;
 		if (isOverHeader(event.x(), event.y())) {
 			toggleExpanded();
