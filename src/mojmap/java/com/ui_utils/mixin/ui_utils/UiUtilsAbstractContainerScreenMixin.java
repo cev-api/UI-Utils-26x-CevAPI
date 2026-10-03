@@ -33,6 +33,7 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsContainerTransfer;
 import com.ui_utils.uiutils.UiUtilsMainPanelDrag;
+import com.ui_utils.uiutils.UiUtilsPanelHost;
 import com.ui_utils.uiutils.McCompat;
 import com.ui_utils.uiutils.UiUtilsSettings;
 import com.ui_utils.uiutils.UiUtilsState;
@@ -139,6 +140,7 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 		button.setX(-2000);
 		button.setY(-2000);
 		addRenderableWidget(button);
+		UiUtilsPanelHost.registerForegroundWidget(this, button);
 		return button;
 	}
 	

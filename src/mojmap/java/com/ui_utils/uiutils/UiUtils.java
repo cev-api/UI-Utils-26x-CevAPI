@@ -558,7 +558,7 @@ public final class UiUtils {
 
 	/**
 	 * Builds the in-game UI-Utils panel: a compact flat panel with a title bar, a
-	 * two column button grid and the chat field pinned at the bottom. Everything
+	 * single column button grid and the chat field pinned at the bottom. Everything
 	 * is sized from one scale so the panel fits the space the container screen
 	 * leaves for it.
 	 */
@@ -740,41 +740,28 @@ public final class UiUtils {
 		final int panelPadding = 6;
 		int usableWidth = Math.max(100, maxRight - baseX - panelPadding * 2);
 		int usableHeight = Math.max(80, maxHeight - panelPadding * 2);
-		// Same scale the overlay panels and the UI-Utils windows use, then clamped so
-		// the panel fits: it cannot scroll, so it must fit both ways. A second column
-		// is tried as well, which keeps the text full size in a short window instead
-		// of shrinking the whole panel.
+		// Keep the main panel to one column. A second column makes it much wider on
+		// large screens, so let the panel scale down to fit its height instead.
 		float preferred = Math.max(0.875F, UiTheme.screenScale(
 			mc.getWindow().getGuiScaledWidth(),
 			mc.getWindow().getGuiScaledHeight()));
-		int columns = 1;
 		int split = lines.size();
 		double scale = bestPanelScale(lines, 1, lines.size(), naturalFullWidth,
 			naturalRowHeight, naturalLabelHeight, naturalHeaderHeight,
 			naturalSpacing, naturalChatHeight, preferred, usableWidth, usableHeight);
-		double twoColumnScale = bestPanelScale(lines, 2, columnSplit(lines),
-			naturalFullWidth, naturalRowHeight, naturalLabelHeight,
-			naturalHeaderHeight, naturalSpacing, naturalChatHeight, preferred,
-			usableWidth, usableHeight);
-		if (twoColumnScale > scale) {
-			columns = 2;
-			split = columnSplit(lines);
-			scale = twoColumnScale;
-		}
 		float uiScale = (float)scale;
 		int rowHeight = Math.max(10, (int)Math.round(naturalRowHeight * scale));
 		int labelHeight = Math.max(9, (int)Math.round(naturalLabelHeight * scale));
 		int headerHeight = Math.max(11, (int)Math.round(naturalHeaderHeight * scale));
 		int gap = Math.max(1, (int)Math.round(naturalSpacing * scale));
 		int columnWidth = Math.max(96, (int)Math.round(naturalFullWidth * scale));
-		int fullWidth = Math.min(usableWidth, columns == 1 ? columnWidth
-			: columnWidth * 2 + gap * 2);
+		int fullWidth = Math.min(usableWidth, columnWidth);
 		int chatHeight = Math.max(11, (int)Math.round(naturalChatHeight * scale));
 
 		int panelTop = baseY;
 		int panelLeft = baseX;
 		int bodyTop = panelTop + headerHeight + gap;
-		int bodyBottom = panelBottom(lines, split, columns, bodyTop, rowHeight,
+		int bodyBottom = panelBottom(lines, split, 1, bodyTop, rowHeight,
 			labelHeight, gap);
 		// The chat field sits below the button stack, and the panel is grown to hold
 		// it plus the gap above it.
@@ -808,11 +795,6 @@ public final class UiUtils {
 		layoutColumn(lines.subList(0, split), panelLeft, columnWidth, bodyTop,
 			fullWidth, gap, rowHeight, labelHeight, 1F, adder, queueButtons,
 			spamButtons);
-		if (columns == 2)
-			layoutColumn(lines.subList(split, lines.size()),
-				panelLeft + columnWidth + gap * 2, columnWidth, bodyTop, fullWidth,
-				gap, rowHeight, labelHeight, 1F, adder, queueButtons,
-				spamButtons);
 		queueCounterButtons.keySet().removeIf(button -> button == null);
 		for (UiUtilsColoredButton button : queueButtons)
 			queueCounterButtons.put(button, Boolean.TRUE);
@@ -826,18 +808,6 @@ public final class UiUtils {
 		return new UiWidgetLayout(panelLeft, chatY, fullWidth, chatHeight,
 			uiScale, panelX, panelY, fullWidth + panelPadding * 2, panelHeight,
 			headerHeight + panelPadding);
-	}
-
-	/**
-	 * Index at which a second column should start: moved to the next section label
-	 * so a column never opens in the middle of a group.
-	 */
-	private static int columnSplit(List<Object> lines) {
-		int split = lines.size() / 2;
-		for (int i = split; i < lines.size(); i++)
-			if (lines.get(i) instanceof String)
-				return i;
-		return split;
 	}
 
 	/** Height of the laid-out column(s), used to size the panel background. */

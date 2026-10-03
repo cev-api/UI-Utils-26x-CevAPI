@@ -13,7 +13,6 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.input.KeyEvent;
-import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.network.HashedPatchMap;
 import net.minecraft.network.HashedStack;
 import net.minecraft.network.chat.Component;
@@ -27,6 +26,8 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 
 import com.ui_utils.nbttools.UiUtilsNbtEditor;
+import com.ui_utils.mixin.ui_utils.UiUtilsScreenAccessor;
+import net.minecraft.client.input.MouseButtonEvent;
 import com.ui_utils.uiutils.ui.UiButton;
 import com.ui_utils.uiutils.ui.UiInput;
 import com.ui_utils.uiutils.ui.UiScalable;
@@ -36,10 +37,8 @@ import com.ui_utils.uiutils.ui.UiToggle;
 /**
  * The Fabricate Packet and GUI Tools panels.
  * <p>
- * Both are drawn as floating panels on top of whatever screen is open and are
- * not tied to container screens: the widgets are attached to the current screen
- * in {@link #attach}, so they work on the inventory, chat, settings and every
- * other screen as well as on chests.
+ * Both are floating panels above the current container or inventory screen.
+ * Input and narration are attached to the host; rendering uses a late pass.
  */
 public final class UiUtilsPanels {
 	private static final int MODE_CLICK_SLOT = 0;
@@ -216,6 +215,7 @@ public final class UiUtilsPanels {
 	private static int toolsY;
 	private static int toolsBottomY;
 	private static boolean toolsDragging;
+	private static boolean toolsOnTop = true;
 	private static int toolsDragX;
 	private static int toolsDragY;
 	private static String toolsStatus = "";
@@ -285,9 +285,8 @@ public final class UiUtilsPanels {
 	}
 
 	/**
-	 * Builds the panel widgets for the given screen and registers them through
-	 * Fabric's widget list, which is backed by the screen's own renderable,
-	 * narratable and child lists.
+	 * Builds the panel widgets and registers input/narration on the host screen.
+	 * The complete panels render separately above the host's contents.
 	 */
 	public static void attach(Screen screen) {
 		if (!isAllowedScreen(screen))
@@ -313,7 +312,10 @@ public final class UiUtilsPanels {
 		List<AbstractWidget> owned = new ArrayList<>(ownedWidgets);
 		boolean purged = false;
 		try {
-			Screens.getWidgets(screen).removeAll(owned);
+			UiUtilsScreenAccessor lists = (UiUtilsScreenAccessor)screen;
+			lists.uiutils$getRenderables().removeAll(owned);
+			lists.uiutils$getChildren().removeAll(owned);
+			lists.uiutils$getNarratables().removeAll(owned);
 			purged = true;
 		} catch (Throwable ignored) {
 		}
@@ -340,8 +342,10 @@ public final class UiUtilsPanels {
 			return;
 		List<AbstractWidget> pending = new ArrayList<>(pendingAdd);
 		pendingAdd.clear();
-		List<AbstractWidget> screenWidgets = Screens.getWidgets(screen);
-		screenWidgets.addAll(pending);
+		// Register input and narration directly; rendering belongs to the late pass.
+		UiUtilsScreenAccessor lists = (UiUtilsScreenAccessor)screen;
+		lists.uiutils$getChildren().addAll(pending);
+		lists.uiutils$getNarratables().addAll(pending);
 		registered.addAll(pending);
 		ownedWidgets.addAll(pending);
 		if (!loggedAttach) {
@@ -407,71 +411,112 @@ public final class UiUtilsPanels {
 		if (!panelsRegisteredOn(screen))
 			attach(screen);
 		update(screen);
-		renderFabricatorBackground(graphics);
-		renderToolsBackground(graphics);
+		// Layout only: the complete panels are drawn after the host screen.
 	}
 
 	public static void renderForeground(Screen screen, GuiGraphicsExtractor graphics,
 		int mouseX, int mouseY) {
 		UiUtilsPanels.mouseX = mouseX;
 		UiUtilsPanels.mouseY = mouseY;
+		UiUtilsPanelHost.renderMainWidgets(screen, graphics, mouseX, mouseY);
 		if (!isAllowedScreen(screen))
 			return;
-		// Only the open dropdown list is drawn here: it has to sit above the other
-		// controls. Everything else is panel chrome and is drawn in the background
-		// pass, above the panel body but below the widgets.
-		if (fabricatorInitialized && UiUtilsState.fabricateOverlayOpen
-			&& actionDropdown != null)
-			actionDropdown.renderExpandedList(graphics, mouseX, mouseY);
+		if (!UiUtilsState.isUiEnabled())
+			return;
+		if (toolsOnTop) {
+			renderPanel(graphics, false, mouseX, mouseY);
+			renderPanel(graphics, true, mouseX, mouseY);
+		} else {
+			renderPanel(graphics, true, mouseX, mouseY);
+			renderPanel(graphics, false, mouseX, mouseY);
+		}
 	}
 
-	/**
-	 * Called before widget dispatch for a left press. Only the drag bars are
-	 * consumed, because they hold no widgets; everything else is left to the
-	 * normal dispatch so the buttons and text fields keep working.
-	 */
-	public static boolean onMousePress(double mx, double my, int button) {
-		if (!anyOpen() || button != McCompat.LEFT_BUTTON)
+	private static void renderPanel(GuiGraphicsExtractor graphics, boolean tools,
+		int mx, int my) {
+		if (tools ? !UiUtilsState.guiToolsOverlayOpen : !UiUtilsState.fabricateOverlayOpen)
+			return;
+		graphics.nextStratum();
+		if (tools)
+			renderToolsBackground(graphics);
+		else
+			renderFabricatorBackground(graphics);
+		for (AbstractWidget widget : registered)
+			if (widget.visible && toolsWidgets.contains(widget) == tools)
+				widget.extractRenderState(graphics, mx, my, 0F);
+		if (!tools && actionDropdown != null) {
+			graphics.nextStratum();
+			actionDropdown.renderExpandedList(graphics, mx, my);
+		}
+	}
+
+	/** Routes presses to the visible top panel and blocks click-through to slots. */
+	public static boolean onMousePress(MouseButtonEvent event) {
+		if (!UiUtilsState.isUiEnabled() || !anyOpen())
 			return false;
-		mouseX = mx;
-		mouseY = my;
-		if (UiUtilsState.fabricateOverlayOpen
-			&& isOverPinControl(mx, my, overlayX, overlayY, ps(OVERLAY_WIDTH))) {
-			UiUtilsSettings.get().fabricatePanelPinned =
-				!UiUtilsSettings.get().fabricatePanelPinned;
-			UiUtilsSettings.save();
-			return true;
+		mouseX = event.x();
+		mouseY = event.y();
+		boolean overFabricator = UiUtilsState.fabricateOverlayOpen
+			&& (insidePanel(mouseX, mouseY, overlayX, overlayY, ps(OVERLAY_WIDTH), overlayBottomY)
+				|| actionDropdown != null && actionDropdown.visible && actionDropdown.isMouseOver(mouseX, mouseY));
+		boolean overTools = UiUtilsState.guiToolsOverlayOpen
+			&& insidePanel(mouseX, mouseY, toolsX, toolsY, ps(TOOLS_WIDTH), toolsBottomY);
+		if (!overFabricator && !overTools) {
+			if (actionDropdown != null)
+				actionDropdown.setExpanded(false);
+			return false;
 		}
-		if (UiUtilsState.fabricateOverlayOpen
-			&& isOverDragBar(mx, my, overlayX, overlayY, ps(OVERLAY_WIDTH))) {
-			if (UiUtilsSettings.get().fabricatePanelPinned)
-				return true;
-			overlayDragging = true;
-			overlayDragX = (int)Math.round(mx - overlayX);
-			overlayDragY = (int)Math.round(my - overlayY);
-			return true;
-		}
-		if (UiUtilsState.guiToolsOverlayOpen
-			&& isOverPinControl(mx, my, toolsX, toolsY, ps(TOOLS_WIDTH))) {
-			UiUtilsSettings.get().guiToolsPanelPinned =
-				!UiUtilsSettings.get().guiToolsPanelPinned;
-			UiUtilsSettings.save();
-			return true;
-		}
-		if (UiUtilsState.guiToolsOverlayOpen
-			&& isOverDragBar(mx, my, toolsX, toolsY, ps(TOOLS_WIDTH))) {
-			if (UiUtilsSettings.get().guiToolsPanelPinned)
-				return true;
-			toolsDragging = true;
-			toolsDragX = (int)Math.round(mx - toolsX);
-			toolsDragY = (int)Math.round(my - toolsY);
-			return true;
-		}
-		// A press anywhere else closes an open action list.
-		if (actionDropdown != null && actionDropdown.isExpanded()
-			&& !actionDropdown.isMouseOver(mx, my))
+		boolean tools = overTools && (!overFabricator || toolsOnTop);
+		toolsOnTop = tools;
+		if (tools && actionDropdown != null)
 			actionDropdown.setExpanded(false);
-		return false;
+		int x = tools ? toolsX : overlayX;
+		int y = tools ? toolsY : overlayY;
+		int width = ps(tools ? TOOLS_WIDTH : OVERLAY_WIDTH);
+		if (event.button() == McCompat.LEFT_BUTTON) {
+			if (isOverPinControl(mouseX, mouseY, x, y, width)) {
+				if (tools)
+					UiUtilsSettings.get().guiToolsPanelPinned = !UiUtilsSettings.get().guiToolsPanelPinned;
+				else
+					UiUtilsSettings.get().fabricatePanelPinned = !UiUtilsSettings.get().fabricatePanelPinned;
+				UiUtilsSettings.save();
+				return true;
+			}
+			if (isOverDragBar(mouseX, mouseY, x, y, width)) {
+				if (tools) {
+					toolsDragging = !UiUtilsSettings.get().guiToolsPanelPinned;
+					toolsDragX = (int)Math.round(mouseX - x);
+					toolsDragY = (int)Math.round(mouseY - y);
+				} else {
+					overlayDragging = !UiUtilsSettings.get().fabricatePanelPinned;
+					overlayDragX = (int)Math.round(mouseX - x);
+					overlayDragY = (int)Math.round(mouseY - y);
+				}
+				return true;
+			}
+		}
+		// The expanded list takes priority over the fabricator fields beneath it.
+		if (!tools && actionDropdown != null && actionDropdown.isExpanded()
+			&& actionDropdown.mouseClicked(event, false)) {
+			attachedScreen.setFocused(actionDropdown);
+			return true;
+		}
+		if (actionDropdown != null && actionDropdown.isExpanded()
+			&& !actionDropdown.isMouseOver(mouseX, mouseY))
+			actionDropdown.setExpanded(false);
+		for (AbstractWidget widget : new ArrayList<>(registered))
+			if (widget.visible && widget.active && toolsWidgets.contains(widget) == tools
+				&& widget.mouseClicked(event, false)) {
+				attachedScreen.setFocused(widget);
+				attachedScreen.setDragging(event.button() == McCompat.LEFT_BUTTON);
+				return true;
+			}
+		return true;
+	}
+
+	private static boolean insidePanel(double mx, double my, int x, int y,
+		int width, int bottom) {
+		return mx >= x && mx < x + width && my >= y && my < bottom;
 	}
 
 	/** Ends a panel drag. A release is never consumed, so this returns nothing. */
@@ -923,7 +968,7 @@ public final class UiUtilsPanels {
 	private static void renderFabricatorBackground(GuiGraphicsExtractor graphics) {
 		if (!fabricatorInitialized || !UiUtilsState.fabricateOverlayOpen)
 			return;
-		// Draw panel chrome after the screen background and before its widgets.
+		// Draw chrome and widgets together in the foreground layer.
 		drawPanelChrome(graphics, overlayX, overlayY, ps(OVERLAY_WIDTH),
 			overlayBottomY, UiUtilsSettings.get().fabricateOverlayBgAlpha);
 		drawFabricatorForeground(graphics);
@@ -1319,30 +1364,6 @@ public final class UiUtilsPanels {
 			UiUtilsState.guiToolsOverlayX = x;
 			UiUtilsState.guiToolsOverlayY = y;
 		}
-		// Keep the panels from sharing a hit area. Resolve after applying drag
-		// coordinates too, so releasing GUI Tools over Fabricate Packet cannot leave
-		// their widgets stacked or steal clicks from one another.
-		if (UiUtilsState.fabricateOverlayOpen && overlayBottomY > overlayY
-			&& rectanglesOverlap(x, y, ps(TOOLS_WIDTH), ps(toolsDesignHeight()),
-				overlayX, overlayY, ps(OVERLAY_WIDTH), overlayBottomY - overlayY)) {
-			int toolsHeight = ps(toolsDesignHeight());
-			int belowY = overlayBottomY + 4;
-			int aboveY = overlayY - toolsHeight - 4;
-			int rightX = overlayX + ps(OVERLAY_WIDTH) + 4;
-			int leftX = overlayX - ps(TOOLS_WIDTH) - 4;
-			if (belowY + toolsHeight <= screenHeight - 4)
-				y = belowY;
-			else if (aboveY >= 4)
-				y = aboveY;
-			else if (rightX + ps(TOOLS_WIDTH) <= screenWidth - 4)
-				x = rightX;
-			else if (leftX >= 4)
-				x = leftX;
-			else
-				y = Mth.clamp(overlayY - toolsHeight - 4, 4, maxY);
-			UiUtilsState.guiToolsOverlayX = x;
-			UiUtilsState.guiToolsOverlayY = y;
-		}
 		x = clampOverlayX(x, screenWidth, ps(TOOLS_WIDTH));
 		UiUtilsState.guiToolsOverlayX = x;
 
@@ -1372,11 +1393,6 @@ public final class UiUtilsPanels {
 		UiUtilsState.guiToolsOverlayX = x;
 		UiUtilsState.guiToolsOverlayY = y;
 		scalePanelWidgets(toolsWidgets, x, y);
-	}
-
-	private static boolean rectanglesOverlap(int ax, int ay, int aw, int ah,
-		int bx, int by, int bw, int bh) {
-		return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 	}
 
 	/** Keep floating panels on screen while allowing placement across its full width. */

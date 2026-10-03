@@ -75,8 +75,7 @@ public abstract class MultiplayerScreenMixin extends Screen {
 		boolean haveProtectionToggles = showResourcePack || showRegistrySync
 			|| externalResourcePack || externalRegistrySync;
 		if (haveProtectionToggles && backButton != null) {
-			backButton.visible = false;
-			backButton.active = false;
+			removeWidget(backButton);
 		}
 		uiutils$layoutProtectionOptions();
 	}

@@ -21,7 +21,9 @@ final class ScreenRenderCompat {
 	}
 
 	static void registerForeground(Screen screen) {
-		Method eventFactory = findEventFactory("afterForeground");
+		Method eventFactory = findEventFactory("afterExtract");
+		if (eventFactory == null)
+			eventFactory = findEventFactory("afterForeground");
 		if (eventFactory == null)
 			eventFactory = findEventFactory("afterRender");
 		if (eventFactory == null) {

@@ -13,6 +13,7 @@
     "MappedRegistryFrozenAccessor",
     "MultiplayerScreenMixin",
     "ui_utils.ChestSlotOverlayMixin",
+    "ui_utils.UiUtilsScreenAccessor",
     "ui_utils.UiUtilsHudMixin",
     "ui_utils.UiUtilsAbstractContainerScreenMixin",
     "ui_utils.UiUtilsAbstractSignEditScreenMixin",
