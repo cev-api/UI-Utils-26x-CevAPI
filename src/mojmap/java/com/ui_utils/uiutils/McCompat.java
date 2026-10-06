@@ -43,8 +43,14 @@ public final class McCompat {
 		if (mc == null)
 			return;
 
-		if (!invokeScreenSetter(mc.gui, screen))
-			invokeScreenSetter(mc, screen);
+		// Screen#setScreen must run on the client thread. In 26.3 the GUI also
+		// exposes Screen-related methods, so probing it first can select a Fabric
+		// lifecycle hook instead of Minecraft's actual screen transition method.
+		// Minecraft's executor runs inline when already on the client thread.
+		mc.execute(() -> {
+			if (!invokeScreenSetter(mc, screen))
+				invokeScreenSetter(mc.gui, screen);
+		});
 	}
 
 	public static void addRecentChat(Minecraft mc, String message) {
