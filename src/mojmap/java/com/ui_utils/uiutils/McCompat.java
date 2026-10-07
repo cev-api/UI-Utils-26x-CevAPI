@@ -2,7 +2,6 @@ package com.ui_utils.uiutils;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.List;
 
 import net.minecraft.client.Minecraft;
@@ -10,11 +9,12 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.components.ChatComponent;
 import net.minecraft.client.input.KeyEvent;
 import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.blaze3d.platform.Window;
 import net.minecraft.SharedConstants;
 
 public final class McCompat {
-	// 26.3 replaced GLFW input codes with SDL scancodes in KeyEvent#key(). Keep
-	// matching the older GLFW key codes too for compatibility with earlier 26.x.
+	// 26.3 replaced GLFW input codes with SDL scancodes in KeyEvent#key().
+	// Interpret each version's codes separately: some SDL values are GLFW letters.
 	private static final int SDL_SCANCODE_RETURN = 40;
 	private static final int SDL_SCANCODE_KP_ENTER = 88;
 	private static final int SDL_SCANCODE_BACKSPACE = 42;
@@ -26,6 +26,7 @@ public final class McCompat {
 
 	/** Mouse button ids changed from GLFW's zero-based values to SDL's values in 26.3. */
 	public static final int LEFT_BUTTON = leftMouseButton();
+	private static final Method KEY_DOWN_METHOD = findKeyDownMethod();
 
 	private McCompat() {
 	}
@@ -43,13 +44,14 @@ public final class McCompat {
 		if (mc == null)
 			return;
 
-		// Screen#setScreen must run on the client thread. In 26.3 the GUI also
-		// exposes Screen-related methods, so probing it first can select a Fabric
-		// lifecycle hook instead of Minecraft's actual screen transition method.
+		// Screen transitions must run on the client thread. Match the method by
+		// name rather than invoking arbitrary methods with a Screen parameter.
 		// Minecraft's executor runs inline when already on the client thread.
 		mc.execute(() -> {
-			if (!invokeScreenSetter(mc, screen))
-				invokeScreenSetter(mc.gui, screen);
+			// The named setter moved from Minecraft to Gui in 26.2.
+			// Signature-only reflection also matched clearClientLevel(Screen).
+			if (!invokeScreenSetter(mc.gui, screen) && !invokeScreenSetter(mc, screen))
+				throw new IllegalStateException("No compatible setScreen method");
 		});
 	}
 
@@ -66,47 +68,52 @@ public final class McCompat {
 	public static boolean isKeyDown(Minecraft mc, InputConstants.Key key) {
 		if (mc == null || key == null)
 			return false;
-		for (Method method : InputConstants.class.getMethods()) {
-			if (!Modifier.isStatic(method.getModifiers())
-				|| method.getReturnType() != boolean.class)
-				continue;
-			Class<?>[] parameters = method.getParameterTypes();
-			try {
-				if (parameters.length == 1 && parameters[0] == int.class)
-					return (boolean)method.invoke(null, key.getValue());
-				if (parameters.length == 2 && parameters[1] == int.class
-					&& parameters[0].isInstance(mc.getWindow()))
-					return (boolean)method.invoke(null, mc.getWindow(), key.getValue());
-			} catch (ReflectiveOperationException ignored) {
-			}
+		try {
+			return KEY_DOWN_METHOD.getParameterCount() == 1
+				? (boolean)KEY_DOWN_METHOD.invoke(null, key.getValue())
+				: (boolean)KEY_DOWN_METHOD.invoke(null, mc.getWindow(), key.getValue());
+		} catch (ReflectiveOperationException ignored) {
 		}
 		return false;
 	}
 
+	private static Method findKeyDownMethod() {
+		try {
+			try {
+				return InputConstants.class.getMethod("isKeyDown", int.class);
+			} catch (NoSuchMethodException ignored) {
+				return InputConstants.class.getMethod("isKeyDown", Window.class, int.class);
+			}
+		} catch (NoSuchMethodException e) {
+			throw new IllegalStateException("No compatible keyboard polling method", e);
+		}
+	}
+
 	/** Returns the key type used for keyboard bindings in the running release. */
 	public static InputConstants.Key getKeyboardKey(int value) {
-		// 26.1/26.2 declare KEYSYM first; 26.3 declares KEYBOARD first.
-		// Using the first keyboard type avoids linking to either version-specific enum field.
-		InputConstants.Type[] types = InputConstants.Type.values();
-		if (types.length == 0)
-			throw new IllegalStateException("Minecraft has no input key types");
-		return types[0].getOrCreate(value);
+		// Use names rather than linking to a version-specific enum field or ordinal.
+		for (InputConstants.Type type : InputConstants.Type.values())
+			if (type.name().equals("KEYSYM") || type.name().equals("KEYBOARD"))
+				return type.getOrCreate(value);
+		throw new IllegalStateException("Minecraft has no keyboard key type");
 	}
 
 	/** True for Enter and keypad Enter, used to submit chat and text fields. */
 	public static boolean isConfirmationKey(KeyEvent event) {
 		if (event == null)
 			return false;
-		return matches(event.key(), SDL_SCANCODE_RETURN, SDL_SCANCODE_KP_ENTER,
-			GLFW_KEY_ENTER, GLFW_KEY_KP_ENTER);
+		return usesSdlInput()
+			? matches(event.key(), SDL_SCANCODE_RETURN, SDL_SCANCODE_KP_ENTER)
+			: matches(event.key(), GLFW_KEY_ENTER, GLFW_KEY_KP_ENTER);
 	}
 
 	/** True for Backspace and Delete, used to clear a keybind. */
 	public static boolean isClearKey(KeyEvent event) {
 		if (event == null)
 			return false;
-		return matches(event.key(), SDL_SCANCODE_BACKSPACE, SDL_SCANCODE_DELETE,
-			GLFW_KEY_BACKSPACE, GLFW_KEY_DELETE);
+		return usesSdlInput()
+			? matches(event.key(), SDL_SCANCODE_BACKSPACE, SDL_SCANCODE_DELETE)
+			: matches(event.key(), GLFW_KEY_BACKSPACE, GLFW_KEY_DELETE);
 	}
 
 	private static boolean matches(int value, int... codes) {
@@ -136,7 +143,8 @@ public final class McCompat {
 		if (owner == null)
 			return null;
 		for (Method method : owner.getClass().getMethods()) {
-			if (method.getParameterCount() != 0
+			if (!(method.getName().equals("screen") || method.getName().equals("getScreen"))
+				|| method.getParameterCount() != 0
 				|| !Screen.class.isAssignableFrom(method.getReturnType()))
 				continue;
 			try {
@@ -147,7 +155,7 @@ public final class McCompat {
 			}
 		}
 		for (Field field : allFields(owner.getClass())) {
-			if (!Screen.class.isAssignableFrom(field.getType()))
+			if (!field.getName().equals("screen") || !Screen.class.isAssignableFrom(field.getType()))
 				continue;
 			Object value = readField(field, owner);
 			if (value instanceof Screen screen)
@@ -159,21 +167,14 @@ public final class McCompat {
 	private static boolean invokeScreenSetter(Object owner, Screen screen) {
 		if (owner == null)
 			return false;
-		// Only inspect public methods. Walking declared methods also finds private
-		// synthetic callbacks that accept Screen; invoking one reports success but
-		// does not change the active screen.
-		for (Method method : owner.getClass().getMethods()) {
-			if (method.getParameterCount() != 1
-				|| method.getParameterTypes()[0] != Screen.class
-				|| method.getReturnType() != void.class)
-				continue;
-			try {
-				method.invoke(owner, screen);
-				return true;
-			} catch (ReflectiveOperationException | RuntimeException ignored) {
-			}
+		try {
+			owner.getClass().getMethod("setScreen", Screen.class).invoke(owner, screen);
+			return true;
+		} catch (NoSuchMethodException e) {
+			return false;
+		} catch (ReflectiveOperationException e) {
+			throw new IllegalStateException("Could not change the active screen", e);
 		}
-		return false;
 	}
 
 	private static ChatComponent findChatComponent(Object owner) {

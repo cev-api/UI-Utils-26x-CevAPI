@@ -21,7 +21,6 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
-import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
 public final class UiUtilsMacroLibraryScreen extends UiModernScreen {
     private final Screen parent;
@@ -59,7 +58,11 @@ public final class UiUtilsMacroLibraryScreen extends UiModernScreen {
         ensureDefaultDirectories();
         rows.clear();
 
-        searchField = c.input("", value -> {
+        String search = searchField == null ? "" : searchField.getValue();
+        String importPath = importField == null ? defaultImportDirectory().toString() : importField.getValue();
+        String exportPath = exportField == null ? defaultExportDirectory().toString() : exportField.getValue();
+
+        searchField = c.input(search, value -> {
             offset = 0;
             refreshRows();
         });
@@ -88,14 +91,14 @@ public final class UiUtilsMacroLibraryScreen extends UiModernScreen {
         }
 
         c.section("Import / Export");
-        importField = new UiInput(this.font, 1, defaultImportDirectory().toString(),
+        importField = new UiInput(this.font, 1, importPath,
             Component.literal("Import path (NBT)"));
         importField.setMaxLength(1024);
         c.row(UiContent.of(importField, 6F),
             UiContent.fixed(UiButton.of("...", () -> openFilePicker(importField, true)), 26),
             UiContent.of(UiButton.of("Import", this::importMacro), 1.5F));
 
-        exportField = new UiInput(this.font, 1, defaultExportDirectory().toString(),
+        exportField = new UiInput(this.font, 1, exportPath,
             Component.literal("Export folder"));
         exportField.setMaxLength(1024);
         c.row(UiContent.of(exportField, 6F),
@@ -226,44 +229,26 @@ public final class UiUtilsMacroLibraryScreen extends UiModernScreen {
     }
 
     private void openFilePicker(EditBox target, boolean importFile) {
-        Path start = pickerStartPath(target, importFile);
-        status = importFile ? "Opening macro file picker..." : "Opening export folder picker...";
-        new Thread(() -> openNativePicker(target, start, importFile), "UI-Utils Macro File Picker").start();
+        try {
+            Path start = pickerStartPath(target, importFile);
+            McCompat.setScreen(minecraft, new UiUtilsFilePickerScreen(this, start, importFile, picked -> {
+                // The parent was reinitialised on return, so use its current field.
+                (importFile ? importField : exportField).setValue(picked.toString());
+                status = "Path selected.";
+            }));
+        } catch (IllegalArgumentException e) {
+            status = "Invalid path. Enter a valid file or folder path.";
+        }
     }
 
     private Path pickerStartPath(EditBox target, boolean importFile) {
         String value = target.getValue() == null ? "" : target.getValue().trim();
         Path fallback = importFile ? defaultImportDirectory() : defaultExportDirectory();
-        if (value.isBlank()) return fallback;
-        Path path = Path.of(value);
-        if (Files.isRegularFile(path) && path.getParent() != null) return path.getParent();
-        return path;
+        return value.isBlank() ? fallback : Path.of(value);
     }
 
-    private void openNativePicker(EditBox target, Path start, boolean importFile) {
-        try {
-            String picked = importFile
-                ? TinyFileDialogs.tinyfd_openFileDialog(
-                    "Import UI-Utils Macro",
-                    start.toAbsolutePath().toString(),
-                    null,
-                    null,
-                    false)
-                : TinyFileDialogs.tinyfd_selectFolderDialog(
-                    "Choose UI-Utils macro export folder",
-                    start.toAbsolutePath().toString());
-
-            Minecraft.getInstance().execute(() -> {
-                if (picked != null && !picked.isBlank()) {
-                    target.setValue(picked);
-                    status = "Path selected.";
-                } else {
-                    status = "Picker canceled.";
-                }
-            });
-        } catch (Throwable t) {
-            UiUtils.LOGGER.warn("Macro file picker failed", t);
-            Minecraft.getInstance().execute(() -> status = "File picker failed: " + t.getClass().getSimpleName());
-        }
+    @Override
+    public void onClose() {
+        McCompat.setScreen(minecraft, parent);
     }
 }

@@ -12,6 +12,8 @@ public final class UiUtilsMacro {
     public boolean loop = false;
     public int loopCount = -1;
     public int keyCode = -1;
+    // Translation key names survive GLFW -> SDL numeric key changes in 26.3.
+    public String keyName = "";
     public final List<UiUtilsMacroAction> actions = new ArrayList<>();
 
     public UiUtilsMacro deepCopy() {
@@ -25,6 +27,7 @@ public final class UiUtilsMacro {
         tag.putBoolean("loop", loop);
         tag.putInt("loopCount", loopCount);
         tag.putInt("keyCode", keyCode);
+        tag.putString("keyName", keyName == null ? "" : keyName);
         ListTag list = new ListTag();
         for (UiUtilsMacroAction action : actions) {
             list.add(action.toTag());
@@ -40,6 +43,7 @@ public final class UiUtilsMacro {
         macro.loop = tag.getBooleanOr("loop", false);
         macro.loopCount = tag.getIntOr("loopCount", -1);
         macro.keyCode = tag.getIntOr("keyCode", -1);
+        macro.keyName = tag.getStringOr("keyName", "");
         if (tag.contains("actions")) {
             ListTag list = (ListTag) tag.get("actions");
             for (Tag element : list) {

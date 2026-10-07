@@ -86,11 +86,16 @@ public final class UiUtils {
 
 		// Don't fire hotkeys while typing in chat/text fields, or while rebinding keys.
 		if (isTypingIntoTextField(mc)
-			|| McCompat.getScreen(mc) instanceof UiUtilsKeybindsScreen) {
+			|| McCompat.getScreen(mc) instanceof UiUtilsKeybindsScreen
+			|| McCompat.getScreen(mc) instanceof UiUtilsMacrosScreen
+			|| McCompat.getScreen(mc) instanceof UiUtilsStepEditScreen) {
 			updateKeybindEdges(mc, false);
+			UiUtilsMacroManager.get().updateKeybinds(mc, false);
 			return;
 		}
 		updateKeybindEdges(mc, true);
+		UiUtilsMacroManager.get().updateKeybinds(mc,
+			UiUtilsState.isUiEnabled() && mc.player != null && mc.getConnection() != null);
 		if (mc.getConnection() == null)
 			onServerDisconnect();
 	}

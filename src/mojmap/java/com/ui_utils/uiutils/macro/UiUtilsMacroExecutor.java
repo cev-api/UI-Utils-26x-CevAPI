@@ -5,6 +5,8 @@ import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsCommandSystem;
 import com.ui_utils.uiutils.UiUtilsState;
 import java.util.Locale;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
@@ -24,6 +26,9 @@ import net.minecraft.world.item.ItemStack;
 public final class UiUtilsMacroExecutor {
     private static volatile boolean running;
     private static volatile String currentName;
+    private static volatile Thread worker;
+    // Accessed on the client thread. An old run must not release a new run's key.
+    private static final Map<KeyMapping, Thread> heldKeys = new HashMap<>();
 
     private UiUtilsMacroExecutor() {}
 
@@ -36,26 +41,40 @@ public final class UiUtilsMacroExecutor {
         stop();
         running = true;
         currentName = macro.name;
-        Thread worker = new Thread(() -> runMacro(macro), "ui-utils-macro-exec");
+        worker = new Thread(() -> runMacro(macro), "ui-utils-macro-exec");
         worker.setDaemon(true);
         worker.start();
     }
 
     public static synchronized void stop() {
+        Thread previous = worker;
+        worker = null;
         running = false;
         currentName = null;
+        if (previous != null && previous != Thread.currentThread()) previous.interrupt();
+    }
+
+    private static boolean isCurrentRun() {
+        return running && worker == Thread.currentThread() && !Thread.currentThread().isInterrupted();
+    }
+
+    private static synchronized void finishRun(Thread finished) {
+        if (worker == finished) stop();
     }
 
     private static void runMacro(UiUtilsMacro macro) {
         int loops = macro.loop ? (macro.loopCount < 0 ? Integer.MAX_VALUE : Math.max(1, macro.loopCount)) : 1;
-        for (int loopIndex = 0; running && loopIndex < loops; loopIndex++) {
-            for (UiUtilsMacroAction action : macro.actions) {
-                if (!running) break;
-                if (!action.isEnabled()) continue;
-                executeAction(action);
+        try {
+            for (int loopIndex = 0; isCurrentRun() && loopIndex < loops; loopIndex++) {
+                for (UiUtilsMacroAction action : macro.actions) {
+                    if (!isCurrentRun()) break;
+                    if (!action.isEnabled()) continue;
+                    executeAction(action);
+                }
             }
+        } finally {
+            finishRun(Thread.currentThread());
         }
-        stop();
     }
 
     private static void executeAction(UiUtilsMacroAction action) {
@@ -133,7 +152,7 @@ public final class UiUtilsMacroExecutor {
                     UiUtilsState.delayUiPackets = state;
                 }
                 case DISCONNECT -> runOnMain(mc, () -> UiUtils.executeKeybindAction("disconnect", mc));
-                case STOP_MACRO -> stop();
+                case STOP_MACRO -> finishRun(Thread.currentThread());
                 default -> {
                     String command = action.getData().getStringOr("uiutilsCommand", "");
                     if (!command.isBlank()) UiUtilsCommandSystem.execute(command);
@@ -153,7 +172,7 @@ public final class UiUtilsMacroExecutor {
         int uses = Math.max(1, action.getData().getIntOr("useCount", 1));
         String mode = action.getData().getStringOr("useMode", "AUTOMATIC");
         int holdTicks = Math.max(1, action.getData().getIntOr("holdTicks", 20));
-        for (int i = 0; i < uses && running; i++) {
+        for (int i = 0; i < uses && isCurrentRun(); i++) {
             runOnMain(mc, () -> {
                 if (mc.player == null || mc.getConnection() == null) return;
                 mc.getConnection().send(new ServerboundUseItemPacket(InteractionHand.MAIN_HAND, 0, mc.player.getYRot(), mc.player.getXRot()));
@@ -255,7 +274,7 @@ public final class UiUtilsMacroExecutor {
             ? "Drops Below".equalsIgnoreCase(action.getData().getStringOr("comparison", "Drops Below"))
             : action.getData().getBooleanOr("below", true);
         long deadline = System.currentTimeMillis() + 30000L;
-        while (running && System.currentTimeMillis() < deadline) {
+        while (isCurrentRun() && System.currentTimeMillis() < deadline) {
             if (mc.player != null) {
                 float hp = mc.player.getHealth();
                 if (below ? hp < threshold : hp > threshold) return;
@@ -274,7 +293,7 @@ public final class UiUtilsMacroExecutor {
         float pitch = action.getData().getFloatOr("pitch", 0f);
         float rotLeeway = Math.max(0.5f, action.getData().getFloatOr("rotLeeway", 5f));
         long deadline = System.currentTimeMillis() + 30000L;
-        while (running && System.currentTimeMillis() < deadline) {
+        while (isCurrentRun() && System.currentTimeMillis() < deadline) {
             if (mc.player != null) {
                 double dx = mc.player.getX() - x;
                 double dy = mc.player.getY() - y;
@@ -292,7 +311,7 @@ public final class UiUtilsMacroExecutor {
         String mode = action.getData().getStringOr("waitMode", "OPEN");
         String expected = action.getData().getStringOr("guiTitle", "").toLowerCase(Locale.ROOT);
         long deadline = System.currentTimeMillis() + 30000L;
-        while (running && System.currentTimeMillis() < deadline) {
+        while (isCurrentRun() && System.currentTimeMillis() < deadline) {
             var screen = McCompat.getScreen(mc);
             boolean open = screen != null;
             String title = open && screen.getTitle() != null ? screen.getTitle().getString().toLowerCase(Locale.ROOT) : "";
@@ -311,7 +330,7 @@ public final class UiUtilsMacroExecutor {
         int timeout = Math.max(0, action.getData().getIntOr("timeoutMs", 0));
         long deadline = System.currentTimeMillis() + (timeout <= 0 ? 30000L : timeout);
         String start = UiUtilsMacroRuntimeState.lastChatMessage();
-        while (running && System.currentTimeMillis() < deadline) {
+        while (isCurrentRun() && System.currentTimeMillis() < deadline) {
             String current = UiUtilsMacroRuntimeState.lastChatMessage();
             if (!current.equals(start)) {
                 if (pattern.isBlank()) return;
@@ -329,7 +348,7 @@ public final class UiUtilsMacroExecutor {
         long deadline = System.currentTimeMillis() + 30000L;
         String needle = normalizePacketName(raw.contains(":") ? raw.substring(raw.indexOf(':') + 1) : raw);
         String dir = raw.contains(":") ? raw.substring(0, raw.indexOf(':')).toUpperCase(Locale.ROOT) : "";
-        while (running && System.currentTimeMillis() < deadline) {
+        while (isCurrentRun() && System.currentTimeMillis() < deadline) {
             boolean inAdvanced = UiUtilsMacroRuntimeState.incomingCount() > startIn;
             boolean outAdvanced = UiUtilsMacroRuntimeState.outgoingCount() > startOut;
             if (needle.isBlank()) {
@@ -416,12 +435,23 @@ public final class UiUtilsMacroExecutor {
     }
 
     private static void pressKeyForTicks(Minecraft mc, KeyMapping key, int ticks) {
-        runOnMain(mc, () -> key.setDown(true));
-        sleepMillis(Math.max(1, ticks) * 50L);
-        runOnMain(mc, () -> key.setDown(false));
+        Thread owner = Thread.currentThread();
+        runOnMain(mc, () -> {
+            heldKeys.put(key, owner);
+            key.setDown(true);
+        });
+        try {
+            sleepMillis(Math.max(1, ticks) * 50L);
+        } finally {
+            // Cleanup must run even after stop interrupts this worker.
+            mc.execute(() -> {
+                if (heldKeys.remove(key, owner)) key.setDown(false);
+            });
+        }
     }
 
     private static void runOnMain(Minecraft mc, Runnable runnable) {
+        Thread owner = Thread.currentThread();
         if (mc.isSameThread()) {
             runnable.run();
             return;
@@ -429,7 +459,7 @@ public final class UiUtilsMacroExecutor {
         CountDownLatch latch = new CountDownLatch(1);
         mc.execute(() -> {
             try {
-                runnable.run();
+                if (running && worker == owner && !owner.isInterrupted()) runnable.run();
             } finally {
                 latch.countDown();
             }

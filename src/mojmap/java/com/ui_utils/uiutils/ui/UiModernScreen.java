@@ -704,16 +704,19 @@ public abstract class UiModernScreen extends Screen {
 
 	private boolean dispatchWithoutContent(MouseButtonEvent design,
 		boolean doubleClick) {
-		boolean[] restore = new boolean[contentWidgets.size()];
-		for (int i = 0; i < contentWidgets.size(); i++) {
-			restore[i] = contentWidgets.get(i).visible;
-			contentWidgets.get(i).visible = false;
+		// A footer action can rebuild the screen during dispatch. Restore the old
+		// generation rather than indexing into the new, potentially longer list.
+		List<AbstractWidget> dispatched = new ArrayList<>(contentWidgets);
+		boolean[] restore = new boolean[dispatched.size()];
+		for (int i = 0; i < dispatched.size(); i++) {
+			restore[i] = dispatched.get(i).visible;
+			dispatched.get(i).visible = false;
 		}
 		try {
 			return super.mouseClicked(design, doubleClick);
 		} finally {
-			for (int i = 0; i < contentWidgets.size(); i++)
-				contentWidgets.get(i).visible = restore[i];
+			for (int i = 0; i < dispatched.size(); i++)
+				dispatched.get(i).visible = restore[i];
 		}
 	}
 

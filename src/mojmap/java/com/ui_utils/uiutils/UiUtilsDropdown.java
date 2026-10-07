@@ -16,7 +16,7 @@ import com.ui_utils.uiutils.ui.UiTheme;
  * Small dropdown used by the packet fabricator to pick the click action.
  * <p>
  * The header behaves like a normal widget and handles its own clicks. While the
- * list is open the widget grows so the whole list is inside its hit test, which
+ * list is open its hit test includes the list without changing its layout height, which
  * lets the normal widget dispatch route list clicks here without any global
  * mouse hook. The list itself is painted by the owning panel at the end of the
  * frame so it stays above the other controls.
@@ -25,7 +25,6 @@ public final class UiUtilsDropdown extends AbstractWidget implements UiScalable 
 	private final Font font;
 	private final List<String> options;
 	private final String label;
-	private final int headerHeight;
 	private int selected;
 	private boolean expanded;
 	private float uiScale = 1F;
@@ -36,7 +35,6 @@ public final class UiUtilsDropdown extends AbstractWidget implements UiScalable 
 		this.font = font;
 		this.label = label;
 		this.options = List.copyOf(options);
-		this.headerHeight = height;
 	}
 
 	public int selectedIndex() {
@@ -59,9 +57,6 @@ public final class UiUtilsDropdown extends AbstractWidget implements UiScalable 
 
 	public void setExpanded(boolean value) {
 		expanded = value;
-		// Grow the widget over the list so clicks on it are dispatched here.
-		setHeight(value ? headerHeight + options.size() * itemHeight()
-			: headerHeight);
 	}
 
 	public void toggleExpanded() {
@@ -70,15 +65,20 @@ public final class UiUtilsDropdown extends AbstractWidget implements UiScalable 
 
 	public boolean isOverHeader(double mouseX, double mouseY) {
 		return visible && mouseX >= getX() && mouseX <= getX() + getWidth()
-			&& mouseY >= getY() && mouseY <= getY() + headerHeight;
+			&& mouseY >= getY() && mouseY < getY() + getHeight();
+	}
+
+	@Override
+	public boolean isMouseOver(double mouseX, double mouseY) {
+		return visible && (isOverHeader(mouseX, mouseY) || indexAt(mouseX, mouseY) >= 0);
 	}
 
 	public int itemHeight() {
-		return headerHeight;
+		return getHeight();
 	}
 
 	public int listTop() {
-		return getY() + headerHeight + 1;
+		return getY() + getHeight() + 1;
 	}
 
 	@Override
@@ -126,11 +126,13 @@ public final class UiUtilsDropdown extends AbstractWidget implements UiScalable 
 			boolean hovered = mouseX >= x && mouseX <= x + width
 				&& mouseY >= itemTop && mouseY <= itemTop + height;
 			boolean isSelected = i == selected;
-			int rgb = isSelected ? 0x3E6E46 : hovered ? 0x2E4A6E : 0x1B2A3A;
-			graphics.fill(x, itemTop, x + width, itemTop + height, 0xFF000000 | rgb);
-			UiUtils.renderScaledText(graphics, font, options.get(i), x + 4,
-				itemTop + Math.max(1, (height - font.lineHeight) / 2), width - 8,
-				height - 2, 0xFFFFFFFF, 0.4F);
+			int fill = isSelected ? UiTheme.accent()
+				: hovered ? UiTheme.SURFACE_ROW_HOVER : UiTheme.SURFACE_ROW;
+			graphics.fill(x, itemTop, x + width, itemTop + height, fill);
+			UiTheme.border(graphics, x, itemTop, width, height, UiTheme.BORDER);
+			UiTheme.text(graphics, font, UiTheme.ellipsize(font, options.get(i), width - 8),
+				x + 4, UiTheme.textY(font, itemTop, height),
+				isSelected ? UiTheme.accentText() : UiTheme.TEXT);
 		}
 	}
 
@@ -143,7 +145,7 @@ public final class UiUtilsDropdown extends AbstractWidget implements UiScalable 
 		// Only the header is painted here; the open list is drawn later by the
 		// owning panel so it ends up above the other controls.
 		boolean scaled = UiTheme.pushWidgetScale(graphics, x, y, uiScale);
-		int h = UiTheme.localSize(headerHeight, uiScale, scaled);
+		int h = UiTheme.localSize(getHeight(), uiScale, scaled);
 		int localW = UiTheme.localSize(w, uiScale, scaled);
 		int originX = scaled ? 0 : x;
 		int originY = scaled ? 0 : y;

@@ -21,7 +21,7 @@ Build with Gradle (Java 25+):
 ```
 
 Artifacts land in `build/libs/`.
-The default artifact version label is `26.3.0+v0.12`.
+The artifact version comes from `mod_version` and `release_version` in `gradle.properties`.
 
 The default build targets Minecraft `26.1`, the oldest supported release, so compilation catches accidental use of newer-only APIs. The resulting jar is designed to run across Minecraft `26.x`; runtime shims cover API changes introduced in later 26.x releases.
 To compile specifically against Minecraft `26.3`, override the versions at build time:
@@ -29,6 +29,25 @@ To compile specifically against Minecraft `26.3`, override the versions at build
 ```powershell
 ./gradlew build -Pminecraft_version=26.3 -Pfabric_version=0.160.6+26.3 -Ploader_version=0.19.5
 ```
+
+Every build runs headless UI regression checks for dropdown selection after layout,
+hidden controls, repeated mode/position/scale changes, version-specific input,
+macro keybind edges and persistence, screen navigation, and macro cancellation.
+Run them separately with `./gradlew regressionTest`.
+To test the oldest compiled classes against a newer runtime, build normally first,
+then run `regressionTest` with the version overrides and
+`-x compileJava -x compileRegressionJava`.
+
+Check a release jar's direct Minecraft API references against runtime jars with:
+
+```powershell
+python scripts/check_mc_linkage.py build/libs/<release>.jar <minecraft-26.1.jar> <minecraft-26.2.jar> <minecraft-26.3.jar>
+```
+
+These checks complement in-game testing of rendering, server connections, and other mods.
+The macro file picker runs inside Minecraft and needs no optional native dialog library.
+New macro bindings store key names so they survive the GLFW-to-SDL change in 26.3;
+older macros containing only numeric bindings may need rebinding when moved between input systems.
 
 ## Getting Started
 

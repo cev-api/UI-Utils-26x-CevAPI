@@ -2,6 +2,9 @@ package com.ui_utils.uiutils.macro;
 
 import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsSettings;
+import com.ui_utils.uiutils.McCompat;
+import com.mojang.blaze3d.platform.InputConstants;
+import net.minecraft.client.Minecraft;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -15,6 +18,7 @@ import net.minecraft.nbt.Tag;
 public final class UiUtilsMacroManager {
     private static UiUtilsMacroManager instance;
     private final List<UiUtilsMacro> macros = new ArrayList<>();
+    private final UiUtilsMacroKeybinds keybinds = new UiUtilsMacroKeybinds();
     private final File saveFile = FabricLoader.getInstance().getConfigDir().resolve("ui-utils-macros.nbt").toFile();
 
     private UiUtilsMacroManager() { load(); }
@@ -67,6 +71,22 @@ public final class UiUtilsMacroManager {
         UiUtilsSettings.get().lastMacroName = macro.name;
         UiUtilsSettings.save();
         return true;
+    }
+
+    /** Track edges even while input is suppressed so typing cannot queue a run. */
+    public synchronized void updateKeybinds(Minecraft mc, boolean allowExecution) {
+        keybinds.update(macros, macro -> McCompat.isKeyDown(mc, bindingKey(macro)),
+            allowExecution, this::execute);
+    }
+
+    public static InputConstants.Key bindingKey(UiUtilsMacro macro) {
+        try {
+            if (macro.keyName != null && !macro.keyName.isBlank())
+                return InputConstants.getKey(macro.keyName);
+            return macro.keyCode < 0 ? null : McCompat.getKeyboardKey(macro.keyCode);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     public synchronized void save() {

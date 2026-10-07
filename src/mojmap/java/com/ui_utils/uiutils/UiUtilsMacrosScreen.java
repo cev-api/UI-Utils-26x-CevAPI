@@ -70,7 +70,7 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
             loaded = true;
         }
 
-        nameField = c.input(editing.name == null ? "" : editing.name, value -> {});
+        nameField = c.input(editing.name == null ? "" : editing.name, value -> editing.name = value);
         nameField.setHint(Component.literal("Macro Name"));
 
         stepRows.clear();
@@ -212,10 +212,10 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
 
     private String bindLabel() {
         if (waitingForBindKey) return "Press Key...";
-        if (editing.keyCode < 0)
+        InputConstants.Key key = UiUtilsMacroManager.bindingKey(editing);
+        if (key == null)
             return "Bind Key";
-        String name = McCompat.getKeyboardKey(editing.keyCode)
-            .getDisplayName().getString();
+        String name = key.getDisplayName().getString();
         return "Key: " + name;
     }
 
@@ -414,8 +414,10 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
         if (waitingForBindKey) {
             if (keyEvent.isEscape()) {
                 editing.keyCode = -1;
+                editing.keyName = "";
             } else {
                 editing.keyCode = InputConstants.getKey(keyEvent).getValue();
+                editing.keyName = InputConstants.getKey(keyEvent).getName();
             }
             waitingForBindKey = false;
             setStatusText("");

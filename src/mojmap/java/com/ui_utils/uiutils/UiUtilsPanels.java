@@ -148,10 +148,14 @@ public final class UiUtilsPanels {
 		int originX, int originY)
 	{
 		for(AbstractWidget widget : widgets) {
-			if(widget == null || widget.getX() <= -1000)
+			if(widget == null || !widget.visible || widget.getX() <= -1000)
 				continue;
 			int[] design = designSizes.computeIfAbsent(widget, w -> new int[]{
 				w.getX() - originX, w.getY() - originY, w.getWidth(), w.getHeight()});
+			// Every visible widget was placed in design units by this layout pass.
+			// Positions change with modes and font pitch; only its size is cached.
+			design[0] = widget.getX() - originX;
+			design[1] = widget.getY() - originY;
 			widget.setX(originX + ps(design[0]));
 			widget.setY(originY + ps(design[1]));
 			widget.setWidth(Math.max(8, ps(design[2])));
@@ -1367,7 +1371,7 @@ public final class UiUtilsPanels {
 		x = clampOverlayX(x, screenWidth, ps(TOOLS_WIDTH));
 		UiUtilsState.guiToolsOverlayX = x;
 
-		int contentX = x + ps(6);
+		int contentX = x + 6;
 		int contentWidth = TOOLS_WIDTH - 12;
 		int contentTop = y + toolsFormTop();
 		for (int i = 0; i < toolsRows.size(); i++) {

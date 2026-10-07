@@ -1,7 +1,6 @@
 package com.ui_utils.uiutils;
 
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
-import java.time.Instant;
 import java.lang.reflect.Field;
 import java.util.Locale;
 import java.util.Random;
@@ -11,7 +10,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.common.ServerboundClientInformationPacket;
 import net.minecraft.network.protocol.common.ServerboundKeepAlivePacket;
-import net.minecraft.network.protocol.game.ServerboundChatPacket;
 import net.minecraft.network.protocol.game.ServerboundContainerClickPacket;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
@@ -251,8 +249,9 @@ public final class UiUtilsDisconnect {
 			return;
 		String junk = "a".repeat(200);
 		for(int i = 0; i < count; i++) {
-			mc.getConnection().send(new ServerboundChatPacket(junk, Instant.now(),
-				0L, null, null));
+			// Let the connection construct the version's chat packet with valid
+			// signing/last-seen data; its constructor changed to Optional in 26.3.
+			mc.getConnection().sendChat(junk);
 		}
 	}
 

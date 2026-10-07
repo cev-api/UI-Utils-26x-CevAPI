@@ -25,7 +25,6 @@ dependencies {
 	implementation "net.fabricmc.fabric-api:fabric-rendering-v1:${project.fabric_version}"
 	// Minecraft provides the native libraries at runtime; keep the APIs available to javac.
 	compileOnly "org.lwjgl:lwjgl-glfw:3.4.1"
-	compileOnly "org.lwjgl:lwjgl-tinyfd:3.4.1"
 }
 
 sourceSets {
@@ -36,6 +35,10 @@ sourceSets {
 		resources {
 			srcDirs = ['src/mojmap/resources']
 		}
+	}
+	regression {
+		compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+		runtimeClasspath += sourceSets.main.runtimeClasspath
 	}
 }
 
@@ -54,6 +57,15 @@ tasks.withType(JavaCompile).configureEach {
 java {
 	withSourcesJar()
 }
+
+// Exercise the real UI/input classes against each selected Minecraft version.
+tasks.register('regressionTest', JavaExec) {
+	dependsOn regressionClasses
+	classpath = sourceSets.regression.runtimeClasspath
+	mainClass = 'com.ui_utils.uiutils.UiRegressionChecks'
+}
+
+check.dependsOn regressionTest
 
 jar {
 	from("LICENSE") {

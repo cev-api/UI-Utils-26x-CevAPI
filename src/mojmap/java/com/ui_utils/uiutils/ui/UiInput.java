@@ -24,6 +24,9 @@ public class UiInput extends EditBox implements UiScalable {
 		setTextColor(UiTheme.TEXT);
 		setTextColorUneditable(UiTheme.TEXT_MUTED);
 		setTextShadow(false);
+		// EditBox defaults to 32 characters. Callers often set their own limit only
+		// after construction; applying the initial value first silently truncated it.
+		setMaxLength(32767);
 		setValue(value == null ? "" : value);
 	}
 
