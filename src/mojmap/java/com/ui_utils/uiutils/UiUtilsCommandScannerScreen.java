@@ -94,12 +94,13 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		c.button("Legacy Plugin Scan (Safer)",
 			UiUtilsLegacyPluginScanner::startScan);
 		c.section("Commands");
-		searchField = c.input("", value ->
-			Minecraft.getInstance().execute(this::rebuildWidgets));
+		searchField = c.input(searchField == null ? "" : searchField.getValue(), value ->
+			Minecraft.getInstance().execute(this::rebuildWidgetsPreservingScroll));
 		searchField.setMaxLength(64);
 		searchField.setHint(Component.literal("Search results..."));
 		packetCommandsField = c.inputSlot(
-			UiUtilsSettings.get().commandScannerPacketCommands, value -> {});
+			packetCommandsField == null ? UiUtilsSettings.get().commandScannerPacketCommands
+				: packetCommandsField.getValue(), value -> {});
 		packetCommandsField.setMaxLength(256);
 		c.row(UiContent.of(packetCommandsField, 3F),
 			UiContent.of(UiButton.of("Send packet cmds", this::sendPacketCommands),
@@ -176,7 +177,7 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		UiUtilsSettings.save();
 		UiUtilsCommandScanner.sendManualPacketCommands();
 		commandOutputVisible = true;
-		Minecraft.getInstance().execute(this::rebuildWidgets);
+		Minecraft.getInstance().execute(this::rebuildWidgetsPreservingScroll);
 	}
 
 	/**
@@ -208,7 +209,7 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		// Growing results must not re-scale the screen, so the panel is only
 		// re-laid out to widen its scroll range. The scale stays put.
 		if (sizeChanged)
-			Minecraft.getInstance().execute(this::rebuildWidgets);
+			Minecraft.getInstance().execute(this::rebuildWidgetsPreservingScroll);
 		setStatus(scanning() ? "Scanning..." : "");
 	}
 
@@ -266,7 +267,7 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		expandedCommandLetters.clear();
 		vulnerableListExpanded = false;
 		commandOutputVisible = false;
-		Minecraft.getInstance().execute(this::rebuildWidgets);
+		Minecraft.getInstance().execute(this::rebuildWidgetsPreservingScroll);
 	}
 
 	@Override
@@ -412,7 +413,7 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		UiUtilsSettings.save();
 		UiUtilsCommandScanner.clearManualCommandOutput();
 		commandOutputVisible = false;
-		rebuildWidgets();
+		rebuildWidgetsPreservingScroll();
 	}
 
 	private static Map<String, VulnerableHit> collectVulnerableHits(List<UiUtilsPluginScanner.PluginResultRow> plugins) {

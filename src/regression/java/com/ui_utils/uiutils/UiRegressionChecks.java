@@ -22,6 +22,7 @@ public final class UiRegressionChecks {
         dropdownSelectionAfterRepeatedLayout();
         hiddenControlsAndScaleChanges();
         versionSpecificKeys();
+        chatHistoryAndScaling();
         macroBindingRoundTrip();
         macroKeybindEdges();
         screenSetterDoesNotClearLevel();
@@ -101,6 +102,31 @@ public final class UiRegressionChecks {
             check(!McCompat.isClearKey(new KeyEvent(76, 0, 0)), "GLFW L must not clear a binding");
             check(!McCompat.isClearKey(new KeyEvent(42, 0, 0)), "GLFW punctuation must not clear");
             check(!McCompat.isConfirmationKey(new KeyEvent(40, 0, 0)), "GLFW punctuation must not submit");
+        }
+    }
+
+    private static void chatHistoryAndScaling() {
+        boolean sdl = McCompat.LEFT_BUTTON == 1;
+        check(McCompat.chatHistoryDirection(new KeyEvent(sdl ? 82 : 265, 0, 0)) == -1, "Up must recall older chat");
+        check(McCompat.chatHistoryDirection(new KeyEvent(sdl ? 81 : 264, 0, 0)) == 1, "Down must recall newer chat");
+        check(McCompat.chatHistoryDirection(new KeyEvent(sdl ? 265 : 82, 0, 0)) == 0, "Other input backend must not recall history");
+        UiUtilsChatHistory cursor = new UiUtilsChatHistory();
+        List<String> sent = List.of("first", "/second");
+        check(cursor.move(sent, "draft", -1).equals("/second"), "Up must start at newest sent message");
+        check(cursor.move(sent, "/second", -1).equals("first"), "Up must reach oldest message");
+        check(cursor.move(sent, "first", -1).equals("first"), "Oldest history boundary must clamp");
+        check(cursor.move(sent, "first", 1).equals("/second"), "Down must return toward newest");
+        check(cursor.move(sent, "/second", 1).equals("draft"), "Down must restore unsent draft");
+        check(cursor.move(sent, "draft", 1).equals("draft"), "Newest history boundary must retain draft");
+        cursor.move(sent, "draft", -1);
+        cursor.reset();
+        check(cursor.move(sent, "", 1).isEmpty(), "Sending must clear history cursor and draft");
+        check(cursor.move(List.of(), "unsent", -1).equals("unsent"), "Empty history must retain draft");
+        var field = new com.ui_utils.uiutils.ui.UiInput(null, 120, "", net.minecraft.network.chat.Component.empty());
+        for (float scale : new float[] {0.4F, 0.875F, 1F, 1.5F}) {
+            field.setWidth(Math.round(120 * scale));
+            field.applyUiScale(scale);
+            check(field.getInnerWidth() == 112, "Scaled field must measure text in the same units as rendering");
         }
     }
 

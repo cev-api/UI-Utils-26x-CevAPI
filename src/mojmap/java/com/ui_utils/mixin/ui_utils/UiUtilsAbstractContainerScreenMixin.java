@@ -112,7 +112,7 @@ public abstract class UiUtilsAbstractContainerScreenMixin<T extends AbstractCont
 			});
 		uiUtilsChatField = UiUtils.createChatField(mc, this.font,
 			layout.chatX(), layout.chatY(), layout.chatWidth(),
-			layout.chatHeight(), 1F);
+			layout.chatHeight(), layout.uiScale());
 		addRenderableWidget(uiUtilsChatField);
 		uiUtilsMainWidgets.add(uiUtilsChatField);
 		UiUtilsMainPanelDrag.attach(this, uiUtilsMainWidgets, layout, baseX,

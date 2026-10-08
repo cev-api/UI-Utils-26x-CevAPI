@@ -363,6 +363,7 @@ public final class UiUtils {
 			sendCommandWithConfiguredDelay(mc, text.substring(1));
 		else
 			sendChatWithConfiguredDelay(mc, text);
+		McCompat.addRecentChat(mc, text);
 		currentChatField.setValue("");
 	}
 
@@ -948,10 +949,25 @@ return createChatField(mc, font, x, y, width, height, 1F);
 public static EditBox createChatField(Minecraft mc, Font font, int x, int y,
 int width, int height, float uiScale) {
 UiInput field = new UiInput(font, width, "", Component.literal("Chat ...")) {
+private final UiUtilsChatHistory history = new UiUtilsChatHistory();
+@Override
+public void setValue(String value) {
+super.setValue(value);
+// Also reset when the Send Chat Field keybind clears this widget.
+if (history != null && value.isEmpty()) history.reset();
+}
 @Override
 public boolean keyPressed(net.minecraft.client.input.KeyEvent keyEvent) {
+if (!isFocused()) return false;
+int direction = McCompat.chatHistoryDirection(keyEvent);
+if (direction != 0) {
+setValue(history.move(McCompat.recentChat(mc), getValue(), direction));
+setCursorPosition(getValue().length());
+return true;
+}
 if (McCompat.isConfirmationKey(keyEvent)) {
 String text = getValue();
+if (text.isBlank()) return true;
 String command = null;
 if (UiUtilsCommandSystem.isUiUtilsCommand(text)) {
 command = UiUtilsCommandSystem.extractCommandBody(text);
@@ -968,6 +984,7 @@ String result = UiUtilsCommandSystem.execute(command);
 if (mc.player != null && !result.isEmpty())
 for (String line : result.split("\n"))
 mc.player.sendSystemMessage(Component.literal(line));
+McCompat.addRecentChat(mc, text);
 setValue("");
 return true;
 }
@@ -981,13 +998,14 @@ sendChatWithConfiguredDelay(mc, text);
 } else {
 LOGGER.warn("Minecraft player/connection was null while sending chat.");
 }
+McCompat.addRecentChat(mc, text);
 setValue("");
 return true;
 }
 return super.keyPressed(keyEvent);
 }
 };
-field.uiScale(uiScale);
+field.uiScale(Math.min(uiScale, Math.max(0.25F, (height - 4) / 8F)));
 field.setX(x);
 field.setY(y);
 field.setHeight(height);

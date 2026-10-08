@@ -64,6 +64,20 @@ public final class McCompat {
 			chat.addRecentChat(message);
 	}
 
+	/** Shared sent-message history, including messages sent through vanilla chat. */
+	public static List<String> recentChat(Minecraft mc) {
+		ChatComponent chat = mc == null ? null : getChatComponent(mc);
+		return chat == null ? List.of() : List.copyOf(chat.getRecentChat());
+	}
+
+	/** -1 for Up, +1 for Down, or zero for other keys. */
+	public static int chatHistoryDirection(KeyEvent event) {
+		if (event == null) return 0;
+		if (event.key() == (usesSdlInput() ? 82 : 265)) return -1;
+		if (event.key() == (usesSdlInput() ? 81 : 264)) return 1;
+		return 0;
+	}
+
 	/** Handles the InputConstants signature change between 26.1/26.2 and 26.3. */
 	public static boolean isKeyDown(Minecraft mc, InputConstants.Key key) {
 		if (mc == null || key == null)

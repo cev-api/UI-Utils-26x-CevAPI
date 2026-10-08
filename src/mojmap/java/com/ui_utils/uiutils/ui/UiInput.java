@@ -4,6 +4,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.network.chat.Component;
+import net.minecraft.client.input.MouseButtonEvent;
 
 /**
  * Text field with the modern frame. It keeps every vanilla editing behaviour and
@@ -15,6 +16,7 @@ public class UiInput extends EditBox implements UiScalable {
 	private static final int INNER_X = 4;
 
 	private boolean focusedFrame;
+	private boolean renderingText;
 	private float uiScale = 1F;
 	private int accent = UiTheme.ACCENT;
 
@@ -36,13 +38,38 @@ public class UiInput extends EditBox implements UiScalable {
 	}
 
 	public UiInput uiScale(float value) {
-		this.uiScale = value <= 0F ? 1F : value;
+		float next = value <= 0F ? 1F : value;
+		if (next != this.uiScale) {
+			this.uiScale = next;
+			refreshVisibleText();
+		}
 		return this;
 	}
 
 	@Override
 	public void applyUiScale(float value) {
 		uiScale(value);
+	}
+
+	@Override
+	public int getInnerWidth() {
+		if (renderingText) return super.getInnerWidth();
+		return Math.max(4, Math.round(getWidth() / (uiScale > 0F ? uiScale : 1F)) - INNER_X * 2);
+	}
+
+	private MouseButtonEvent textEvent(MouseButtonEvent event) {
+		return new MouseButtonEvent(getX() + (event.x() - getX()) / uiScale - INNER_X,
+			event.y(), event.buttonInfo());
+	}
+
+	@Override
+	public void onClick(MouseButtonEvent event, boolean doubleClick) {
+		super.onClick(textEvent(event), doubleClick);
+	}
+
+	@Override
+	protected void onDrag(MouseButtonEvent event, double dx, double dy) {
+		super.onDrag(textEvent(event), dx / uiScale, dy / uiScale);
 	}
 
 	/** Recompute the visible text window after the layout assigns its real width. */
@@ -83,9 +110,11 @@ public class UiInput extends EditBox implements UiScalable {
 		setY(y + insetY);
 		setWidth(Math.max(4, w - INNER_X * 2));
 		setHeight(Math.max(8, h - insetY));
+		renderingText = true;
 		try {
 			super.extractWidgetRenderState(graphics, mouseX, mouseY, partialTicks);
 		} finally {
+			renderingText = false;
 			setX(savedX);
 			setY(savedY);
 			setWidth(savedWidth);
