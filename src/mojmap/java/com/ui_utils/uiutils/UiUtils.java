@@ -372,11 +372,23 @@ public final class UiUtils {
 	}
 
 	public static void chatIfEnabled(String msg) {
-		if (!UiUtilsState.isUiEnabled() || !UiUtilsSettings.get().logToChat)
-			return;
 		Minecraft mc = Minecraft.getInstance();
-		if (mc.player != null)
-			mc.player.sendSystemMessage(styledUiMessage(msg));
+		if (mc.isSameThread()) {
+			postChatIfEnabled(mc, msg);
+			return;
+		}
+
+		// Packet hooks and asynchronous workers can call this helper off-thread.
+		// Chat message layout may bake glyphs and upload textures, which must only
+		// happen on the render/client thread.
+		mc.execute(() -> postChatIfEnabled(mc, msg));
+	}
+
+	private static void postChatIfEnabled(Minecraft mc, String msg) {
+		if (!UiUtilsState.isUiEnabled() || !UiUtilsSettings.get().logToChat
+			|| mc.player == null)
+			return;
+		mc.player.sendSystemMessage(styledUiMessage(msg));
 	}
 
 	private static Component styledUiMessage(String msg) {
