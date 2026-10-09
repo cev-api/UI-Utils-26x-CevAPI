@@ -6,11 +6,13 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
     "ChatScreenMixin",
+    "UiUtilsCommandSuggestionsMixin",
     "ClientCommonNetworkHandlerMixin",
     "ClientRegistrySyncHandlerMixin",
     "ClientPacketListenerChatMixin",
     "ClientPacketListenerMixin",
     "MappedRegistryFrozenAccessor",
+    "UiUtilsSoundManagerMixin",
     "MultiplayerScreenMixin",
     "ui_utils.ChestSlotOverlayMixin",
     "ui_utils.UiUtilsScreenAccessor",

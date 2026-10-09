@@ -146,7 +146,7 @@ public final class UiUtilsLegacyPluginScanner {
 		if (UiUtilsSettings.get().commandScannerDebugProbe) {
 			Minecraft mc = Minecraft.getInstance();
 			if (mc.player != null)
-				mc.player.sendSystemMessage(Component.literal("[UI-Utils] " + msg));
+				UiUtils.postSystemMessage(Component.literal("[UI-Utils] " + msg));
 		}
 	}
 

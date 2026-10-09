@@ -9,12 +9,14 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 
 public final class UiUtilsState {
-	public static boolean sendUiPackets = true;
-	public static boolean delayUiPackets = false;
+	public static volatile boolean sendUiPackets = true;
+	public static volatile boolean delayUiPackets = false;
 	public static boolean shouldEditSign = true;
 
-	public static final List<Packet<?>> delayedUiPackets = new ArrayList<>();
+	public static final List<Packet<?>> delayedUiPackets = java.util.Collections.synchronizedList(new ArrayList<>());
 
+	public static net.minecraft.client.multiplayer.ClientPacketListener savedSession;
+    public static net.minecraft.client.player.LocalPlayer savedPlayer;
 	public static Screen storedScreen;
 	public static AbstractContainerMenu storedMenu;
 	/** Title of the last saved GUI, used for the saved-GUI status readout. */
@@ -22,7 +24,9 @@ public final class UiUtilsState {
 	public static final Map<String, Screen> savedScreens = new HashMap<>();
 	public static final Map<String, AbstractContainerMenu> savedMenus = new HashMap<>();
 
-	public static boolean enabled = true;
+	public static volatile boolean xCarry;
+
+	public static volatile boolean enabled = true;
 	public static boolean skipNextContainerRemoval = false;
 	public static boolean fabricateOverlayOpen = false;
 	public static int fabricateOverlayX = -1;

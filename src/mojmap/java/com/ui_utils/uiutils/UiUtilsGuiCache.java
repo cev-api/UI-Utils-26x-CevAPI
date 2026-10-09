@@ -25,7 +25,19 @@ import net.minecraft.world.item.ItemStack;
  * clientside-only, and it can snapshot the whole GUI (not just the title).
  */
 public final class UiUtilsGuiCache {
-	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+	private static final java.util.Set<AbstractContainerMenu> liveMenus = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+    public static void onDisconnect() { liveMenus.clear(); clear(); }
+    public static void opened(AbstractContainerMenu menu) { liveMenus.add(menu); }
+    public static void closed(AbstractContainerMenu menu) { liveMenus.remove(menu); }
+    public static void closedId(int id) { liveMenus.removeIf(menu -> menu.containerId == id); }
+    public static void onOutgoing(net.minecraft.network.protocol.Packet<?> packet) {
+        if (packet instanceof net.minecraft.network.protocol.game.ServerboundContainerClosePacket close) {
+            Minecraft mc = Minecraft.getInstance();
+            var session = mc.getConnection();
+            mc.execute(() -> { if (session == mc.getConnection()) closedId(close.getContainerId()); });
+        }
+    }
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
 	private UiUtilsGuiCache() {
 	}
@@ -66,6 +78,8 @@ public final class UiUtilsGuiCache {
 	public static boolean clear() {
 		boolean had = hasSaved() || !UiUtilsState.savedScreens.isEmpty()
 			|| !UiUtilsState.savedMenus.isEmpty();
+        UiUtilsState.savedSession = null;
+        UiUtilsState.savedPlayer = null;
 		UiUtilsState.storedScreen = null;
 		UiUtilsState.storedMenu = null;
 		UiUtilsState.storedGuiName = "";
@@ -84,7 +98,9 @@ public final class UiUtilsGuiCache {
 		int revision = UiUtilsState.storedMenu.getStateId();
 		boolean active = mc != null && mc.player != null
 			&& mc.player.containerMenu == UiUtilsState.storedMenu
-			&& mc.getConnection() != null;
+			&& mc.getConnection() == UiUtilsState.savedSession
+            && mc.player == UiUtilsState.savedPlayer
+            && (liveMenus.contains(UiUtilsState.storedMenu) || UiUtilsState.storedMenu == mc.player.inventoryMenu);
 		return new Status(true, name, syncId, revision, active);
 	}
 
@@ -93,7 +109,7 @@ public final class UiUtilsGuiCache {
 			return new Status(false, "-", -1, -1, false);
 		AbstractContainerMenu menu = mc.player.containerMenu;
 		return new Status(true, currentGuiName(mc), menu.containerId,
-			menu.getStateId(), mc.getConnection() != null);
+			menu.getStateId(), mc.getConnection() != null && (liveMenus.contains(menu) || menu == mc.player.inventoryMenu));
 	}
 
 	public static String currentGuiName(Minecraft mc) {

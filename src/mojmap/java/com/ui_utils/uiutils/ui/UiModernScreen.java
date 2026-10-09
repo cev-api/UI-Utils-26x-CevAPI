@@ -153,7 +153,26 @@ public abstract class UiModernScreen extends Screen {
 	/** Rebuilds dynamic content without throwing away the user's scroll position. */
 	protected final void rebuildWidgetsPreservingScroll() {
 		double previousScroll = scroll;
-		rebuildWidgets();
+        java.util.List<net.minecraft.client.gui.components.EditBox> oldFields = children().stream()
+            .filter(net.minecraft.client.gui.components.EditBox.class::isInstance)
+            .map(net.minecraft.client.gui.components.EditBox.class::cast).toList();
+        int focusedIndex = oldFields.indexOf(getFocused());
+        int cursor = focusedIndex < 0 ? 0 : oldFields.get(focusedIndex).getCursorPosition();
+        int highlight = cursor;
+        if (focusedIndex >= 0) {
+            try {
+                var field = net.minecraft.client.gui.components.EditBox.class.getDeclaredField("highlightPos");
+                field.setAccessible(true); highlight = field.getInt(oldFields.get(focusedIndex));
+            } catch (ReflectiveOperationException ignored) {}
+        }
+        rebuildWidgets();
+        java.util.List<net.minecraft.client.gui.components.EditBox> newFields = children().stream()
+            .filter(net.minecraft.client.gui.components.EditBox.class::isInstance)
+            .map(net.minecraft.client.gui.components.EditBox.class::cast).toList();
+        if (focusedIndex >= 0 && focusedIndex < newFields.size()) {
+            var field = newFields.get(focusedIndex);
+            setFocused(field); field.setCursorPosition(cursor); field.setHighlightPos(highlight);
+        }
 		scroll = Mth.clamp(previousScroll, 0, maxScroll);
 		placeItems();
 	}

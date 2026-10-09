@@ -19,6 +19,7 @@ public final class ActionFieldRegistry {
         SCHEMAS.put(UiUtilsMacroActionType.WAIT_HEALTH, ActionFieldSchema.builder().decimal("healthThreshold", "Target Health").decRange(0.0, 20.0).enumField("comparison", "Condition", "Drops Below", "Rises Above").build());
         SCHEMAS.put(UiUtilsMacroActionType.WAIT_BLOCK, ActionFieldSchema.builder().enumField("checkMode", "Check Mode", "AT_POSITION", "IN_REACH", "LOOKING_AT").enumField("waitBehavior", "Wait For", "PLACED", "DESTROYED").toggle("anyBlock", "Any Block").stringList("blockIds", "Block IDs").addLabel("Add").captureBlock().hideWhen("anyBlock").blockPos("pos", "Position").showWhenEnum("checkMode", "AT_POSITION").toggle("mustBeInReach", "Must Be In Reach").showWhenEnum("checkMode", "AT_POSITION").decimal("searchRadius", "Search Radius").decRange(0.0, 32.0).showWhenEnum("checkMode", "IN_REACH").build());
         SCHEMAS.put(UiUtilsMacroActionType.WAIT_GUI, ActionFieldSchema.builder().enumField("waitMode", "Wait Mode", "OPEN", "CLOSE").text("guiTitle", "GUI Title").build());
+        SCHEMAS.put(UiUtilsMacroActionType.LOOK_AT_BLOCK, ActionFieldSchema.builder().blockPos("pos", "Block Position").build());
         SCHEMAS.put(UiUtilsMacroActionType.ROTATE, ActionFieldSchema.builder().decimal("yaw", "Yaw").decRange(-180.0, 180.0).decimal("pitch", "Pitch").decRange(-90.0, 90.0).toggle("smooth", "Smooth").number("smoothness", "Smoothness").range(1, 10).showWhen("smooth").toggle("waitForCompletion", "Wait for Completion").build());
         SCHEMAS.put(UiUtilsMacroActionType.USE_ITEM, ActionFieldSchema.builder().text("itemName", "Item Name").enumField("useMode", "Use Mode", "AUTOMATIC", "CUSTOM_HOLD").number("holdTicks", "Hold Ticks").range(1, 1000).showWhenEnum("useMode", "CUSTOM_HOLD").number("useCount", "Use Count").range(1, 1000).showWhenEnum("useMode", "AUTOMATIC").build());
         SCHEMAS.put(UiUtilsMacroActionType.SELECT_SLOT, ActionFieldSchema.builder().slot("slot", "Slot").text("itemName", "Item Name").build());
@@ -92,7 +93,7 @@ public final class ActionFieldRegistry {
             .toggle("enabled", "Enable XCarry")
             .build());
         SCHEMAS.put(UiUtilsMacroActionType.CRAFT, ActionFieldSchema.builder()
-            .text("recipeId", "Recipe ID")
+            .text("recipeId", "Output Item / Display ID")
             .number("times", "Times").range(1, 128)
             .build());
         SCHEMAS.put(UiUtilsMacroActionType.CLICK, ActionFieldSchema.builder()
@@ -100,7 +101,7 @@ public final class ActionFieldRegistry {
             .number("times", "Times").range(1, 1000)
             .build());
         SCHEMAS.put(UiUtilsMacroActionType.PACKET, ActionFieldSchema.builder()
-            .text("packetName", "Packet Name")
+            .text("packetName", "Captured Outgoing Packet")
             .toggle("waitForGui", "Wait for GUI")
             .text("waitGuiName", "GUI Name").showWhen("waitForGui")
             .build());
@@ -109,11 +110,11 @@ public final class ActionFieldRegistry {
             .text("payload", "Payload")
             .build());
         SCHEMAS.put(UiUtilsMacroActionType.TOGGLE_MODULE, ActionFieldSchema.builder()
-            .text("moduleName", "Module Name")
+            .text("moduleName", "UI-Utils Module")
             .enumField("mode", "Mode", "TOGGLE", "ENABLE", "DISABLE")
             .build());
         SCHEMAS.put(UiUtilsMacroActionType.SEND_PACKET, ActionFieldSchema.builder()
-            .text("packetName", "Packet Name")
+            .text("packetName", "Captured Outgoing Packet")
             .number("times", "Times").range(1, 1000)
             .build());
         SCHEMAS.put(UiUtilsMacroActionType.WAIT_PACKET, ActionFieldSchema.builder()
@@ -142,7 +143,7 @@ public final class ActionFieldRegistry {
             .build());
         SCHEMAS.put(UiUtilsMacroActionType.INVENTORY_AUDIT, ActionFieldSchema.builder()
             .toggle("strict", "Strict Validation")
-            .stringList("rules", "Rules").addLabel("Add Rule")
+            .stringList("rules", "Rules: slot=item>=count").addLabel("Add Rule")
             .build());
         SCHEMAS.put(UiUtilsMacroActionType.MINE, ActionFieldSchema.builder()
             .stringList("blockIds", "Block IDs").addLabel("Add")

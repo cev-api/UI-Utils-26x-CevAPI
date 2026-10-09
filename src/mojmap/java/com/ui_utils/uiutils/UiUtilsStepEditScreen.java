@@ -46,6 +46,9 @@ public final class UiUtilsStepEditScreen extends UiModernScreen {
         applyTransientInputs();
         defs.clear();
         defs.addAll(ActionFieldRegistry.get(action.getType()).fields());
+        if ((action.getType().name().startsWith("WAIT_") || action.getType().name().endsWith("_SYNC"))
+            && defs.stream().noneMatch(def -> def.key().equals("timeoutMs")))
+            defs.addAll(com.ui_utils.uiutils.macroeditor.ActionFieldSchema.builder().number("timeoutMs", "Timeout (ms; 0 = 30000)").range(0, 300000).build().fields());
         fields.clear();
         stringListEditors.clear();
         visibleDefs.clear();

@@ -82,7 +82,7 @@ public final class UiUtilsGuiPacketControl {
 		new LinkedHashMap<>();
 	private static final Map<String, Class<? extends Packet<?>>> TYPE_BY_ID =
 		new LinkedHashMap<>();
-	private static final Map<String, Mode> MODES = new LinkedHashMap<>();
+	private static final Map<String, Mode> MODES = new java.util.concurrent.ConcurrentHashMap<>();
 
 	static {
 		for (Entry entry : ENTRIES) {

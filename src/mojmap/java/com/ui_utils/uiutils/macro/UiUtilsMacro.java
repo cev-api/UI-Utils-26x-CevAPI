@@ -10,6 +10,7 @@ public final class UiUtilsMacro {
     public String name = "New Macro";
     public String description = "";
     public boolean loop = false;
+    public boolean shareSteps = false;
     public int loopCount = -1;
     public int keyCode = -1;
     // Translation key names survive GLFW -> SDL numeric key changes in 26.3.
@@ -25,6 +26,7 @@ public final class UiUtilsMacro {
         tag.putString("name", name == null ? "New Macro" : name);
         tag.putString("description", description == null ? "" : description);
         tag.putBoolean("loop", loop);
+        tag.putBoolean("shareSteps", shareSteps);
         tag.putInt("loopCount", loopCount);
         tag.putInt("keyCode", keyCode);
         tag.putString("keyName", keyName == null ? "" : keyName);
@@ -41,6 +43,7 @@ public final class UiUtilsMacro {
         macro.name = tag.getStringOr("name", "New Macro");
         macro.description = tag.getStringOr("description", "");
         macro.loop = tag.getBooleanOr("loop", false);
+        macro.shareSteps = tag.getBooleanOr("shareSteps", false);
         macro.loopCount = tag.getIntOr("loopCount", -1);
         macro.keyCode = tag.getIntOr("keyCode", -1);
         macro.keyName = tag.getStringOr("keyName", "");

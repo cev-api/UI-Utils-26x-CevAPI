@@ -58,9 +58,9 @@ public enum UiUtilsMacroActionType {
     public static UiUtilsMacroActionType byName(String name) {
         if (name == null || name.isBlank()) return DELAY;
         try {
-            return valueOf(name.trim().toUpperCase());
-        } catch (IllegalArgumentException ignored) {
-            return DELAY;
+            return valueOf(name.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalArgumentException("Unknown macro action: " + name, failure);
         }
     }
 }

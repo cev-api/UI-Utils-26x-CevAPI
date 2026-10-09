@@ -6,31 +6,31 @@ import net.minecraft.client.gui.Font;
 
 public final class PacketHud {
     private static long lastSecond = System.nanoTime();
-    private static int secIn, secOut;
+    private static final java.util.concurrent.atomic.AtomicInteger secIn = new java.util.concurrent.atomic.AtomicInteger();
+    private static final java.util.concurrent.atomic.AtomicInteger secOut = new java.util.concurrent.atomic.AtomicInteger();
     private static int rateIn, rateOut;
-    private static long totalIn, totalOut;
+    private static final java.util.concurrent.atomic.AtomicLong totalIn = new java.util.concurrent.atomic.AtomicLong();
+    private static final java.util.concurrent.atomic.AtomicLong totalOut = new java.util.concurrent.atomic.AtomicLong();
 
     private PacketHud() {}
 
     public static void onTick() {
         long now = System.nanoTime();
         if (now - lastSecond >= 1_000_000_000L) {
-            rateIn = secIn;
-            rateOut = secOut;
-            secIn = 0;
-            secOut = 0;
+            rateIn = secIn.getAndSet(0);
+            rateOut = secOut.getAndSet(0);
             lastSecond = now;
         }
     }
 
     public static void incIncoming() {
-        secIn++;
-        totalIn++;
+        secIn.incrementAndGet();
+        totalIn.incrementAndGet();
     }
 
     public static void incOutgoing() {
-        secOut++;
-        totalOut++;
+        secOut.incrementAndGet();
+        totalOut.incrementAndGet();
     }
 
     public static void render(GuiGraphicsExtractor g) {

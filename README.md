@@ -30,21 +30,6 @@ To compile specifically against Minecraft `26.3`, override the versions at build
 ./gradlew build -Pminecraft_version=26.3 -Pfabric_version=0.160.6+26.3 -Ploader_version=0.19.5
 ```
 
-Every build runs headless UI regression checks for dropdown selection after layout,
-hidden controls, repeated mode/position/scale changes, version-specific input,
-macro keybind edges and persistence, screen navigation, and macro cancellation.
-Run them separately with `./gradlew regressionTest`.
-To test the oldest compiled classes against a newer runtime, build normally first,
-then run `regressionTest` with the version overrides and
-`-x compileJava -x compileRegressionJava`.
-
-Check a release jar's direct Minecraft API references against runtime jars with:
-
-```powershell
-python scripts/check_mc_linkage.py build/libs/<release>.jar <minecraft-26.1.jar> <minecraft-26.2.jar> <minecraft-26.3.jar>
-```
-
-These checks complement in-game testing of rendering, server connections, and other mods.
 The macro file picker runs inside Minecraft and needs no optional native dialog library.
 New macro bindings store key names so they survive the GLFW-to-SDL change in 26.3;
 older macros containing only numeric bindings may need rebinding when moved between input systems.
@@ -260,39 +245,6 @@ Main commands:
 - `gui <status|save|saveclose|load|clear|copy|steal|dump|tools>`
 - `guilog <on|off|toggle|file|clear|copy|open>`
 - `guipackets <list|cycle <id>|reset|delay <ticks>|screen>`
-
-- Slot overlay mode: `OFF` / `HOVER` / `ALWAYS`
-- Packet HUD toggle
-- Log to chat toggle
-- Bypass resource-pack toggle (master switch for interception; required server-pack requests are reported as accepted and loaded without downloading or applying the pack)
-- Force-deny resource-pack toggle (while bypass is enabled, declines intercepted requests, including optional offers)
-- Ignore registry-sync toggle (adds inert placeholders for unknown mob effects to help preserve raw-ID alignment; other unknown registry data is skipped and logged, which can leave client and server IDs mismatched)
-- Show resource-pack buttons toggle (when enabled, shows all three protection checkboxes near the bottom-left of the Multiplayer screen)
-- If another mod already provides an equivalent checkbox, UI-Utils hides its duplicate. The Multiplayer screen’s Back button is hidden while any protection checkbox is visible.
-- Steal/Store/Dump buttons toggle (shows or hides the container-page Steal / Store / Dump buttons)
-- AntiCheat detector toggle
-- Disconnect method selector
-- Timeout seconds selector (for `TIMEOUT` disconnect mode)
-- Timeout lag method selector (for `TIMEOUT` disconnect mode)
-- Color target selector
-  - Button background color
-  - Button text color
-  - Overlay number color
-  - Packet HUD text color
-- HSV color picker for selected target
-- Selected color hex field (`#RRGGBB`)
-- Slot overlay alpha
-- Slot overlay X offset
-- Slot overlay Y offset
-- Fabricate overlay background alpha
-- Restore GUI key field
-- Packet tool key field
-- Delay toggle key field
-- Keybinds page: configurable bindings for restore, packet tool, scanners, autoduper start, packet queue controls, disconnect flows and chat field send
-- UI close delay ticks
-- UI command/chat delay ticks
-- Autoduper: plugin GUI open command, prepare command, target slot, max attempts, step delay, verbose mode, drop validation, single-attempt replay, abort key, hold-to-abort toggle and category filters
-- Autoduper category filters include hybrid command+interact reopen and finish actions (leave+send / disconnect+send)
 
 ## Macro Import/Export
 

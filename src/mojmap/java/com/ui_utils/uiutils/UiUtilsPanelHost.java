@@ -73,6 +73,10 @@ public final class UiUtilsPanelHost {
 					foregroundWidgets.put(screen, widgets);
 				}
 				ScreenRenderCompat.registerForeground(screen);
+                ScreenEvents.remove(screen).register(s -> {
+                    foregroundWidgets.remove(s);
+                    UiUtilsMainPanelDrag.detach(s);
+                });
 				if (UiUtilsPanels.isAllowedScreen(screen))
 					attachTo(screen);
 			} catch (Throwable t) {

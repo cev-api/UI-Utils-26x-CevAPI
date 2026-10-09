@@ -13,6 +13,8 @@ public final class UiUtilsMainPanelDrag {
 
 	private UiUtilsMainPanelDrag() {}
 
+	public static void detach(Screen screen) { CONTROLLERS.remove(screen); }
+
 	public static void attach(Screen screen, List<AbstractWidget> widgets,
 		UiUtils.UiWidgetLayout layout, int baseX, int baseY) {
 		Controller controller = CONTROLLERS.get(screen);
@@ -40,17 +42,17 @@ public final class UiUtilsMainPanelDrag {
 	}
 
 	private static final class Controller {
-		private final Screen screen;
-		private List<AbstractWidget> widgets = List.of();
+		private final java.lang.ref.WeakReference<Screen> screen;
+		private java.lang.ref.WeakReference<List<AbstractWidget>> widgets = new java.lang.ref.WeakReference<>(List.of());
 		private int x, y, width, height, headerHeight, baseX, baseY;
 		private double lastMouseX, lastMouseY;
 		private boolean dragging;
 
-		private Controller(Screen screen) { this.screen = screen; }
+		private Controller(Screen screen) { this.screen = new java.lang.ref.WeakReference<>(screen); }
 
 		private void update(List<AbstractWidget> widgets,
 			UiUtils.UiWidgetLayout layout, int baseX, int baseY) {
-			this.widgets = widgets;
+			this.widgets = new java.lang.ref.WeakReference<>(widgets);
 			x = layout.panelX(); y = layout.panelY();
 			width = layout.panelWidth(); height = layout.panelHeight();
 			headerHeight = layout.panelHeaderHeight();
@@ -59,7 +61,7 @@ public final class UiUtilsMainPanelDrag {
 		}
 
 		private boolean mouseClicked(MouseButtonEvent event) {
-			if(!isLeftButton(event) || !inDraggableHeader(event.x(), event.y())
+			if(UiUtilsSettings.get().mainUiPinned || !isLeftButton(event) || !inDraggableHeader(event.x(), event.y())
 				|| isOverPin(event.x(), event.y()))
 				return false;
 			beginDrag(event);
@@ -76,20 +78,15 @@ public final class UiUtilsMainPanelDrag {
 		}
 
 		private void beginDrag(MouseButtonEvent event) {
-			// A saved pin must not strand the menu off-screen: dragging its header
-			// unlocks it as part of the same gesture. The three-line control remains
-			// available to lock it again once positioned.
-			if(UiUtilsSettings.get().mainUiPinned) {
-				UiUtilsSettings.get().mainUiPinned = false;
-				UiUtilsSettings.save();
-			}
 			dragging = true;
 			lastMouseX = event.x();
 			lastMouseY = event.y();
 		}
 
 		private boolean isOverPin(double mouseX, double mouseY) {
-			for(AbstractWidget widget : widgets)
+            List<AbstractWidget> controls = widgets.get();
+            if (controls == null) return false;
+			for(AbstractWidget widget : controls)
 				if(widget instanceof com.ui_utils.uiutils.ui.UiPinToggle
 					&& mouseX >= widget.getX() && mouseX < widget.getX() + widget.getWidth()
 					&& mouseY >= widget.getY() && mouseY < widget.getY() + widget.getHeight())
@@ -98,10 +95,13 @@ public final class UiUtilsMainPanelDrag {
 		}
 
 		private boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
+            Screen owner = screen.get();
+            List<AbstractWidget> controls = widgets.get();
+            if (owner == null || controls == null) return false;
 			if(!dragging) {
 				// If the container screen swallowed the initial click, its drag
 				// callback still carries the original pointer and lets us recover.
-				if(!isLeftButton(event) || !inDraggableHeader(event.x(), event.y())
+				if(UiUtilsSettings.get().mainUiPinned || !isLeftButton(event) || !inDraggableHeader(event.x(), event.y())
 					|| isOverPin(event.x(), event.y()))
 					return false;
 				beginDrag(event);
@@ -119,11 +119,11 @@ public final class UiUtilsMainPanelDrag {
 			}
 			lastMouseX = pointerX;
 			lastMouseY = pointerY;
-			int minX = 4 - x, maxX = screen.width - 4 - (x + width);
-			int minY = 4 - y, maxY = screen.height - 4 - (y + height);
+			int minX = 4 - x, maxX = owner.width - 4 - (x + width);
+			int minY = 4 - y, maxY = owner.height - 4 - (y + height);
 			moveX = Math.max(minX, Math.min(Math.max(minX, maxX), moveX));
 			moveY = Math.max(minY, Math.min(Math.max(minY, maxY), moveY));
-			for(AbstractWidget widget : widgets) {
+			for(AbstractWidget widget : controls) {
 				widget.setX(widget.getX() + moveX);
 				widget.setY(widget.getY() + moveY);
 			}

@@ -12,8 +12,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.WeakHashMap;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
@@ -50,7 +48,10 @@ public final class UiUtils {
 	private static int autoduperFlashTick;
 	private static final Map<String, Boolean> keyActionDown = new HashMap<>();
 	private static boolean initialized;
-	private static EditBox currentChatField;
+	private record PacketOrigin(net.minecraft.network.Connection connection, net.minecraft.network.PacketListener listener) {}
+    private static final Map<Packet<?>, PacketOrigin> queuedOrigins = new java.util.IdentityHashMap<>();
+    private static EditBox currentChatField;
+	private static net.minecraft.client.multiplayer.ClientPacketListener activeSession;
 
 	private UiUtils() {}
 
@@ -66,6 +67,13 @@ public final class UiUtils {
 	}
 
 	public static void onClientTick(Minecraft mc) {
+        if (activeSession != mc.getConnection()) {
+            onServerDisconnect();
+            activeSession = mc.getConnection();
+            if (activeSession != null && mc.player != null && mc.player.containerMenu != mc.player.inventoryMenu)
+                UiUtilsGuiCache.opened(mc.player.containerMenu);
+        }
+        UiUtilsTasks.tick(mc);
 		refreshQueueCounterButtons();
 		refreshAutoduperButtons();
 		UiUtilsServerFingerprintCollector.onClientTick(mc);
@@ -79,8 +87,6 @@ public final class UiUtils {
 		UiUtilsPanels.onClientTick(mc);
 		UiUtilsVersionChecker.onClientTick(mc);
 		UiUtilsGuiPacketLog.flush();
-		if (mc == null || mc.getConnection() == null)
-			onServerDisconnect();
 		if (mc == null || mc.getWindow() == null)
 			return;
 
@@ -96,8 +102,6 @@ public final class UiUtils {
 		updateKeybindEdges(mc, true);
 		UiUtilsMacroManager.get().updateKeybinds(mc,
 			UiUtilsState.isUiEnabled() && mc.player != null && mc.getConnection() != null);
-		if (mc.getConnection() == null)
-			onServerDisconnect();
 	}
 
 	/**
@@ -105,11 +109,28 @@ public final class UiUtils {
 	 * goes away. This is intentionally centralized so every source that can
 	 * enable packet delay gets the same disconnect behavior.
 	 */
-	public static void onServerDisconnect() {
+	public static void onServerDisconnect(net.minecraft.network.Connection source) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.execute(() -> {
+            if (mc.getConnection() == null || mc.getConnection().getConnection() == source) onServerDisconnect();
+        });
+    }
+
+    public static void onServerDisconnect() {
+        Minecraft mc = Minecraft.getInstance();
+        if (!mc.isSameThread()) { mc.execute(UiUtils::onServerDisconnect); return; }
+        UiUtilsTasks.clear();
+        UiUtilsState.xCarry = false;
+        AdvancedPacketTool.onDisconnect(activeSession == null ? null : activeSession.getConnection());
+        UiUtilsMacroExecutor.stop();
+        com.ui_utils.uiutils.macro.UiUtilsMacroRuntimeState.reset();
+        com.ui_utils.uiutils.macro.UiUtilsMacroActions.reset();
+        UiUtilsGuiCache.onDisconnect();
 		boolean wasDelayed = UiUtilsState.delayUiPackets;
 		int queued = UiUtilsState.delayedUiPackets.size();
 		UiUtilsState.delayUiPackets = false;
 		UiUtilsState.delayedUiPackets.clear();
+        queuedOrigins.clear();
 		refreshQueueCounterButtons();
 		if (wasDelayed || queued > 0)
 			LOGGER.info("Disabled packet delay after disconnect; discarded {} queued packets", queued);
@@ -182,8 +203,8 @@ public final class UiUtils {
 			UiUtilsState.delayUiPackets = !UiUtilsState.delayUiPackets;
 			chatIfEnabled("Delay packets: " + UiUtilsState.delayUiPackets);
 			if (!UiUtilsState.delayUiPackets && !UiUtilsState.delayedUiPackets.isEmpty() && mc.getConnection() != null) {
-				for (net.minecraft.network.protocol.Packet<?> p : UiUtilsState.delayedUiPackets)
-					mc.getConnection().send(p);
+				for (net.minecraft.network.protocol.Packet<?> p : queuedPacketsSnapshot())
+					replayQueuedPacket(mc, p);
 				if (mc.player != null)
 					mc.player.sendSystemMessage(Component.literal("Sent " + UiUtilsState.delayedUiPackets.size() + " packets."));
 				UiUtilsState.delayedUiPackets.clear();
@@ -192,7 +213,8 @@ public final class UiUtils {
 		}
 
 	private static void restoreScreen(Minecraft mc) {
-		if (UiUtilsState.storedScreen == null || UiUtilsState.storedMenu == null || mc.player == null)
+		if (UiUtilsState.storedScreen == null || UiUtilsState.storedMenu == null || mc.player == null
+            || mc.getConnection() != UiUtilsState.savedSession || mc.player != UiUtilsState.savedPlayer)
 			return;
 		McCompat.setScreen(mc, UiUtilsState.storedScreen);
 		mc.player.containerMenu = UiUtilsState.storedMenu;
@@ -371,7 +393,16 @@ public final class UiUtils {
 		boolean alwaysAvailable) {
 	}
 
-	public static void chatIfEnabled(String msg) {
+	/** Posts explicit tool output and errors without accessing font/UI state off-thread. */
+    public static void postSystemMessage(Component message) {
+        Minecraft mc = Minecraft.getInstance();
+        var session = mc.getConnection();
+        mc.execute(() -> { if (session == mc.getConnection() && mc.player != null) mc.player.sendSystemMessage(message); });
+    }
+
+    public static void reportError(String message) { postSystemMessage(styledUiMessage(message)); }
+
+    public static void chatIfEnabled(String msg) {
 		Minecraft mc = Minecraft.getInstance();
 		if (mc.isSameThread()) {
 			postChatIfEnabled(mc, msg);
@@ -381,7 +412,8 @@ public final class UiUtils {
 		// Packet hooks and asynchronous workers can call this helper off-thread.
 		// Chat message layout may bake glyphs and upload textures, which must only
 		// happen on the render/client thread.
-		mc.execute(() -> postChatIfEnabled(mc, msg));
+		var session = mc.getConnection();
+        mc.execute(() -> { if (session == mc.getConnection()) postChatIfEnabled(mc, msg); });
 	}
 
 	private static void postChatIfEnabled(Minecraft mc, String msg) {
@@ -487,19 +519,22 @@ public final class UiUtils {
 
 	public static boolean saveCurrentGuiToSlot(Minecraft mc, String slot,
 		String guiName) {
-		if (mc.player == null)
+		if (mc.player == null || mc.getConnection() == null)
 			return false;
 		String key = slot.toLowerCase(Locale.ROOT);
-		UiUtilsState.storedScreen = McCompat.getScreen(mc);
+		if (UiUtilsState.savedSession != mc.getConnection() || UiUtilsState.savedPlayer != mc.player) UiUtilsGuiCache.clear();
+        UiUtilsState.storedScreen = McCompat.getScreen(mc);
 		UiUtilsState.storedMenu = mc.player.containerMenu;
 		UiUtilsState.storedGuiName = guiName == null ? "" : guiName;
+		UiUtilsState.savedSession = mc.getConnection();
+        UiUtilsState.savedPlayer = mc.player;
 		UiUtilsState.savedScreens.put(key, UiUtilsState.storedScreen);
 		UiUtilsState.savedMenus.put(key, mc.player.containerMenu);
 		return true;
 	}
 
 	public static boolean loadGuiFromSlot(Minecraft mc, String slot) {
-		if (mc.player == null)
+		if (mc.player == null || mc.getConnection() != UiUtilsState.savedSession || mc.player != UiUtilsState.savedPlayer)
 			return false;
 		String key = slot.toLowerCase(Locale.ROOT);
 		Screen screen = UiUtilsState.savedScreens.get(key);
@@ -516,15 +551,11 @@ public final class UiUtils {
 	public static int sendQueuedPackets(Minecraft mc, int times) {
 		if (mc.getConnection() == null || times < 1 || UiUtilsState.delayedUiPackets.isEmpty())
 			return 0;
-		boolean prevDelay = UiUtilsState.delayUiPackets;
-		UiUtilsState.delayUiPackets = false;
 		int sent = 0;
 		for (int i = 0; i < times; i++)
-			for (Packet<?> packet : UiUtilsState.delayedUiPackets) {
-				mc.getConnection().send(packet);
-				sent++;
+			for (Packet<?> packet : queuedPacketsSnapshot()) {
+				if (replayQueuedPacket(mc, packet)) sent++;
 			}
-		UiUtilsState.delayUiPackets = prevDelay;
 		refreshQueueCounterButtons();
 		return sent;
 	}
@@ -532,13 +563,10 @@ public final class UiUtils {
 	public static boolean sendOneQueuedPacket(Minecraft mc) {
 		if (mc.getConnection() == null || UiUtilsState.delayedUiPackets.isEmpty())
 			return false;
-		boolean prevDelay = UiUtilsState.delayUiPackets;
-		UiUtilsState.delayUiPackets = false;
 		Packet<?> packet = UiUtilsState.delayedUiPackets.remove(0);
-		mc.getConnection().send(packet);
-		UiUtilsState.delayUiPackets = prevDelay;
+		boolean sent = replayQueuedPacket(mc, packet);
 		refreshQueueCounterButtons();
-		return true;
+		return sent;
 	}
 
 	public static boolean popLastQueuedPacket() {
@@ -557,7 +585,12 @@ public final class UiUtils {
 	}
 
 	public static void refreshQueueCounterButtons() {
-		String text = "Queue: " + UiUtilsState.delayedUiPackets.size();
+        Minecraft mc = Minecraft.getInstance();
+        if (!mc.isSameThread()) { mc.execute(UiUtils::refreshQueueCounterButtons); return; }
+		java.util.Set<Packet<?>> held = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        held.addAll(queuedPacketsSnapshot());
+        queuedOrigins.keySet().retainAll(held);
+        String text = "Queue: " + UiUtilsState.delayedUiPackets.size();
 		queueCounterButtons.keySet().removeIf(button -> button == null);
 		for (UiUtilsColoredButton button : queueCounterButtons.keySet())
 			button.setMessage(Component.literal(text));
@@ -634,8 +667,8 @@ public final class UiUtils {
 					if (!UiUtilsState.delayUiPackets
 						&& !UiUtilsState.delayedUiPackets.isEmpty()
 						&& mc.getConnection() != null) {
-						for (Packet<?> packet : UiUtilsState.delayedUiPackets)
-							mc.getConnection().send(packet);
+						for (Packet<?> packet : queuedPacketsSnapshot())
+							replayQueuedPacket(mc, packet);
 						if (mc.player != null)
 							mc.player.sendSystemMessage(Component.literal("Sent "
 								+ UiUtilsState.delayedUiPackets.size() + " packets."));
@@ -960,7 +993,7 @@ return createChatField(mc, font, x, y, width, height, 1F);
 /** Chat field carrying the panel scale, so its text matches the buttons. */
 public static EditBox createChatField(Minecraft mc, Font font, int x, int y,
 int width, int height, float uiScale) {
-UiInput field = new UiInput(font, width, "", Component.literal("Chat ...")) {
+UiInput field = new UiUtilsCommandInput(font, width, Component.literal("Chat ...")) {
 private final UiUtilsChatHistory history = new UiUtilsChatHistory();
 @Override
 public void setValue(String value) {
@@ -971,6 +1004,7 @@ if (history != null && value.isEmpty()) history.reset();
 @Override
 public boolean keyPressed(net.minecraft.client.input.KeyEvent keyEvent) {
 if (!isFocused()) return false;
+if (completionKey(keyEvent)) return true;
 int direction = McCompat.chatHistoryDirection(keyEvent);
 if (direction != 0) {
 setValue(history.move(McCompat.recentChat(mc), getValue(), direction));
@@ -1099,14 +1133,16 @@ return field;
 				LOGGER.warn("Minecraft connection was null while sending packets.");
 				return;
 			}
-			mc.getConnection().send(packet);
+			replayQueuedPacket(mc, packet);
 		};
 	}
 
 	public static void closeScreenWithConfiguredDelay(Minecraft mc) {
 		int delayTicks = Math.max(0, UiUtilsSettings.get().uiCloseDelayTicks);
+        Screen originalScreen = McCompat.getScreen(mc);
 		queueTask(() -> {
 			Minecraft current = Minecraft.getInstance();
+			if (McCompat.getScreen(current) != originalScreen) return;
 			McCompat.setScreen(current, null);
 			chatIfEnabled("Closed GUI without packet"
 				+ delaySuffix(delayTicks));
@@ -1119,11 +1155,13 @@ return field;
 				"Minecraft connection or player was null while using 'De-sync'.");
 			return;
 		}
-		int syncId = mc.player.containerMenu.containerId;
+		AbstractContainerMenu originalMenu = mc.player.containerMenu;
+		int syncId = originalMenu.containerId;
 		int delayTicks = Math.max(0, UiUtilsSettings.get().uiCloseDelayTicks);
 		queueTask(() -> {
 			Minecraft current = Minecraft.getInstance();
-			if (current.getConnection() == null || current.player == null)
+			if (current.getConnection() == null || current.player == null
+                || current.player.containerMenu != originalMenu)
 				return;
 			current.getConnection().send(new ServerboundContainerClosePacket(syncId));
 			chatIfEnabled("De-synced syncId " + syncId + delaySuffix(delayTicks));
@@ -1169,13 +1207,38 @@ return field;
 		}
 	}
 
-	public static void queueTask(Runnable runnable, long delayMs) {
-		Timer timer = new Timer();
-		timer.schedule(new TimerTask() {
-			@Override
-			public void run() {
-				Minecraft.getInstance().execute(runnable);
-			}
-		}, delayMs);
-	}
+    private static boolean replayQueuedPacket(Minecraft mc, Packet<?> packet) {
+        PacketOrigin origin = queuedOrigins.get(packet);
+        if (origin == null || mc.getConnection() == null || origin.connection != mc.getConnection().getConnection()
+            || origin.listener != origin.connection.getPacketListener() || !origin.connection.isConnected()) {
+            LOGGER.warn("Discarded stale queued {} after connection/protocol change", packet.getClass().getSimpleName());
+            return false;
+        }
+        UiUtilsPacketReplay.send(origin.connection, packet); return true;
+    }
+
+    public static List<Packet<?>> queuedPacketsSnapshot() {
+        synchronized (UiUtilsState.delayedUiPackets) { return new ArrayList<>(UiUtilsState.delayedUiPackets); }
+    }
+
+    public static void enqueueUiPacket(net.minecraft.network.Connection source, Packet<?> packet, int ticks) {
+        Minecraft mc = Minecraft.getInstance();
+        var listener = source.getPacketListener();
+        mc.execute(() -> {
+            if (mc.getConnection() != listener || !source.isConnected()) return;
+            UiUtilsState.delayedUiPackets.add(packet);
+            queuedOrigins.put(packet, new PacketOrigin(source, listener));
+            refreshQueueCounterButtons();
+            if (ticks >= 0) queueTask(() -> {
+                if (UiUtilsState.delayedUiPackets.remove(packet)) {
+                    if (source.getPacketListener() == listener && source.isConnected()) UiUtilsPacketReplay.send(source, packet);
+                    refreshQueueCounterButtons();
+                }
+            }, ticks * 50L);
+        });
+    }
+
+    public static void queueTask(Runnable runnable, long delayMs) {
+        UiUtilsTasks.schedule(runnable, delayMs);
+    }
 }

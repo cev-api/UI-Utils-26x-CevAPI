@@ -64,6 +64,6 @@ public abstract class ClientCommonNetworkHandlerMixin
 	@Inject(at = @At("HEAD"), method = "onDisconnect")
 	private void uiutils$onDisconnect(DisconnectionDetails details, CallbackInfo ci)
 	{
-		UiUtils.onServerDisconnect();
+		UiUtils.onServerDisconnect(connection);
 	}
 }

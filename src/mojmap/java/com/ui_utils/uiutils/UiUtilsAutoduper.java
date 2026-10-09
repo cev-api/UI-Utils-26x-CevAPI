@@ -43,6 +43,7 @@ public final class UiUtilsAutoduper {
 	private static int pendingClosePacketContainerId = -1;
 	private static boolean pluginInventorySeedMode;
 	private static boolean resumeAfterReconnect;
+    private static String originatingServer = "";
 	private static int resumeAttempt;
 	private static boolean resumingRun;
 	private static boolean reopenRecoveryTried;
@@ -59,6 +60,7 @@ public final class UiUtilsAutoduper {
 			status = "Not connected";
 			return;
 		}
+		originatingServer = UiUtilsScanHistory.serverKey(mc);
 		int slot = UiUtilsSettings.get().autoduperTargetSlot;
 		if(slot < 0) {
 			status = "Target slot must be >= 0";
@@ -172,6 +174,7 @@ public final class UiUtilsAutoduper {
 			return;
 		if(mc == null || mc.player == null || mc.getConnection() == null)
 			return;
+        if (!originatingServer.equals(UiUtilsScanHistory.serverKey(mc))) { stop("Server changed; resume canceled"); return; }
 		runPlan = buildRunPlan();
 		if(runPlan.length == 0) {
 			stop("No Autoduper strategy categories are enabled after reconnect");

@@ -19,7 +19,7 @@ public final class UiUtilsSettings {
 	private static final Path SETTINGS_PATH =
 		FabricLoader.getInstance().getConfigDir().resolve("ui-utils.json");
 
-	private static Data data = new Data();
+	private static volatile Data data = new Data();
 
 	private UiUtilsSettings() {}
 
@@ -101,8 +101,8 @@ public final class UiUtilsSettings {
 		public static final int MAX_PROBES_PER_SECOND = 30;
 		public static final int DEFAULT_PROBES_PER_SECOND = 10;
 
-		public boolean bypassResourcePack = false;
-		public boolean resourcePackForceDeny = false;
+		public volatile boolean bypassResourcePack = false;
+		public volatile boolean resourcePackForceDeny = false;
 		public boolean ignoreRegistrySync = false;
 		public boolean showResourcePackButtons = true;
 		public boolean logToChat = true;
@@ -152,7 +152,7 @@ public final class UiUtilsSettings {
 		// Focused GUI (container) packet logger + per-packet Allow/Drop/Delay rules
 		public boolean guiPacketLogEnabled = false;
 		public boolean guiPacketLogToFile = true;
-		public int guiPacketDelayTicks = 1;
+		public volatile int guiPacketDelayTicks = 1;
 		public Map<String, String> guiPacketModes = new HashMap<>();
 
 		//Wurst-style Steal / Store / Dump buttons on container screens.

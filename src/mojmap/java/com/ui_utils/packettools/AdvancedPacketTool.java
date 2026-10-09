@@ -92,7 +92,7 @@ public final class AdvancedPacketTool {
 
 	private AdvancedPacketTool() {}
 
-	public static void init() {
+	public static synchronized void init() {
 		if (initialized)
 			return;
 		loadSelectionConfig();
@@ -102,13 +102,13 @@ public final class AdvancedPacketTool {
 	}
 
 	/** Opens the in-game packet tool screen. */
-	public static void openScreen(net.minecraft.client.gui.screens.Screen parent) {
+	public static synchronized void openScreen(net.minecraft.client.gui.screens.Screen parent) {
 		Minecraft mc = Minecraft.getInstance();
 		mc.execute(() -> com.ui_utils.uiutils.McCompat.setScreen(mc,
 			new PacketToolsScreen(parent, INSTANCE)));
 	}
 
-	public static void onTick() {
+	public static synchronized void onTick() {
 		if (!initialized)
 			init();
 
@@ -133,7 +133,7 @@ public final class AdvancedPacketTool {
 		updateVerbose();
 	}
 
-	private static void updateVerbose() {
+	private static synchronized void updateVerbose() {
 		if (!loggingEnabled)
 			return;
 		lifecycleTracker.tick();
@@ -143,7 +143,7 @@ public final class AdvancedPacketTool {
 		}
 	}
 
-	private static void discardVerboseBuffers() {
+	private static synchronized void discardVerboseBuffers() {
 		synchronized (verboseJsonlBuffer) {
 			verboseJsonlBuffer.clear();
 		}
@@ -152,7 +152,7 @@ public final class AdvancedPacketTool {
 		}
 	}
 
-	public static boolean onOutgoing(Packet<?> packet) {
+	public static synchronized boolean onOutgoing(net.minecraft.network.Connection source, Packet<?> packet) {
 		if (!initialized)
 			init();
 		if (packet == null)
@@ -175,15 +175,21 @@ public final class AdvancedPacketTool {
 		if (denyEnabled && denyC2S.contains(name))
 			return false;
 
-		if (delayEnabled && delayTicks > 0 && delayC2S.contains(name)) {
-			delayedOutgoing.addLast(new QueuedPacket(packet, getCurrentTick() + delayTicks));
+		if (packet.isTerminal()) {
+            flushOutgoing(getCurrentTick(), true);
+            if (delayEnabled && delayC2S.contains(name))
+                UiUtils.LOGGER.warn("Not delaying protocol-transition packet {}: the outbound protocol changes immediately", name);
+            return true;
+        }
+        if (!com.ui_utils.uiutils.UiUtilsPacketReplay.isReplaying() && delayEnabled && delayTicks > 0 && delayC2S.contains(name)) {
+			delayedOutgoing.addLast(new QueuedPacket(packet, getCurrentTick() + delayTicks, source, source.getPacketListener()));
 			return false;
 		}
 
 		return true;
 	}
 
-	public static boolean onIncoming(Packet<?> packet) {
+	public static synchronized boolean onIncoming(net.minecraft.network.Connection source, Packet<?> packet) {
 		if (!initialized)
 			init();
 		if (packet == null)
@@ -206,39 +212,48 @@ public final class AdvancedPacketTool {
 		if (denyEnabled && denyS2C.contains(name))
 			return false;
 
-		if (delayEnabled && delayTicks > 0 && delayS2C.contains(name)) {
-			delayedIncoming.addLast(new QueuedPacket(packet, getCurrentTick() + delayTicks));
-			return false;
-		}
+        boolean selected = delayEnabled && delayTicks > 0 && delayS2C.contains(name);
+        long release = getCurrentTick() + (selected ? delayTicks : 0);
+        boolean orderedTail = false;
+        var listener = source.getPacketListener();
+        for (QueuedPacket queued : delayedIncoming) {
+            if (queued.source == source && queued.listener == listener && (packet.isTerminal()
+                || listener != null && listener.protocol() != net.minecraft.network.ConnectionProtocol.PLAY)) {
+                orderedTail = true; release = Math.max(release, queued.releaseTick);
+            }
+        }
+        if (selected || orderedTail) {
+            delayedIncoming.addLast(new QueuedPacket(packet, release, source, listener)); return false;
+        }
 
 		return true;
 	}
 
-	public static boolean isLoggingEnabled() {
+	public static synchronized boolean isLoggingEnabled() {
 		return loggingEnabled;
 	}
 
-	public static boolean isDenyEnabled() {
+	public static synchronized boolean isDenyEnabled() {
 		return denyEnabled;
 	}
 
-	public static boolean isDelayEnabled() {
+	public static synchronized boolean isDelayEnabled() {
 		return delayEnabled;
 	}
 
-	public static boolean isFileOutput() {
+	public static synchronized boolean isFileOutput() {
 		return fileOutput;
 	}
 
-	public static boolean isShowUnknownPackets() {
+	public static synchronized boolean isShowUnknownPackets() {
 		return showUnknownPackets;
 	}
 
-	public static int getDelayTicks() {
+	public static synchronized int getDelayTicks() {
 		return delayTicks;
 	}
 
-	public static void setLoggingEnabled(boolean value) {
+	public static synchronized void setLoggingEnabled(boolean value) {
 		loggingEnabled = value;
 		saveSelectionConfig();
 		if (value) {
@@ -250,94 +265,94 @@ public final class AdvancedPacketTool {
 		}
 	}
 
-	public static boolean isVerboseEnabled() {
+	public static synchronized boolean isVerboseEnabled() {
 		return verboseEnabled;
 	}
 
-	public static void setVerboseEnabled(boolean value) {
+	public static synchronized void setVerboseEnabled(boolean value) {
 		if (!value)
 			discardVerboseBuffers();
 		verboseEnabled = value;
 		saveSelectionConfig();
 	}
 
-	public static void setDenyEnabled(boolean value) {
+	public static synchronized void setDenyEnabled(boolean value) {
 		denyEnabled = value;
 		saveSelectionConfig();
 	}
 
-	public static void setDelayEnabled(boolean value) {
+	public static synchronized void setDelayEnabled(boolean value) {
 		delayEnabled = value;
 		saveSelectionConfig();
 	}
 
-	public static void setFileOutput(boolean value) {
+	public static synchronized void setFileOutput(boolean value) {
 		fileOutput = value;
 		saveSelectionConfig();
 	}
 
-	public static void setShowUnknownPackets(boolean value) {
+	public static synchronized void setShowUnknownPackets(boolean value) {
 		showUnknownPackets = value;
 		saveSelectionConfig();
 	}
 
-	public static void setDelayTicks(int value) {
+	public static synchronized void setDelayTicks(int value) {
 		delayTicks = Math.max(0, Math.min(9999, value));
 		saveSelectionConfig();
 	}
 
-	public static boolean isVerboseHumanReadable() {
+	public static synchronized boolean isVerboseHumanReadable() {
 		return verboseHumanReadable;
 	}
 
-	public static void setVerboseHumanReadable(boolean value) {
+	public static synchronized void setVerboseHumanReadable(boolean value) {
 		verboseHumanReadable = value;
 		saveSelectionConfig();
 	}
 
-	public static boolean isVerboseOutsideGame() {
+	public static synchronized boolean isVerboseOutsideGame() {
 		return verboseOutsideGame;
 	}
 
-	public static void setVerboseOutsideGame(boolean value) {
+	public static synchronized void setVerboseOutsideGame(boolean value) {
 		verboseOutsideGame = value;
 		saveSelectionConfig();
 	}
 
-	public static int getVerboseFlushInterval() {
+	public static synchronized int getVerboseFlushInterval() {
 		return verboseFlushInterval;
 	}
 
-	public static void setVerboseFlushInterval(int value) {
+	public static synchronized void setVerboseFlushInterval(int value) {
 		verboseFlushInterval = Math.max(1, Math.min(200, value));
 		saveSelectionConfig();
 	}
 
-	public static PacketDecodeCoverage getDecodeCoverage() {
+	public static synchronized PacketDecodeCoverage getDecodeCoverage() {
 		return decodeCoverage;
 	}
 
-	public static EntityLifecycleTracker getLifecycleTracker() {
+	public static synchronized EntityLifecycleTracker getLifecycleTracker() {
 		return lifecycleTracker;
 	}
 
-	public static PacketFilter getPacketFilter() {
+	public static synchronized PacketFilter getPacketFilter() {
 		return packetFilter;
 	}
 
-	public static Set<String> getLogSet(PacketDirection direction) {
-		return direction == PacketDirection.S2C ? logS2C : logC2S;
+	public static synchronized Set<String> getLogSet(PacketDirection direction) {
+		return new LinkedHashSet<>(direction == PacketDirection.S2C ? logS2C : logC2S);
 	}
 
-	public static Set<String> getDenySet(PacketDirection direction) {
-		return direction == PacketDirection.S2C ? denyS2C : denyC2S;
+	public static synchronized Set<String> getDenySet(PacketDirection direction) {
+		return new LinkedHashSet<>(direction == PacketDirection.S2C ? denyS2C : denyC2S);
 	}
 
-	public static Set<String> getDelaySet(PacketDirection direction) {
-		return direction == PacketDirection.S2C ? delayS2C : delayC2S;
+	public static synchronized Set<String> getDelaySet(PacketDirection direction) {
+		return new LinkedHashSet<>(direction == PacketDirection.S2C ? delayS2C : delayC2S);
 	}
 
-	public static List<String> getAvailablePackets(PacketDirection direction) {
+	public static synchronized List<String> getAvailablePackets(PacketDirection direction) {
 		boolean includeUnknown = showUnknownPackets;
 		Set<String> merged = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 		if (direction == PacketDirection.S2C) {
@@ -366,29 +381,29 @@ public final class AdvancedPacketTool {
 		return list;
 	}
 
-	public static void updateSelection(PacketMode mode, PacketDirection direction, Set<String> selected) {
+	public static synchronized void updateSelection(PacketMode mode, PacketDirection direction, Set<String> selected) {
 		Set<String> target = getSet(mode, direction);
 		target.clear();
 		target.addAll(selected);
 		saveSelectionConfig();
 	}
 
-	public static Set<String> getSelection(PacketMode mode, PacketDirection direction) {
+	public static synchronized Set<String> getSelection(PacketMode mode, PacketDirection direction) {
 		return new LinkedHashSet<>(getSet(mode, direction));
 	}
 
-	private static Set<String> getSet(PacketMode mode, PacketDirection direction) {
+	private static synchronized Set<String> getSet(PacketMode mode, PacketDirection direction) {
 		Objects.requireNonNull(mode);
 		Objects.requireNonNull(direction);
 
 		return switch (mode) {
-			case LOG -> getLogSet(direction);
-			case DENY -> getDenySet(direction);
-			case DELAY -> getDelaySet(direction);
+			case LOG -> direction == PacketDirection.S2C ? logS2C : logC2S;
+			case DENY -> direction == PacketDirection.S2C ? denyS2C : denyC2S;
+			case DELAY -> direction == PacketDirection.S2C ? delayS2C : delayC2S;
 		};
 	}
 
-	private static void recordUnknown(String className, PacketDirection direction) {
+	private static synchronized void recordUnknown(String className, PacketDirection direction) {
 		if (!isUsablePacketName(className)) {
 			if (direction == PacketDirection.S2C)
 				discoveredUnknownS2C.add(className);
@@ -397,74 +412,48 @@ public final class AdvancedPacketTool {
 		}
 	}
 
-	private static boolean isUsablePacketName(String name) {
+	private static synchronized boolean isUsablePacketName(String name) {
 		if (name == null || name.isBlank())
 			return false;
 		String lower = name.toLowerCase();
 		return !lower.startsWith("class_");
 	}
 
-	private static void flushQueues(boolean forceAll) {
+	private static synchronized void flushQueues(boolean forceAll) {
 		long now = getCurrentTick();
 		flushIncoming(now, forceAll);
 		flushOutgoing(now, forceAll);
 	}
 
-	private static void flushIncoming(long now, boolean forceAll) {
-		if (delayedIncoming.isEmpty())
-			return;
+    private static synchronized boolean valid(QueuedPacket queued) {
+        return queued.source.isConnected() && queued.listener != null
+            && queued.source.getPacketListener() == queued.listener;
+    }
 
-		Minecraft mc = Minecraft.getInstance();
-		ClientPacketListener connection = mc.getConnection();
-		if (connection == null) {
-			delayedIncoming.clear();
-			return;
-		}
+    private static synchronized void flushIncoming(long now, boolean forceAll) {
+        delayedIncoming.removeIf(queued -> !valid(queued));
+        while (!delayedIncoming.isEmpty()) {
+            QueuedPacket queued = delayedIncoming.peekFirst();
+            if (!forceAll && queued.releaseTick > now) break;
+            delayedIncoming.removeFirst();
+            if (valid(queued) && queued.listener.shouldHandleMessage(queued.packet)) {
+                try { com.ui_utils.uiutils.UiUtilsPacketReplay.handle(queued.source, queued.listener, queued.packet); }
+                catch (Exception failure) { queued.listener.onPacketError(queued.packet, failure); }
+            }
+        }
+    }
 
-		while (!delayedIncoming.isEmpty()) {
-			QueuedPacket queued = delayedIncoming.peekFirst();
-			if (!forceAll && queued.releaseTick > now)
-				break;
+    private static synchronized void flushOutgoing(long now, boolean forceAll) {
+        delayedOutgoing.removeIf(queued -> !valid(queued));
+        while (!delayedOutgoing.isEmpty()) {
+            QueuedPacket queued = delayedOutgoing.peekFirst();
+            if (!forceAll && queued.releaseTick > now) break;
+            delayedOutgoing.removeFirst();
+            if (valid(queued)) com.ui_utils.uiutils.UiUtilsPacketReplay.send(queued.source, queued.packet);
+        }
+    }
 
-			delayedIncoming.removeFirst();
-			applyIncomingPacket(queued.packet);
-		}
-	}
-
-	private static void flushOutgoing(long now, boolean forceAll) {
-		if (delayedOutgoing.isEmpty())
-			return;
-
-		Minecraft mc = Minecraft.getInstance();
-		ClientPacketListener connection = mc.getConnection();
-		if (connection == null) {
-			delayedOutgoing.clear();
-			return;
-		}
-
-		while (!delayedOutgoing.isEmpty()) {
-			QueuedPacket queued = delayedOutgoing.peekFirst();
-			if (!forceAll && queued.releaseTick > now)
-				break;
-
-			delayedOutgoing.removeFirst();
-			bypassOutput.add(queued.packet);
-			connection.send(queued.packet);
-		}
-	}
-
-	private static void applyIncomingPacket(Packet<?> packet) {
-		Minecraft mc = Minecraft.getInstance();
-		ClientPacketListener connection = mc.getConnection();
-		if (connection == null)
-			return;
-
-		@SuppressWarnings("unchecked")
-		Packet<ClientPacketListener> typed = (Packet<ClientPacketListener>)packet;
-		typed.handle(connection);
-	}
-
-	private static void logPacket(String name, String direction, Packet<?> packet) {
+	private static synchronized void logPacket(String name, String direction, Packet<?> packet) {
 		String data = String.valueOf(packet);
 		String timestamp = LocalDateTime.now().format(TIME_FORMAT);
 		String line = "[" + timestamp + "] [" + direction + "] " + name + " " + data;
@@ -475,11 +464,10 @@ public final class AdvancedPacketTool {
 		}
 
 		Minecraft mc = Minecraft.getInstance();
-		if (mc.player != null)
-			mc.execute(() -> mc.player.sendSystemMessage(Component.literal("[PacketTools] " + line)));
+		UiUtils.postSystemMessage(Component.literal("[PacketTools] " + line));
 	}
 
-	private static void appendToLogFile(String line) {
+	private static synchronized void appendToLogFile(String line) {
 		try {
 			Path file = getCurrentLogFile();
 			Files.writeString(file, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
@@ -498,24 +486,31 @@ public final class AdvancedPacketTool {
 		return currentLogFile;
 	}
 
-	private static long getCurrentTick() {
-		Minecraft mc = Minecraft.getInstance();
-		if (mc.level != null)
-			return mc.level.getGameTime();
-		if (mc.player != null)
-			return mc.player.tickCount;
-		return System.currentTimeMillis() / 50L;
-	}
+    private static synchronized long getCurrentTick() {
+        return System.nanoTime() / 50_000_000L;
+    }
+
+    public static synchronized void onDisconnect(net.minecraft.network.Connection source) {
+        delayedIncoming.removeIf(queued -> queued.source == source || !valid(queued));
+        delayedOutgoing.removeIf(queued -> queued.source == source || !valid(queued));
+        bypassOutput.clear();
+        lifecycleTracker.clear();
+    }
 
 	/**
 	 * True while the client is connecting or before the world/player exists.
 	 */
-	private static boolean isOutsideGame() {
+	private static synchronized boolean isOutsideGame() {
 		Minecraft mc = Minecraft.getInstance();
 		return mc.level == null || mc.player == null;
 	}
 
-	private static void verboseDump(String direction, Packet<?> packet) {
+	private static synchronized void verboseDump(String direction, Packet<?> packet) {
+        Minecraft mc = Minecraft.getInstance();
+        if (!mc.isSameThread()) {
+            var session = mc.getConnection();
+            mc.execute(() -> { if (session == mc.getConnection()) verboseDump(direction, packet); }); return;
+        }
 		try {
 			if (packetDumper == null)
 				packetDumper = new PacketDumper(decodeCoverage, packetFilter, lifecycleTracker);
@@ -537,7 +532,7 @@ public final class AdvancedPacketTool {
 	}
 
 	/** Flattens a dumped JSON line into a readable "Time DIR Class key=value ..." line. */
-	private static String toHumanReadable(String jsonLine) {
+	private static synchronized String toHumanReadable(String jsonLine) {
 		try {
 			JsonObject obj = JsonParser.parseString(jsonLine).getAsJsonObject();
 			StringBuilder sb = new StringBuilder();
@@ -561,7 +556,7 @@ public final class AdvancedPacketTool {
 		}
 	}
 
-	private static void flushVerboseBuffers() {
+	private static synchronized void flushVerboseBuffers() {
 		// Defensive: never write verbose output while logging is switched off.
 		if (!loggingEnabled) {
 			discardVerboseBuffers();
@@ -610,7 +605,12 @@ public final class AdvancedPacketTool {
 		}
 	}
 
-	private static void trackEntityPacket(Packet<?> packet) {
+	private static synchronized void trackEntityPacket(Packet<?> packet) {
+        Minecraft mc = Minecraft.getInstance();
+        if (!mc.isSameThread()) {
+            var session = mc.getConnection();
+            mc.execute(() -> { if (session == mc.getConnection()) trackEntityPacket(packet); }); return;
+        }
 		try {
 			if (packet instanceof ClientboundAddEntityPacket add) {
 				lifecycleTracker.onAddEntity(add);
@@ -631,12 +631,12 @@ public final class AdvancedPacketTool {
 		}
 	}
 
-	public static void printCoverageReport() {
+	public static synchronized void printCoverageReport() {
 		for (String line : decodeCoverage.buildReport().split("\n"))
 			UiUtils.chatIfEnabled(line);
 	}
 
-	public static void printEntitySummary() {
+	public static synchronized void printEntitySummary() {
 		UiUtils.chatIfEnabled(lifecycleTracker.buildSummary());
 	}
 
@@ -705,12 +705,12 @@ public final class AdvancedPacketTool {
 	 * deliberately left empty - defaulting those to "all" would block or hold
 	 * every packet.
 	 */
-	private static void seedLogSelection() {
+	private static synchronized void seedLogSelection() {
 		logS2C.addAll(PacketCatalog.getS2CNames());
 		logC2S.addAll(PacketCatalog.getC2SNames());
 	}
 
-	private static boolean getBoolean(JsonObject root, String key, boolean fallback) {
+	private static synchronized boolean getBoolean(JsonObject root, String key, boolean fallback) {
 		if (!root.has(key) || !root.get(key).isJsonPrimitive())
 			return fallback;
 		try {
@@ -720,7 +720,7 @@ public final class AdvancedPacketTool {
 		}
 	}
 
-	private static int getInt(JsonObject root, String key, int fallback) {
+	private static synchronized int getInt(JsonObject root, String key, int fallback) {
 		if (!root.has(key) || !root.get(key).isJsonPrimitive())
 			return fallback;
 		try {
@@ -730,7 +730,7 @@ public final class AdvancedPacketTool {
 		}
 	}
 
-	private static void loadSet(JsonObject root, String key, Set<String> set) {
+	private static synchronized void loadSet(JsonObject root, String key, Set<String> set) {
 		set.clear();
 		if (!root.has(key) || !root.get(key).isJsonArray())
 			return;
@@ -743,7 +743,7 @@ public final class AdvancedPacketTool {
 		});
 	}
 
-	private static JsonArray toJsonArray(Set<String> values) {
+	private static synchronized JsonArray toJsonArray(Set<String> values) {
 		JsonArray array = new JsonArray();
 		for (String value : values)
 			array.add(value);
@@ -753,10 +753,13 @@ public final class AdvancedPacketTool {
 	private static final class QueuedPacket {
 		private final Packet<?> packet;
 		private final long releaseTick;
+        private final net.minecraft.network.Connection source;
+        private final net.minecraft.network.PacketListener listener;
 
-		private QueuedPacket(Packet<?> packet, long releaseTick) {
+		private QueuedPacket(Packet<?> packet, long releaseTick, net.minecraft.network.Connection source, net.minecraft.network.PacketListener listener) {
 			this.packet = packet;
 			this.releaseTick = releaseTick;
+            this.source = source; this.listener = listener;
 		}
 	}
 

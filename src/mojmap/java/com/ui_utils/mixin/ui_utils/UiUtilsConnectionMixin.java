@@ -34,7 +34,12 @@ public class UiUtilsConnectionMixin {
 		cancellable = true)
 	private void onSend(Packet<?> packet,
 		@Nullable ChannelFutureListener callback, CallbackInfo ci) {
-		if (!AdvancedPacketTool.onOutgoing(packet)) {
+		if (((Connection)(Object)this).getSending() != net.minecraft.network.protocol.PacketFlow.SERVERBOUND) return;
+        com.ui_utils.uiutils.macro.UiUtilsMacroRuntimeState.observeOutgoing(packet);
+        if (UiUtilsState.xCarry && packet instanceof net.minecraft.network.protocol.game.ServerboundContainerClosePacket close && close.getContainerId() == 0) {
+            ci.cancel(); return;
+        }
+        if (!AdvancedPacketTool.onOutgoing((Connection)(Object)this, packet)) {
 			ci.cancel();
 			return;
 		}
@@ -56,8 +61,8 @@ public class UiUtilsConnectionMixin {
 					ci.cancel();
 					return;
 				}
-				if (UiUtilsGuiPacketControl.shouldDelay(packet)) {
-					UiUtilsState.delayedUiPackets.add(packet);
+				if (!com.ui_utils.uiutils.UiUtilsPacketReplay.isReplaying() && UiUtilsGuiPacketControl.shouldDelay(packet)) {
+					UiUtils.enqueueUiPacket((Connection)(Object)this, packet, UiUtilsGuiPacketControl.delayTicks());
 					UiUtils.refreshQueueCounterButtons();
 					UiUtils.LOGGER.info(
 						"GUI packet control: delayed {} (queued {})",
@@ -91,8 +96,9 @@ public class UiUtilsConnectionMixin {
 			return;
 		}
 
-		if (UiUtilsState.delayUiPackets) {
-			UiUtilsState.delayedUiPackets.add(packet);
+		if (!com.ui_utils.uiutils.UiUtilsPacketReplay.isReplaying() && !packet.isTerminal() && UiUtilsState.delayUiPackets) {
+			if (!(((Connection)(Object)this).getPacketListener() instanceof net.minecraft.client.multiplayer.ClientPacketListener)) return;
+            UiUtils.enqueueUiPacket((Connection)(Object)this, packet, -1);
 			UiUtils.refreshQueueCounterButtons();
 			UiUtils.LOGGER.info(
 				"UiUtilsConnectionMixin: delayed packet (queued {} packets)",
@@ -103,9 +109,11 @@ public class UiUtilsConnectionMixin {
 			return;
 		}
 
+		com.ui_utils.uiutils.UiUtilsGuiCache.onOutgoing(packet);
+
 		// Update HUD counter for all outgoing packets
 		PacketHud.incOutgoing();
-		UiUtilsMacroRuntimeState.onOutgoingPacket(packet.getClass().getSimpleName());
+		UiUtilsMacroRuntimeState.onOutgoingPacket(packet);
 
 		if (!UiUtilsState.shouldEditSign
 			&& packet instanceof ServerboundSignUpdatePacket) {

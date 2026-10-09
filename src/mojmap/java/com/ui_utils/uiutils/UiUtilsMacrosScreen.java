@@ -36,6 +36,7 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
     private int selectedStep = -1;
     private int stepOffset = 0;
     private String status = "";
+    private String displayedError = "";
 
     private final Deque<UiUtilsMacro> undoStack = new ArrayDeque<>();
     private final Deque<UiUtilsMacro> redoStack = new ArrayDeque<>();
@@ -70,8 +71,11 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
             loaded = true;
         }
 
+        if (!UiUtilsMacroExecutor.lastError().isBlank()) c.label("Last run: " + UiUtilsMacroExecutor.lastError());
         nameField = c.input(editing.name == null ? "" : editing.name, value -> editing.name = value);
         nameField.setHint(Component.literal("Macro Name"));
+
+        c.button("Share steps in server chat: " + (editing.shareSteps ? "ON" : "OFF"), () -> { editing.shareSteps = !editing.shareSteps; scheduleRebuild(); });
 
         stepRows.clear();
         rowControls.clear();
@@ -111,6 +115,16 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
         c.footerButton("Done", UiButton.Kind.PRIMARY, this::saveAndClose);
 
         refreshRows();
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        String error = UiUtilsMacroExecutor.lastError();
+        if (!error.equals(displayedError)) {
+            displayedError = error;
+            if (!error.isBlank()) setStatusText("Macro stopped: " + error);
+        }
     }
 
     private UiButton bindButton() {

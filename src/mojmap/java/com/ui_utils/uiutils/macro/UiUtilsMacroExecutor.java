@@ -4,11 +4,10 @@ import com.ui_utils.uiutils.McCompat;
 import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsCommandSystem;
 import com.ui_utils.uiutils.UiUtilsState;
+import com.ui_utils.uiutils.UiUtilsTasks;
 import java.util.Locale;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -27,6 +26,9 @@ public final class UiUtilsMacroExecutor {
     private static volatile boolean running;
     private static volatile String currentName;
     private static volatile Thread worker;
+    private static volatile net.minecraft.client.multiplayer.ClientPacketListener session;
+    private static volatile String lastError = "";
+    public static String lastError() { return lastError; }
     // Accessed on the client thread. An old run must not release a new run's key.
     private static final Map<KeyMapping, Thread> heldKeys = new HashMap<>();
 
@@ -39,19 +41,35 @@ public final class UiUtilsMacroExecutor {
     public static synchronized void start(UiUtilsMacro macro) {
         if (macro == null) return;
         stop();
+        Minecraft mc = Minecraft.getInstance();
+        session = mc == null ? null : mc.getConnection();
+        lastError = "";
+        macro = macro.deepCopy();
+        UiUtilsMacro snapshot = macro;
         running = true;
         currentName = macro.name;
-        worker = new Thread(() -> runMacro(macro), "ui-utils-macro-exec");
+        worker = new Thread(() -> runMacro(snapshot), "ui-utils-macro-exec");
         worker.setDaemon(true);
         worker.start();
     }
 
-    public static synchronized void stop() {
+    public static synchronized void stop() { stopRun(true); }
+
+    private static void stopRun(boolean cancelPending) {
+        if (cancelPending) UiUtilsTasks.cancelMacroTasks();
         Thread previous = worker;
         worker = null;
         running = false;
         currentName = null;
         if (previous != null && previous != Thread.currentThread()) previous.interrupt();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc != null) mc.execute(() -> {
+            heldKeys.entrySet().removeIf(entry -> {
+                if (entry.getValue() != previous) return false;
+                entry.getKey().setDown(false); return true;
+            });
+            if (mc.player != null && !mc.options.keySprint.isDown()) mc.player.setSprinting(false);
+        });
     }
 
     private static boolean isCurrentRun() {
@@ -59,27 +77,56 @@ public final class UiUtilsMacroExecutor {
     }
 
     private static synchronized void finishRun(Thread finished) {
-        if (worker == finished) stop();
+        if (worker == finished) stopRun(false);
     }
 
     private static void runMacro(UiUtilsMacro macro) {
         int loops = macro.loop ? (macro.loopCount < 0 ? Integer.MAX_VALUE : Math.max(1, macro.loopCount)) : 1;
         try {
-            for (int loopIndex = 0; isCurrentRun() && loopIndex < loops; loopIndex++) {
-                for (UiUtilsMacroAction action : macro.actions) {
-                    if (!isCurrentRun()) break;
-                    if (!action.isEnabled()) continue;
-                    executeAction(action);
-                }
+            for (int loop = 0; isCurrentRun() && loop < loops; loop++) runSteps(macro, 0, macro.actions.size(), 0);
+        } catch (java.util.concurrent.CancellationException ignored) {
+        } catch (Throwable failure) {
+            synchronized (UiUtilsMacroExecutor.class) {
+                if (worker == Thread.currentThread()) UiUtilsTasks.cancelMacroTasks();
             }
-        } finally {
-            finishRun(Thread.currentThread());
+            lastError = failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
+            UiUtils.LOGGER.warn("Macro {} stopped: {}", macro.name, lastError);
+            UiUtils.LOGGER.debug("Macro failure details", failure);
+            Minecraft mc = Minecraft.getInstance();
+            if (mc != null) UiUtils.reportError("Macro " + macro.name + " stopped: " + lastError);
+        } finally { finishRun(Thread.currentThread()); }
+    }
+
+    private static void runSteps(UiUtilsMacro macro, int from, int to, int depth) {
+        if (depth > 16) throw new IllegalArgumentException("Repeat nesting exceeds 16 levels");
+        for (int index = from; index < to && isCurrentRun(); index++) {
+            UiUtilsMacroAction action = macro.actions.get(index);
+            if (!action.isEnabled()) continue;
+            if (action.getType() == UiUtilsMacroActionType.REPEAT) {
+                int count = action.getData().getIntOr("stepCount", 1);
+                int repeats = action.getData().getIntOr("repeatCount", 1);
+                if (count < 1 || count > index || repeats < 1 || repeats > 10000)
+                    throw new IllegalArgumentException("Invalid Repeat at step " + (index + 1));
+                for (int repeat = 0; repeat < repeats && isCurrentRun(); repeat++) runSteps(macro, index - count, index, depth + 1);
+            } else executeAction(action);
+            if (macro.shareSteps && isCurrentRun()) {
+                int step = index + 1;
+                Minecraft mc = Minecraft.getInstance();
+                runOnMain(mc, () -> {
+                    if (mc.player != null && mc.getConnection() != null)
+                        mc.getConnection().sendChat(UiUtilsMacroRuntimeState.stepMessage(mc.player.getGameProfile().name(), macro.name, step));
+                });
+            }
         }
     }
 
     private static void executeAction(UiUtilsMacroAction action) {
         Minecraft mc = Minecraft.getInstance();
         try {
+            String legacyCommand = action.getData().getStringOr("uiutilsCommand", "");
+            if (!legacyCommand.isBlank()) {
+                runOnMain(mc, () -> UiUtilsCommandSystem.execute(legacyCommand)); return;
+            }
             switch (action.getType()) {
                 case DELAY -> sleepMillis(action.getData().getBooleanOr("useTicks", false)
                     ? Math.max(0, action.getData().getIntOr("delayTicks", 1)) * 50L
@@ -107,17 +154,19 @@ public final class UiUtilsMacroExecutor {
                 });
                 case ROTATE -> runOnMain(mc, () -> {
                     if (mc.player == null) return;
-                    mc.player.setYRot(action.getData().getFloatOr("yaw", mc.player.getYRot()));
-                    mc.player.setXRot(action.getData().getFloatOr("pitch", mc.player.getXRot()));
+                    float yaw = action.getData().getFloatOr("yaw", mc.player.getYRot()), pitch = action.getData().getFloatOr("pitch", mc.player.getXRot());
+                    if (!Float.isFinite(yaw) || !Float.isFinite(pitch)) throw new IllegalArgumentException("Rotation must be finite");
+                    mc.player.setYRot(net.minecraft.util.Mth.wrapDegrees(yaw));
+                    mc.player.setXRot(net.minecraft.util.Mth.clamp(pitch, -90, 90));
                 });
                 case JUMP -> pressKeyForTicks(mc, mc.options.keyJump,
                     action.getData().getBooleanOr("tap", true) ? 1 : Math.max(1, action.getData().getIntOr("durationTicks", 1)));
-                case SNEAK -> runOnMain(mc, () -> mc.options.keyShift.setDown(action.getData().getBooleanOr("sneak", true)));
-                case SPRINT -> runOnMain(mc, () -> {
+                case SNEAK -> setHeldKey(mc, mc.options.keyShift, action.getData().getBooleanOr("sneak", true));
+                case SPRINT -> {
                     boolean sprint = action.getData().getBooleanOr("sprint", true);
-                    mc.options.keySprint.setDown(sprint);
-                    if (mc.player != null) mc.player.setSprinting(sprint);
-                });
+                    setHeldKey(mc, mc.options.keySprint, sprint);
+                    runOnMain(mc, () -> { if (mc.player != null) mc.player.setSprinting(sprint); });
+                }
                 case MOVE -> {
                     int ticks = Math.max(1, action.getData().getIntOr("durationTicks", 20));
                     String dir = action.getData().getStringOr("direction", "FORWARD").toUpperCase(Locale.ROOT);
@@ -139,28 +188,30 @@ public final class UiUtilsMacroExecutor {
                 case WAIT_GUI -> waitForGui(mc, action);
                 case WAIT_CHAT -> waitForChat(action);
                 case WAIT_PACKET -> waitForPacket(action);
-                case SEND_TOGGLE -> {
+                case SEND_TOGGLE -> runOnMain(mc, () -> {
                     String mode = action.getData().getStringOr("mode", "");
                     boolean state = "DISABLE".equalsIgnoreCase(mode) ? false :
                         ("ENABLE".equalsIgnoreCase(mode) ? true : !UiUtilsState.sendUiPackets);
                     UiUtilsState.sendUiPackets = state;
-                }
-                case DELAY_PACKETS -> {
+                });
+                case DELAY_PACKETS -> runOnMain(mc, () -> {
                     String mode = action.getData().getStringOr("mode", "");
                     boolean state = "DISABLE".equalsIgnoreCase(mode) ? false :
                         ("ENABLE".equalsIgnoreCase(mode) ? true : !UiUtilsState.delayUiPackets);
                     UiUtilsState.delayUiPackets = state;
-                }
+                    if (!state && action.getData().getBooleanOr("flushOnDisable", false)) {
+                        UiUtils.sendQueuedPackets(mc, 1); UiUtils.clearQueuedPackets();
+                    }
+                });
                 case DISCONNECT -> runOnMain(mc, () -> UiUtils.executeKeybindAction("disconnect", mc));
-                case STOP_MACRO -> finishRun(Thread.currentThread());
-                default -> {
-                    String command = action.getData().getStringOr("uiutilsCommand", "");
-                    if (!command.isBlank()) UiUtilsCommandSystem.execute(command);
-                    else UiUtils.LOGGER.info("Macro action {} currently has no direct executor mapping", action.getType());
-                }
+                case STOP_MACRO -> stop();
+                case REPEAT -> throw new IllegalStateException("Repeat must run through the step sequencer");
+                default -> UiUtilsMacroActions.execute(mc, action);
+
             }
         } catch (Throwable t) {
-            UiUtils.LOGGER.warn("Macro action failed: {}", action.getType(), t);
+            if (t instanceof java.util.concurrent.CancellationException cancel) throw cancel;
+            throw new IllegalStateException(action.getType() + ": " + (t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage()), t);
         }
     }
 
@@ -175,13 +226,13 @@ public final class UiUtilsMacroExecutor {
         for (int i = 0; i < uses && isCurrentRun(); i++) {
             runOnMain(mc, () -> {
                 if (mc.player == null || mc.getConnection() == null) return;
-                mc.getConnection().send(new ServerboundUseItemPacket(InteractionHand.MAIN_HAND, 0, mc.player.getYRot(), mc.player.getXRot()));
+                mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
             });
             if ("CUSTOM_HOLD".equalsIgnoreCase(mode)) {
                 sleepMillis(holdTicks * 50L);
                 runOnMain(mc, () -> {
                     if (mc.getConnection() != null) {
-                        mc.getConnection().send(new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.RELEASE_USE_ITEM, BlockPos.ZERO, Direction.DOWN));
+                        mc.gameMode.releaseUsingItem(mc.player);
                     }
                 });
             }
@@ -269,96 +320,56 @@ public final class UiUtilsMacroExecutor {
     }
 
     private static void waitForHealth(Minecraft mc, UiUtilsMacroAction action) {
-        float threshold = action.getData().getFloatOr("healthThreshold", 20.0f);
-        boolean below = action.getData().contains("comparison")
-            ? "Drops Below".equalsIgnoreCase(action.getData().getStringOr("comparison", "Drops Below"))
-            : action.getData().getBooleanOr("below", true);
-        long deadline = System.currentTimeMillis() + 30000L;
-        while (isCurrentRun() && System.currentTimeMillis() < deadline) {
-            if (mc.player != null) {
-                float hp = mc.player.getHealth();
-                if (below ? hp < threshold : hp > threshold) return;
-            }
-            sleepMillis(50L);
-        }
+        float threshold = action.getData().getFloatOr("healthThreshold", 20f);
+        boolean below = "Drops Below".equalsIgnoreCase(action.getData().getStringOr("comparison", "Drops Below"));
+        awaitCondition(mc, action, () -> mc.player != null && (below ? mc.player.getHealth() < threshold : mc.player.getHealth() > threshold));
     }
-
     private static void waitForPos(Minecraft mc, UiUtilsMacroAction action) {
-        double x = action.getData().getDoubleOr("x", 0.0);
-        double y = action.getData().getDoubleOr("y", 0.0);
-        double z = action.getData().getDoubleOr("z", 0.0);
-        double leeway = Math.max(0.1, action.getData().getDoubleOr("leeway", 1.0));
-        boolean checkRot = action.getData().getBooleanOr("checkRotation", false);
-        float yaw = action.getData().getFloatOr("yaw", 0f);
-        float pitch = action.getData().getFloatOr("pitch", 0f);
-        float rotLeeway = Math.max(0.5f, action.getData().getFloatOr("rotLeeway", 5f));
-        long deadline = System.currentTimeMillis() + 30000L;
-        while (isCurrentRun() && System.currentTimeMillis() < deadline) {
-            if (mc.player != null) {
-                double dx = mc.player.getX() - x;
-                double dy = mc.player.getY() - y;
-                double dz = mc.player.getZ() - z;
-                boolean posOk = dx * dx + dy * dy + dz * dz <= leeway * leeway;
-                boolean rotOk = !checkRot || (Math.abs(mc.player.getYRot() - yaw) <= rotLeeway
-                    && Math.abs(mc.player.getXRot() - pitch) <= rotLeeway);
-                if (posOk && rotOk) return;
-            }
-            sleepMillis(50L);
-        }
+        var target = UiUtilsMacroActions.position(action.getData());
+        double radius = Math.max(0.1, action.getData().getDoubleOr("leeway", 1));
+        awaitCondition(mc, action, () -> mc.player != null && mc.player.position().distanceToSqr(target) <= radius * radius
+            && (!action.getData().getBooleanOr("checkRotation", false)
+                || (Math.abs(net.minecraft.util.Mth.wrapDegrees(mc.player.getYRot() - action.getData().getFloatOr("yaw", 0))) <= action.getData().getFloatOr("rotLeeway", 5)
+                    && Math.abs(mc.player.getXRot() - action.getData().getFloatOr("pitch", 0)) <= action.getData().getFloatOr("rotLeeway", 5))));
     }
-
     private static void waitForGui(Minecraft mc, UiUtilsMacroAction action) {
-        String mode = action.getData().getStringOr("waitMode", "OPEN");
         String expected = action.getData().getStringOr("guiTitle", "").toLowerCase(Locale.ROOT);
-        long deadline = System.currentTimeMillis() + 30000L;
-        while (isCurrentRun() && System.currentTimeMillis() < deadline) {
+        boolean close = action.getData().getStringOr("waitMode", "OPEN").equalsIgnoreCase("CLOSE");
+        awaitCondition(mc, action, () -> {
             var screen = McCompat.getScreen(mc);
-            boolean open = screen != null;
-            String title = open && screen.getTitle() != null ? screen.getTitle().getString().toLowerCase(Locale.ROOT) : "";
-            if ("CLOSE".equalsIgnoreCase(mode)) {
-                if (!open || !title.contains(expected)) return;
-            } else {
-                if (open && (expected.isBlank() || title.contains(expected))) return;
-            }
-            sleepMillis(50L);
-        }
+            boolean match = screen != null && screen.getTitle().getString().toLowerCase(Locale.ROOT).contains(expected);
+            return close ? !match : match;
+        });
     }
-
     private static void waitForChat(UiUtilsMacroAction action) {
-        String pattern = action.getData().getStringOr("pattern", "").trim();
-        boolean regex = action.getData().getBooleanOr("useRegex", false);
-        int timeout = Math.max(0, action.getData().getIntOr("timeoutMs", 0));
-        long deadline = System.currentTimeMillis() + (timeout <= 0 ? 30000L : timeout);
-        String start = UiUtilsMacroRuntimeState.lastChatMessage();
-        while (isCurrentRun() && System.currentTimeMillis() < deadline) {
-            String current = UiUtilsMacroRuntimeState.lastChatMessage();
-            if (!current.equals(start)) {
-                if (pattern.isBlank()) return;
-                if (regex && Pattern.compile(pattern, Pattern.CASE_INSENSITIVE).matcher(current).find()) return;
-                if (!regex && current.toLowerCase(Locale.ROOT).contains(pattern.toLowerCase(Locale.ROOT))) return;
-            }
-            sleepMillis(50L);
-        }
+        String pattern = action.getData().getStringOr("pattern", "");
+        Pattern regex = action.getData().getBooleanOr("useRegex", false) ? Pattern.compile(pattern, Pattern.CASE_INSENSITIVE) : null;
+        long start = UiUtilsMacroRuntimeState.chatCount();
+        awaitCondition(Minecraft.getInstance(), action, () -> UiUtilsMacroRuntimeState.chats().stream().anyMatch(event -> event.sequence() > start
+            && (!action.getData().getBooleanOr("serverMessageOnly", false) || event.server())
+            && (regex != null ? regex.matcher(event.text()).find() : event.text().toLowerCase(Locale.ROOT).contains(pattern.toLowerCase(Locale.ROOT)))));
+    }
+    private static void waitForPacket(UiUtilsMacroAction action) {
+        String name = action.getData().getStringOr("packetName", "");
+        String needle = UiUtilsMacroRuntimeState.normalize(name);
+        long in = UiUtilsMacroRuntimeState.incomingCount(), out = UiUtilsMacroRuntimeState.outgoingCount();
+        awaitCondition(Minecraft.getInstance(), action, () ->
+            (!name.toUpperCase(Locale.ROOT).startsWith("C2S:") && UiUtilsMacroRuntimeState.packetSince(true, needle, in))
+            || (!name.toUpperCase(Locale.ROOT).startsWith("S2C:") && UiUtilsMacroRuntimeState.packetSince(false, needle, out)));
     }
 
-    private static void waitForPacket(UiUtilsMacroAction action) {
-        String raw = action.getData().getStringOr("packetName", "").trim();
-        long startIn = UiUtilsMacroRuntimeState.incomingCount();
-        long startOut = UiUtilsMacroRuntimeState.outgoingCount();
-        long deadline = System.currentTimeMillis() + 30000L;
-        String needle = normalizePacketName(raw.contains(":") ? raw.substring(raw.indexOf(':') + 1) : raw);
-        String dir = raw.contains(":") ? raw.substring(0, raw.indexOf(':')).toUpperCase(Locale.ROOT) : "";
-        while (isCurrentRun() && System.currentTimeMillis() < deadline) {
-            boolean inAdvanced = UiUtilsMacroRuntimeState.incomingCount() > startIn;
-            boolean outAdvanced = UiUtilsMacroRuntimeState.outgoingCount() > startOut;
-            if (needle.isBlank()) {
-                if (inAdvanced || outAdvanced) return;
-            } else {
-                if (!"C2S".equals(dir) && inAdvanced && normalizePacketName(UiUtilsMacroRuntimeState.lastIncomingPacket()).contains(needle)) return;
-                if (!"S2C".equals(dir) && outAdvanced && normalizePacketName(UiUtilsMacroRuntimeState.lastOutgoingPacket()).contains(needle)) return;
-            }
-            sleepMillis(25L);
+    static void awaitCondition(Minecraft mc, UiUtilsMacroAction action, java.util.function.BooleanSupplier condition) {
+        long timeout = action.getData().getIntOr("timeoutMs", 30000);
+        if (timeout <= 0) timeout = 30000;
+        long deadline = System.nanoTime() + timeout * 1_000_000L;
+        while (isCurrentRun()) {
+            java.util.concurrent.atomic.AtomicBoolean satisfied = new java.util.concurrent.atomic.AtomicBoolean();
+            runOnMain(mc, () -> satisfied.set(condition.getAsBoolean()));
+            if (satisfied.get()) return;
+            if (System.nanoTime() >= deadline) throw new IllegalStateException("Condition timed out after " + timeout + " ms");
+            sleepMillis(50);
         }
+        throw new java.util.concurrent.CancellationException();
     }
 
     private static String normalizePacketName(String raw) {
@@ -450,28 +461,44 @@ public final class UiUtilsMacroExecutor {
         }
     }
 
-    private static void runOnMain(Minecraft mc, Runnable runnable) {
+    static void releaseHeldKey(Minecraft mc, KeyMapping key) {
         Thread owner = Thread.currentThread();
-        if (mc.isSameThread()) {
-            runnable.run();
-            return;
-        }
-        CountDownLatch latch = new CountDownLatch(1);
+        mc.execute(() -> { if (heldKeys.remove(key, owner)) key.setDown(false); });
+    }
+    static void cleanupOnMain(Minecraft mc, Runnable cleanup) {
+        Thread owner = Thread.currentThread();
+        var origin = session;
+        mc.execute(() -> { if (mc.getConnection() == origin && (worker == owner || worker == null)) cleanup.run(); });
+    }
+    static void setHeldKey(Minecraft mc, KeyMapping key, boolean down) {
+        Thread owner = Thread.currentThread();
+        runOnMain(mc, () -> {
+            if (down) heldKeys.put(key, owner); else heldKeys.remove(key, owner);
+            key.setDown(down);
+        });
+    }
+
+    static void runOnMain(Minecraft mc, Runnable runnable) {
+        if (mc == null) throw new IllegalStateException("Minecraft is unavailable");
+        Thread owner = Thread.currentThread();
+        if (mc.isSameThread()) { runnable.run(); return; }
+        java.util.concurrent.CompletableFuture<Void> completion = new java.util.concurrent.CompletableFuture<>();
         mc.execute(() -> {
             try {
-                if (running && worker == owner && !owner.isInterrupted()) runnable.run();
-            } finally {
-                latch.countDown();
-            }
+                if (!running || worker != owner || owner.isInterrupted() || mc.getConnection() != session)
+                    throw new java.util.concurrent.CancellationException();
+                UiUtilsTasks.runOwned(owner, runnable); completion.complete(null);
+            } catch (Throwable failure) { completion.completeExceptionally(failure); }
         });
-        try {
-            latch.await(2, TimeUnit.SECONDS);
-        } catch (InterruptedException ignored) {
-            Thread.currentThread().interrupt();
+        try { completion.get(); }
+        catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new java.util.concurrent.CancellationException(); }
+        catch (java.util.concurrent.ExecutionException failure) {
+            if (failure.getCause() instanceof RuntimeException runtime) throw runtime;
+            throw new IllegalStateException("Client action failed", failure.getCause());
         }
     }
 
-    private static void sleepMillis(long millis) {
+    static void sleepMillis(long millis) {
         try {
             Thread.sleep(Math.max(0L, millis));
         } catch (InterruptedException ignored) {

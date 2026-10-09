@@ -21,16 +21,18 @@ public class UiUtilsConnectionReceiveMixin {
 		cancellable = true)
 	private void uiutils$onIncoming(ChannelHandlerContext context,
 		Packet<?> packet, CallbackInfo ci) {
+		if (((Connection)(Object)this).getReceiving() != net.minecraft.network.protocol.PacketFlow.CLIENTBOUND) return;
+
 		// Capture server evidence before packet tools can cancel the packet.
 		UiUtilsServerFingerprintCollector.onIncomingPacket((Connection)(Object)this, packet);
 		UiUtilsAntiCheatDetector.onIncomingPacket(packet);
 		UiUtilsGuiPacketLog.recordIncoming(packet);
 
-		if (!AdvancedPacketTool.onIncoming(packet))
+		if (!AdvancedPacketTool.onIncoming((Connection)(Object)this, packet))
 			ci.cancel();
 
 		// Count for HUD
 		PacketHud.incIncoming();
-		UiUtilsMacroRuntimeState.onIncomingPacket(packet.getClass().getSimpleName());
+		UiUtilsMacroRuntimeState.onIncomingPacket(packet);
 	}
 }

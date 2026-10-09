@@ -17,7 +17,7 @@ public abstract class ClientPacketListenerChatMixin {
     private void uiutils$onSystemChat(ClientboundSystemChatPacket packet, CallbackInfo ci) {
         Component content = packet.content();
         if (content != null) {
-            UiUtilsMacroRuntimeState.onChatMessage(content.getString());
+            UiUtilsMacroRuntimeState.onChatMessage(content.getString(), true);
             UiUtilsCommandScanner.onChatMessage(content.getString());
         }
     }

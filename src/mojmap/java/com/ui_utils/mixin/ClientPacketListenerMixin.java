@@ -18,4 +18,17 @@ public abstract class ClientPacketListenerMixin {
 		UiUtilsLegacyPluginScanner.onSuggestionsPacket(packet);
 		UiUtilsCommandScanner.onSuggestionsPacket(packet);
 	}
+    @Inject(method = "handleOpenScreen", at = @At("TAIL"))
+    private void uiutils$opened(net.minecraft.network.protocol.game.ClientboundOpenScreenPacket packet, CallbackInfo ci) {
+        var mc = net.minecraft.client.Minecraft.getInstance();
+        if (mc.player != null) com.ui_utils.uiutils.UiUtilsGuiCache.opened(mc.player.containerMenu);
+    }
+    @Inject(method = "handleContainerClose", at = @At("TAIL"))
+    private void uiutils$closed(net.minecraft.network.protocol.game.ClientboundContainerClosePacket packet, CallbackInfo ci) {
+        com.ui_utils.uiutils.UiUtilsGuiCache.closedId(packet.getContainerId());
+    }
+    @Inject(method = "handleSetTime", at = @At("TAIL"))
+    private void uiutils$serverTick(net.minecraft.network.protocol.game.ClientboundSetTimePacket packet, CallbackInfo ci) {
+        com.ui_utils.uiutils.macro.UiUtilsMacroRuntimeState.serverTime(packet.gameTime());
+    }
 }

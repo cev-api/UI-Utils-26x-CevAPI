@@ -863,8 +863,8 @@ public final class PacketDumper
 		{
 			try
 			{
-				Method gn = value.getClass().getMethod("getName");
-				Method gv = value.getClass().getMethod("getValue");
+				Method gn = value.getClass().getMethod("name");
+				Method gv = value.getClass().getMethod("value");
 				Method hs = value.getClass().getMethod("hasSignature");
 				String name = (String)gn.invoke(value);
 				String val = (String)gv.invoke(value);
@@ -1300,8 +1300,8 @@ public final class PacketDumper
 		Map<String, Object> m = new LinkedHashMap<>();
 		try
 		{
-			Method gn = prop.getClass().getMethod("getName");
-			Method gv = prop.getClass().getMethod("getValue");
+			Method gn = prop.getClass().getMethod("name");
+			Method gv = prop.getClass().getMethod("value");
 			String name = (String)gn.invoke(prop);
 			String val = (String)gv.invoke(prop);
 			m.put("name", name);
