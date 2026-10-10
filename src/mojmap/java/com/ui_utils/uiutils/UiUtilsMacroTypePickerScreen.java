@@ -1,11 +1,11 @@
 package com.ui_utils.uiutils;
 
 import com.ui_utils.uiutils.macro.UiUtilsMacroActionType;
+import com.ui_utils.uiutils.macro.UiUtilsMacroLabels;
 import com.ui_utils.uiutils.ui.UiButton;
 import com.ui_utils.uiutils.ui.UiContent;
 import com.ui_utils.uiutils.ui.UiModernScreen;
 import java.util.List;
-import java.util.Locale;
 import net.minecraft.network.chat.Component;
 
 public final class UiUtilsMacroTypePickerScreen extends UiModernScreen {
@@ -15,7 +15,7 @@ public final class UiUtilsMacroTypePickerScreen extends UiModernScreen {
     private final Mode mode;
 
     public UiUtilsMacroTypePickerScreen(UiUtilsMacrosScreen parent, Mode mode) {
-        super(Component.literal(mode == Mode.ACTION ? "Add Action" : "Add Condition"));
+        super(Component.literal(mode == Mode.ACTION ? "Add action" : "Add condition"));
         this.parent = parent;
         this.mode = mode;
     }
@@ -47,15 +47,7 @@ public final class UiUtilsMacroTypePickerScreen extends UiModernScreen {
     }
 
     private static String label(UiUtilsMacroActionType t) {
-        String s = t.name().replace('_', ' ').toLowerCase(Locale.ROOT);
-        String[] p = s.split(" ");
-        StringBuilder out = new StringBuilder();
-        for (String part : p) {
-            if (part.isEmpty()) continue;
-            if (!out.isEmpty()) out.append(' ');
-            out.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1));
-        }
-        return out.toString();
+        return UiUtilsMacroLabels.actionName(t);
     }
 
     private static List<PickerSection> actionSections() {

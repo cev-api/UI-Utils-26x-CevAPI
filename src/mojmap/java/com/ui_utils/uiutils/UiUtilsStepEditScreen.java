@@ -1,6 +1,7 @@
 package com.ui_utils.uiutils;
 
 import com.ui_utils.uiutils.macro.UiUtilsMacroAction;
+import com.ui_utils.uiutils.macro.UiUtilsMacroLabels;
 import com.ui_utils.uiutils.macroeditor.ActionFieldRegistry;
 import com.ui_utils.uiutils.macroeditor.FieldDef;
 import com.ui_utils.uiutils.ui.UiButton;
@@ -30,7 +31,7 @@ public final class UiUtilsStepEditScreen extends UiModernScreen {
     private final List<FieldDef> visibleDefs = new ArrayList<>();
 
     public UiUtilsStepEditScreen(Screen parent, UiUtilsMacroAction action, Runnable onSave) {
-        super(Component.literal("Edit Step: " + action.getType().name()));
+        super(Component.literal("Edit step: " + UiUtilsMacroLabels.actionName(action.getType())));
         this.parent = parent;
         this.action = action;
         this.onSave = onSave;
@@ -59,13 +60,13 @@ public final class UiUtilsStepEditScreen extends UiModernScreen {
         for (FieldDef def : visibleDefs) {
             switch (def.type()) {
                 case TOGGLE -> {
-                    c.row(UiContent.text(def.label()), UiContent.of(new UiToggle("",
+                    c.row(UiContent.text(UiUtilsMacroLabels.sentence(def.label())), UiContent.of(new UiToggle("",
                         () -> action.getData().getBooleanOr(def.key(), false),
                         value -> {
                             action.getData().putBoolean(def.key(), value);
                             Minecraft.getInstance().execute(this::rebuildWidgets);
                         }).detail(action.getData().getBooleanOr(def.key(), false)
-                            ? "ON" : "OFF"), 2F));
+                            ? "On" : "Off"), 2F));
                 }
                 case ENUM -> {
                     List<String> opts = def.enumOptions();
@@ -79,16 +80,17 @@ public final class UiUtilsStepEditScreen extends UiModernScreen {
                         if (idx < 0) idx = 0;
                         String next = opts.get((idx + 1) % opts.size());
                         action.getData().putString(def.key(), next);
-                        button.setMessage(Component.literal(next));
+                        button.setMessage(Component.literal(UiUtilsMacroLabels.sentence(next)));
                     });
-                    c.row(UiContent.text(def.label()), UiContent.of(button, 2F));
+                    button.setMessage(Component.literal(UiUtilsMacroLabels.sentence(button.getMessage().getString())));
+                    c.row(UiContent.text(UiUtilsMacroLabels.sentence(def.label())), UiContent.of(button, 2F));
                 }
                 case STRING_LIST -> {
                     List<String> currentItems = readStringList(def.key());
                     UiInput box = new UiInput(this.font, 1,
                         String.join(", ", currentItems), Component.literal("value1, value2"));
                     box.setMaxLength(1024);
-                    UiButton add = UiButton.of(def.addLabel(), null);
+                    UiButton add = UiButton.of(UiUtilsMacroLabels.sentence(def.addLabel()), null);
                     UiButton clear = UiButton.of("Clear", null);
                     StringListEditor editor = new StringListEditor(box, add, clear,
                         currentItems);
@@ -103,15 +105,15 @@ public final class UiUtilsStepEditScreen extends UiModernScreen {
                         box.setValue("");
                     });
                     stringListEditors.put(def.key(), editor);
-                    c.row(UiContent.text(def.label()), UiContent.of(box, 4F),
+                    c.row(UiContent.text(UiUtilsMacroLabels.sentence(def.label())), UiContent.of(box, 4F),
                         UiContent.fixed(add, 40), UiContent.fixed(clear, 38));
                 }
                 case NUMBER, DECIMAL, TEXT, BLOCK_POS, SLOT -> {
                     UiInput box = new UiInput(this.font, 1, readFieldValue(def),
-                        Component.literal(def.label()));
+                        Component.literal(UiUtilsMacroLabels.sentence(def.label())));
                     box.setMaxLength(1024);
                     fields.put(def.key(), box);
-                    c.row(UiContent.text(def.label()), UiContent.of(box, 2F));
+                    c.row(UiContent.text(UiUtilsMacroLabels.sentence(def.label())), UiContent.of(box, 2F));
                 }
             }
         }

@@ -101,14 +101,15 @@ public class UiListRow extends AbstractWidget implements UiScalable {
 		int h = UiTheme.localSize(getHeight(), uiScale, scaled);
 		int accentColor = accent >= 0 ? accent : UiTheme.accent();
 
-		int fill = selected ? UiTheme.accentTint(0x40) : UiTheme.SURFACE_ROW;
+		int fill = selected ? UiTheme.accentTint(0x70) : UiTheme.SURFACE_ROW;
 		if (isHoveredOrFocused() && active && !selected)
 			fill = UiTheme.SURFACE_ROW_HOVER;
 		if (!active)
 			fill = 0x18FFFFFF;
 
 		graphics.fill(x, y, x + w, y + h, fill);
-		UiTheme.border(graphics, x, y, w, h, UiTheme.BORDER);
+		UiTheme.border(graphics, x, y, w, h, selected
+			? UiTheme.mix(UiTheme.BORDER, accentColor, 0.7F) : UiTheme.BORDER);
 		if (selected)
 			graphics.fill(x, y, x + 2, y + h, accentColor);
 

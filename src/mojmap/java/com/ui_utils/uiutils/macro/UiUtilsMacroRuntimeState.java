@@ -46,8 +46,6 @@ public final class UiUtilsMacroRuntimeState {
             peerSteps.put(decode(match.group(1)) + "\n" + decode(match.group(2)), Integer.parseInt(match.group(3)));
         } catch (IllegalArgumentException ignored) {}
     }
-    public static String stepMessage(String peer, String macro, int step) { return "[UIUtilsStep:" + encode(peer) + ":" + encode(macro) + ":" + step + "]"; }
-    private static String encode(String s) { return Base64.getUrlEncoder().withoutPadding().encodeToString(s.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
     private static String decode(String s) { return new String(Base64.getUrlDecoder().decode(s), java.nio.charset.StandardCharsets.UTF_8); }
     public static int peerStep(String peer, String macro) { return peerSteps.getOrDefault(peer + "\n" + macro, -1); }
     public static synchronized List<Sound> sounds() { return List.copyOf(sounds); }

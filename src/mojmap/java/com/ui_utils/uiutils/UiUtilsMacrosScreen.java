@@ -5,6 +5,7 @@ import com.ui_utils.uiutils.macro.UiUtilsMacro;
 import com.ui_utils.uiutils.macro.UiUtilsMacroAction;
 import com.ui_utils.uiutils.macro.UiUtilsMacroActionType;
 import com.ui_utils.uiutils.macro.UiUtilsMacroExecutor;
+import com.ui_utils.uiutils.macro.UiUtilsMacroLabels;
 import com.ui_utils.uiutils.macro.UiUtilsMacroManager;
 import com.ui_utils.uiutils.macroeditor.ActionFieldRegistry;
 import com.ui_utils.uiutils.ui.UiButton;
@@ -17,7 +18,6 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
-import java.util.Locale;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
@@ -49,7 +49,7 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
     }
 
     public UiUtilsMacrosScreen(Screen parent, String initialMacroName) {
-        super(Component.literal("Create Macro"));
+        super(Component.literal("Create macro"));
         this.parent = parent;
         this.initialMacroName = initialMacroName;
     }
@@ -73,9 +73,9 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
 
         if (!UiUtilsMacroExecutor.lastError().isBlank()) c.label("Last run: " + UiUtilsMacroExecutor.lastError());
         nameField = c.input(editing.name == null ? "" : editing.name, value -> editing.name = value);
-        nameField.setHint(Component.literal("Macro Name"));
+        nameField.setHint(Component.literal("Macro name"));
 
-        c.button("Share steps in server chat: " + (editing.shareSteps ? "ON" : "OFF"), () -> { editing.shareSteps = !editing.shareSteps; scheduleRebuild(); });
+        c.button("Show step progress locally: " + (editing.shareSteps ? "On" : "Off"), () -> { editing.shareSteps = !editing.shareSteps; scheduleRebuild(); });
 
         stepRows.clear();
         rowControls.clear();
@@ -83,9 +83,9 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
             UiContent.of(UiButton.of("Once", this::runOnce)),
             UiContent.of(UiButton.of("Run", this::runEditing)),
             UiContent.of(UiButton.of("Stop", UiUtilsMacroExecutor::stop)));
-        c.row(UiContent.of(UiButton.of("Add Action",
+        c.row(UiContent.of(UiButton.of("Add action",
                 () -> openPicker(UiUtilsMacroTypePickerScreen.Mode.ACTION))),
-            UiContent.of(UiButton.of("Add Conditional",
+            UiContent.of(UiButton.of("Add condition",
                 () -> openPicker(UiUtilsMacroTypePickerScreen.Mode.CONDITION))));
 
         // One row per step, always. The panel itself scrolls, so nothing is hidden
@@ -225,16 +225,16 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
     }
 
     private String bindLabel() {
-        if (waitingForBindKey) return "Press Key...";
+        if (waitingForBindKey) return "Press key...";
         InputConstants.Key key = UiUtilsMacroManager.bindingKey(editing);
         if (key == null)
-            return "Bind Key";
+            return "Bind key";
         String name = key.getDisplayName().getString();
         return "Key: " + name;
     }
 
     private String loopToggleLabel() {
-        return editing.loop ? "Loop: ON" : "Loop: OFF";
+        return editing.loop ? "Loop: On" : "Loop: Off";
     }
 
     private int maxStepOffset() {
@@ -264,7 +264,7 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
 
     private String stepText(int index) {
         UiUtilsMacroAction action = editing.actions.get(index);
-        String title = action.getType().name().replace('_', ' ').toLowerCase(Locale.ROOT);
+        String title = UiUtilsMacroLabels.actionName(action.getType());
         return (index + 1) + "  " + title;
     }
 
@@ -325,7 +325,7 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
         syncNameField();
         selectedStep = index;
         if (ActionFieldRegistry.get(editing.actions.get(index).getType()).fields().isEmpty()) {
-            setStatusText("No options for " + editing.actions.get(index).getType().name());
+            setStatusText("No options for " + UiUtilsMacroLabels.actionName(editing.actions.get(index).getType()));
             refreshRows();
             return;
         }
@@ -348,7 +348,7 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
         syncNameField();
         String n = nameField == null ? editing.name : nameField.getValue().trim();
         if (n == null || n.isBlank()) {
-            setStatusText("Name Required");
+            setStatusText("Name required");
             return false;
         }
         editing.name = n;

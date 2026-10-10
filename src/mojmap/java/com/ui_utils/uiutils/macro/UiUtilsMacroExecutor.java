@@ -102,6 +102,18 @@ public final class UiUtilsMacroExecutor {
         for (int index = from; index < to && isCurrentRun(); index++) {
             UiUtilsMacroAction action = macro.actions.get(index);
             if (!action.isEnabled()) continue;
+            if (macro.shareSteps && isCurrentRun()) {
+                int step = index + 1;
+                Minecraft mc = Minecraft.getInstance();
+                String message = macro.name + " — Step " + step + "/"
+                    + macro.actions.size() + ": "
+                    + UiUtilsMacroLabels.stepDescription(action);
+                runOnMain(mc, () -> {
+                    if (mc.player != null)
+                        UiUtils.postSystemMessage(net.minecraft.network.chat.Component.literal(
+                            "[UI-Utils] " + message));
+                });
+            }
             if (action.getType() == UiUtilsMacroActionType.REPEAT) {
                 int count = action.getData().getIntOr("stepCount", 1);
                 int repeats = action.getData().getIntOr("repeatCount", 1);
@@ -109,14 +121,6 @@ public final class UiUtilsMacroExecutor {
                     throw new IllegalArgumentException("Invalid Repeat at step " + (index + 1));
                 for (int repeat = 0; repeat < repeats && isCurrentRun(); repeat++) runSteps(macro, index - count, index, depth + 1);
             } else executeAction(action);
-            if (macro.shareSteps && isCurrentRun()) {
-                int step = index + 1;
-                Minecraft mc = Minecraft.getInstance();
-                runOnMain(mc, () -> {
-                    if (mc.player != null && mc.getConnection() != null)
-                        mc.getConnection().sendChat(UiUtilsMacroRuntimeState.stepMessage(mc.player.getGameProfile().name(), macro.name, step));
-                });
-            }
         }
     }
 
@@ -143,7 +147,8 @@ public final class UiUtilsMacroExecutor {
                     String command = action.getData().getStringOr("command", "");
                     if (!command.isBlank()) runOnMain(mc, () -> UiUtils.sendCommandWithConfiguredDelay(mc, command));
                 }
-                case CLOSE_GUI -> runOnMain(mc, () -> UiUtils.closeScreenWithConfiguredDelay(mc));
+                case CLOSE_GUI -> runOnMain(mc, () -> UiUtils.closeScreenWithConfiguredDelay(mc,
+                    action.getData().getBooleanOr("sendPacket", false)));
                 case DESYNC -> runOnMain(mc, () -> UiUtils.sendClosePacketWithConfiguredDelay(mc));
                 case RESTORE_GUI -> runOnMain(mc, () -> UiUtils.executeKeybindAction("restore_gui", mc));
                 case SAVE_GUI -> runOnMain(mc, () -> UiUtils.executeKeybindAction("save_gui", mc));
@@ -315,6 +320,10 @@ public final class UiUtilsMacroExecutor {
                 if (stack.isEmpty()) continue;
                 if (!all && !targetName.isBlank() && !matchesName(stack, targetName)) continue;
                 mc.gameMode.handleContainerInput(menu.containerId, i, 0, ContainerInput.QUICK_MOVE, mc.player);
+            }
+            if (action.getData().getBooleanOr("closeAfter", false)) {
+                UiUtils.closeScreenWithConfiguredDelay(mc,
+                    action.getData().getBooleanOr("closeSendPkt", false));
             }
         });
     }

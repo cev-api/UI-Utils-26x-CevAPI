@@ -34,7 +34,7 @@ public final class UiUtilsMacroLibraryScreen extends UiModernScreen {
     private String status = "";
 
     public UiUtilsMacroLibraryScreen(Screen parent) {
-        super(Component.literal("Macro Library"));
+        super(Component.literal("Macro library"));
         this.parent = parent;
     }
 
@@ -67,11 +67,11 @@ public final class UiUtilsMacroLibraryScreen extends UiModernScreen {
             refreshRows();
         });
         searchField.setHint(Component.literal("Search macros..."));
-        c.row(UiContent.of(UiButton.of("Create New",
+        c.row(UiContent.of(UiButton.of("Create new",
                 () -> McCompat.setScreen(minecraft, new UiUtilsMacrosScreen(this)))),
-            UiContent.of(UiButton.of("Edit Selected", this::openSelected)),
-            UiContent.of(UiButton.of("Delete Selected", this::deleteSelected)));
-        c.row(UiContent.of(UiButton.of("Run Selected", this::runSelected)),
+            UiContent.of(UiButton.of("Edit selected", this::openSelected)),
+            UiContent.of(UiButton.of("Delete selected", this::deleteSelected)));
+        c.row(UiContent.of(UiButton.of("Run selected", this::runSelected)),
             UiContent.of(UiButton.of("Stop", UiUtilsMacroExecutor::stop)));
 
         // Only as many list slots as the viewport has room for: the import and
@@ -90,7 +90,7 @@ public final class UiUtilsMacroLibraryScreen extends UiModernScreen {
             c.row(UiContent.of(row));
         }
 
-        c.section("Import / Export");
+        c.section("Import and export");
         importField = new UiInput(this.font, 1, importPath,
             Component.literal("Import path (NBT)"));
         importField.setMaxLength(1024);
@@ -205,7 +205,8 @@ public final class UiUtilsMacroLibraryScreen extends UiModernScreen {
             boolean filled = index >= 0 && index < filtered.size();
             row.active = filled;
             row.label(filled ? filtered.get(index).name : "");
-            row.detail(filled ? filtered.get(index).actions.size() + " steps" : "");
+            int count = filled ? filtered.get(index).actions.size() : 0;
+            row.detail(filled ? count + (count == 1 ? " step" : " steps") : "");
             row.selected(filled && index == selected);
         }
     }

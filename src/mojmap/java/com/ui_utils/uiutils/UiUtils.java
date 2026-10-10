@@ -1138,14 +1138,24 @@ return field;
 	}
 
 	public static void closeScreenWithConfiguredDelay(Minecraft mc) {
+		closeScreenWithConfiguredDelay(mc, true);
+	}
+
+	public static void closeScreenWithConfiguredDelay(Minecraft mc,
+		boolean withoutPacket) {
 		int delayTicks = Math.max(0, UiUtilsSettings.get().uiCloseDelayTicks);
         Screen originalScreen = McCompat.getScreen(mc);
 		queueTask(() -> {
 			Minecraft current = Minecraft.getInstance();
 			if (McCompat.getScreen(current) != originalScreen) return;
+			if (!withoutPacket && current.player != null
+				&& current.getConnection() != null) {
+				current.getConnection().send(new ServerboundContainerClosePacket(
+					current.player.containerMenu.containerId));
+			}
 			McCompat.setScreen(current, null);
-			chatIfEnabled("Closed GUI without packet"
-				+ delaySuffix(delayTicks));
+			chatIfEnabled((withoutPacket ? "Closed GUI without packet"
+				: "Closed GUI with packet") + delaySuffix(delayTicks));
 		}, delayTicks * 50L);
 	}
 
