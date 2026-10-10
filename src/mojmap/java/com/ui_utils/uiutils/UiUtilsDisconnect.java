@@ -91,6 +91,10 @@ public final class UiUtilsDisconnect {
 		return Math.max(1, UiUtilsSettings.get().disconnectTimeoutSeconds);
 	}
 
+	public static int getConfiguredLagPacketCount() {
+		return getLagPacketCount();
+	}
+
 	public static void setConfiguredTimeoutSeconds(int seconds) {
 		UiUtilsSettings.get().disconnectTimeoutSeconds = Math.max(1, seconds);
 		UiUtilsSettings.save();
@@ -127,8 +131,13 @@ public final class UiUtilsDisconnect {
 	}
 
 	public static void execute(Minecraft mc, Method method) {
+		execute(mc, method, getLagPacketCount());
+	}
+
+	public static void execute(Minecraft mc, Method method, int packetCount) {
 		if(mc == null || mc.getConnection() == null)
 			return;
+		int boundedPacketCount = MthClamp.clamp(packetCount, 1, 2000);
 		if(method != Method.TIMEOUT) {
 			timeoutWaitingForKeepAlive = false;
 			timeoutBlockingKeepAlive = false;
@@ -179,9 +188,9 @@ public final class UiUtilsDisconnect {
 			}
 			case INVALID_SLOT ->
 				mc.getConnection().send(new ServerboundSetCarriedItemPacket(-1));
-			case LAG_SWING -> sendSwingSpam(mc, getLagPacketCount());
-			case LAG_DIG -> sendDigSpam(mc, getLagPacketCount());
-			case LAG_SLOT -> sendSlotSpam(mc, getLagPacketCount());
+			case LAG_SWING -> sendSwingSpam(mc, boundedPacketCount);
+			case LAG_DIG -> sendDigSpam(mc, boundedPacketCount);
+			case LAG_SLOT -> sendSlotSpam(mc, boundedPacketCount);
 		}
 	}
 

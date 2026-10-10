@@ -418,8 +418,7 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
             UiUtilsMacroActionType.WAIT_PACKET,
             UiUtilsMacroActionType.TICK_SYNC,
             UiUtilsMacroActionType.REVISION_SYNC,
-            UiUtilsMacroActionType.SERVER_TICK_SYNC,
-            UiUtilsMacroActionType.WAIT_LAN_STEP
+            UiUtilsMacroActionType.SERVER_TICK_SYNC
         );
     }
 

@@ -89,7 +89,7 @@ public final class UiUtilsMacroTypePickerScreen extends UiModernScreen {
                 UiUtilsMacroActionType.WAIT_ENTITY, UiUtilsMacroActionType.WAIT_SOUND
             )),
             new PickerSection("Events", List.of(
-                UiUtilsMacroActionType.WAIT_GUI, UiUtilsMacroActionType.WAIT_CHAT, UiUtilsMacroActionType.WAIT_LAN_STEP
+                UiUtilsMacroActionType.WAIT_GUI, UiUtilsMacroActionType.WAIT_CHAT
             )),
             new PickerSection("Sync", List.of(
                 UiUtilsMacroActionType.WAIT_PACKET, UiUtilsMacroActionType.TICK_SYNC,

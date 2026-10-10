@@ -63,7 +63,11 @@ public final class UiUtilsMacroActions {
             case WAIT_COOLDOWN -> wait(mc, action, () -> {
                 requirePlayer(mc);
                 String target = data.getStringOr("itemName", "");
-                if (data.getBooleanOr("checkMainHand", false)) return !mc.player.getCooldowns().isOnCooldown(mc.player.getMainHandItem());
+                if (data.getBooleanOr("checkMainHand", false)) {
+                    ItemStack held = mc.player.getMainHandItem();
+                    return !held.isEmpty() && (target.isBlank() || matches(held, target))
+                        && !mc.player.getCooldowns().isOnCooldown(held);
+                }
                 boolean found = false;
                 for (var slot : mc.player.inventoryMenu.slots) if (!slot.getItem().isEmpty() && matches(slot.getItem(), target)) {
                     found = true; if (mc.player.getCooldowns().isOnCooldown(slot.getItem())) return false;
@@ -88,9 +92,7 @@ public final class UiUtilsMacroActions {
                         && mc.player.position().distanceToSqr(new Vec3(sound.x(), sound.y(), sound.z())) <= square(data.getDoubleOr("maxDistance", 16)))));
             }
             case WAIT_LAN_STEP -> {
-                String peer = required(data, "peerName"), macro = required(data, "macroName");
-                int step = bounded(data, "step", 1, 1, 10000);
-                wait(mc, action, () -> UiUtilsMacroRuntimeState.peerStep(peer, macro) >= step);
+                throw new IllegalStateException("Wait for LAN Step is unavailable because macro progress is kept local and is not sent through server chat. Remove this legacy step to continue.");
             }
             case TICK_SYNC -> {
                 long[] start = new long[1];
@@ -112,9 +114,15 @@ public final class UiUtilsMacroActions {
             case LOOK_AT_BLOCK -> main(mc, () -> lookAt(mc, position(data).add(0.5, 0.5, 0.5)));
             case GO_TO -> {
                 Vec3 target = position(data);
-                UiUtilsMacroExecutor.setHeldKey(mc, mc.options.keyUp, true);
-                try { wait(mc, action, () -> { requirePlayer(mc); lookAt(mc, new Vec3(target.x, mc.player.getEyeY(), target.z)); return mc.player.position().distanceToSqr(target) < 1; }); }
-                finally { UiUtilsMacroExecutor.releaseHeldKey(mc, mc.options.keyUp); }
+                if (!data.getBooleanOr("waitForArrival", true)) {
+                    Thread owner = Thread.currentThread();
+                    UiUtilsMacroExecutor.setHeldKey(mc, mc.options.keyUp, true, true);
+                    scheduleGoTo(mc, owner, target);
+                } else {
+                    UiUtilsMacroExecutor.setHeldKey(mc, mc.options.keyUp, true);
+                    try { wait(mc, action, () -> { requirePlayer(mc); lookAt(mc, new Vec3(target.x, mc.player.getEyeY(), target.z)); return mc.player.position().distanceToSqr(target) < 1; }); }
+                    finally { UiUtilsMacroExecutor.releaseHeldKey(mc, mc.options.keyUp); }
+                }
             }
             case INVENTORY -> main(mc, () -> {
                 requirePlayer(mc);
@@ -235,6 +243,16 @@ public final class UiUtilsMacroActions {
             }
             default -> throw new IllegalArgumentException("No executor for " + action.getType());
         }
+    }
+    private static void scheduleGoTo(Minecraft mc, Thread owner, Vec3 target) {
+        com.ui_utils.uiutils.UiUtilsTasks.scheduleOwned(owner, () -> {
+            if (mc.player == null || mc.getConnection() == null || mc.player.position().distanceToSqr(target) < 1) {
+                UiUtilsMacroExecutor.releasePersistentHeldKey(mc, mc.options.keyUp, owner);
+                return;
+            }
+            lookAt(mc, new Vec3(target.x, mc.player.getEyeY(), target.z));
+            scheduleGoTo(mc, owner, target);
+        }, 50);
     }
 
     static Vec3 position(CompoundTag data) {

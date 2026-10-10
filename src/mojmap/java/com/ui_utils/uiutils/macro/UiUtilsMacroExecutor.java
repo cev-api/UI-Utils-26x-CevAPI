@@ -3,11 +3,15 @@ package com.ui_utils.uiutils.macro;
 import com.ui_utils.uiutils.McCompat;
 import com.ui_utils.uiutils.UiUtils;
 import com.ui_utils.uiutils.UiUtilsCommandSystem;
+import com.ui_utils.uiutils.UiUtilsDisconnect;
 import com.ui_utils.uiutils.UiUtilsState;
 import com.ui_utils.uiutils.UiUtilsTasks;
 import java.util.Locale;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -31,6 +35,7 @@ public final class UiUtilsMacroExecutor {
     public static String lastError() { return lastError; }
     // Accessed on the client thread. An old run must not release a new run's key.
     private static final Map<KeyMapping, Thread> heldKeys = new HashMap<>();
+    private static final Set<KeyMapping> persistentKeys = new HashSet<>();
 
     private UiUtilsMacroExecutor() {}
 
@@ -56,8 +61,8 @@ public final class UiUtilsMacroExecutor {
     public static synchronized void stop() { stopRun(true); }
 
     private static void stopRun(boolean cancelPending) {
-        if (cancelPending) UiUtilsTasks.cancelMacroTasks();
         Thread previous = worker;
+        if (cancelPending) UiUtilsTasks.cancelMacroTasks(previous);
         worker = null;
         running = false;
         currentName = null;
@@ -66,8 +71,22 @@ public final class UiUtilsMacroExecutor {
         if (mc != null) mc.execute(() -> {
             heldKeys.entrySet().removeIf(entry -> {
                 if (entry.getValue() != previous) return false;
+                if (persistentKeys.contains(entry.getKey())) {
+                    if (cancelPending) {
+                        entry.getKey().setDown(false);
+                        persistentKeys.remove(entry.getKey());
+                    }
+                    return true;
+                }
                 entry.getKey().setDown(false); return true;
             });
+            if (cancelPending) {
+                persistentKeys.removeIf(key -> {
+                    if (previous != null || heldKeys.containsKey(key)) return false;
+                    key.setDown(false);
+                    return true;
+                });
+            }
             if (mc.player != null && !mc.options.keySprint.isDown()) mc.player.setSprinting(false);
         });
     }
@@ -87,7 +106,7 @@ public final class UiUtilsMacroExecutor {
         } catch (java.util.concurrent.CancellationException ignored) {
         } catch (Throwable failure) {
             synchronized (UiUtilsMacroExecutor.class) {
-                if (worker == Thread.currentThread()) UiUtilsTasks.cancelMacroTasks();
+                if (worker == Thread.currentThread()) UiUtilsTasks.cancelMacroTasks(Thread.currentThread());
             }
             lastError = failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
             UiUtils.LOGGER.warn("Macro {} stopped: {}", macro.name, lastError);
@@ -138,6 +157,8 @@ public final class UiUtilsMacroExecutor {
                 case SEND_CHAT -> {
                     String msg = action.getData().getStringOr("message", "");
                     // A leading slash means the macro wants a command, matching the chat field keybind.
+                    if (action.getData().getBooleanOr("waitForGui", false))
+                        awaitCondition(mc, action, () -> guiTitleMatches(mc, action.getData().getStringOr("guiName", "")));
                     if (!msg.isBlank()) runOnMain(mc, () -> {
                         if (msg.startsWith("/")) UiUtils.sendCommandWithConfiguredDelay(mc, msg.substring(1));
                         else UiUtils.sendChatWithConfiguredDelay(mc, msg);
@@ -147,29 +168,33 @@ public final class UiUtilsMacroExecutor {
                     String command = action.getData().getStringOr("command", "");
                     if (!command.isBlank()) runOnMain(mc, () -> UiUtils.sendCommandWithConfiguredDelay(mc, command));
                 }
-                case CLOSE_GUI -> runOnMain(mc, () -> UiUtils.closeScreenWithConfiguredDelay(mc,
-                    action.getData().getBooleanOr("sendPacket", false)));
+                case CLOSE_GUI -> runOnMain(mc, () -> closeMatchingGui(mc, action));
                 case DESYNC -> runOnMain(mc, () -> UiUtils.sendClosePacketWithConfiguredDelay(mc));
-                case RESTORE_GUI -> runOnMain(mc, () -> UiUtils.executeKeybindAction("restore_gui", mc));
-                case SAVE_GUI -> runOnMain(mc, () -> UiUtils.executeKeybindAction("save_gui", mc));
+                case RESTORE_GUI -> {
+                    if (UiUtilsState.storedScreen == null || UiUtilsState.storedMenu == null)
+                        throw new IllegalStateException("No saved GUI is available to restore");
+                    runOnMain(mc, () -> UiUtils.executeKeybindAction("restore_gui", mc));
+                    if (action.getData().getBooleanOr("waitForGui", false))
+                        awaitCondition(mc, action, () -> UiUtilsState.storedScreen != null && McCompat.getScreen(mc) == UiUtilsState.storedScreen);
+                }
+                case SAVE_GUI -> runOnMain(mc, () -> {
+                    boolean saved = UiUtils.saveCurrentGuiToSlot(mc, "default");
+                    if (!saved) throw new IllegalStateException("Could not save the current GUI");
+                    if (saved && action.getData().getBooleanOr("closeAfter", false))
+                        UiUtils.closeScreenWithConfiguredDelay(mc, action.getData().getBooleanOr("sendPacket", false));
+                });
                 case SELECT_SLOT -> runOnMain(mc, () -> {
                     if (mc.player == null) return;
-                    int slot = Math.max(0, Math.min(8, action.getData().getIntOr("slot", 0)));
+                    int slot = resolveHotbarSlot(mc, action.getData().getStringOr("itemName", ""), action.getData().getIntOr("slot", 0));
                     mc.player.getInventory().setSelectedSlot(slot);
                 });
-                case ROTATE -> runOnMain(mc, () -> {
-                    if (mc.player == null) return;
-                    float yaw = action.getData().getFloatOr("yaw", mc.player.getYRot()), pitch = action.getData().getFloatOr("pitch", mc.player.getXRot());
-                    if (!Float.isFinite(yaw) || !Float.isFinite(pitch)) throw new IllegalArgumentException("Rotation must be finite");
-                    mc.player.setYRot(net.minecraft.util.Mth.wrapDegrees(yaw));
-                    mc.player.setXRot(net.minecraft.util.Mth.clamp(pitch, -90, 90));
-                });
+                case ROTATE -> rotate(mc, action);
                 case JUMP -> pressKeyForTicks(mc, mc.options.keyJump,
                     action.getData().getBooleanOr("tap", true) ? 1 : Math.max(1, action.getData().getIntOr("durationTicks", 1)));
-                case SNEAK -> setHeldKey(mc, mc.options.keyShift, action.getData().getBooleanOr("sneak", true));
+                case SNEAK -> setHeldKey(mc, mc.options.keyShift, action.getData().getBooleanOr("sneak", true), action.getData().getBooleanOr("persistent", false));
                 case SPRINT -> {
                     boolean sprint = action.getData().getBooleanOr("sprint", true);
-                    setHeldKey(mc, mc.options.keySprint, sprint);
+                    setHeldKey(mc, mc.options.keySprint, sprint, action.getData().getBooleanOr("persistent", false));
                     runOnMain(mc, () -> { if (mc.player != null) mc.player.setSprinting(sprint); });
                 }
                 case MOVE -> {
@@ -181,7 +206,13 @@ public final class UiUtilsMacroExecutor {
                         case "RIGHT" -> mc.options.keyRight;
                         default -> mc.options.keyUp;
                     };
-                    pressKeyForTicks(mc, key, ticks);
+                    if (action.getData().getBooleanOr("nonBlocking", false)) {
+                        Thread owner = Thread.currentThread();
+                        setHeldKey(mc, key, true, true);
+                        UiUtilsTasks.scheduleOwned(owner, () -> {
+                            if (heldKeys.remove(key, owner) || persistentKeys.remove(key)) key.setDown(false);
+                        }, ticks * 50L);
+                    } else pressKeyForTicks(mc, key, ticks);
                 }
                 case USE_ITEM -> runUseItem(mc, action);
                 case DROP -> runDrop(mc, action);
@@ -208,7 +239,20 @@ public final class UiUtilsMacroExecutor {
                         UiUtils.sendQueuedPackets(mc, 1); UiUtils.clearQueuedPackets();
                     }
                 });
-                case DISCONNECT -> runOnMain(mc, () -> UiUtils.executeKeybindAction("disconnect", mc));
+                case DISCONNECT -> {
+                    sleepMillis(Math.max(0, action.getData().getIntOr("delayMs", 0)));
+                    String raw = action.getData().getStringOr("mode", "DISCONNECT");
+                    UiUtilsDisconnect.Method method;
+                    try {
+                        method = raw.equalsIgnoreCase("DISCONNECT")
+                            ? UiUtilsDisconnect.getConfiguredMethod()
+                            : UiUtilsDisconnect.Method.valueOf(raw.toUpperCase(Locale.ROOT));
+                    } catch (IllegalArgumentException invalid) {
+                        throw new IllegalArgumentException("Unsupported saved disconnect mode '" + raw + "'. Edit this step and choose a listed method.");
+                    }
+                    int packetCount = Math.max(1, action.getData().getIntOr("packetCount", UiUtilsDisconnect.getConfiguredLagPacketCount()));
+                    runOnMain(mc, () -> UiUtilsDisconnect.execute(mc, method, packetCount));
+                }
                 case STOP_MACRO -> stop();
                 case REPEAT -> throw new IllegalStateException("Repeat must run through the step sequencer");
                 default -> UiUtilsMacroActions.execute(mc, action);
@@ -221,7 +265,13 @@ public final class UiUtilsMacroExecutor {
     }
 
     private static void runUseItem(Minecraft mc, UiUtilsMacroAction action) {
-        int slot = parsePreferredSlot(action.getData(), "itemName", "slot", -1);
+        String itemName = action.getData().getStringOr("itemName", "").trim();
+        int slot = runOnMainResult(mc, () -> {
+            if (mc.player == null) return -1;
+            if (!itemName.isBlank()) return findHotbarSlot(mc, itemName);
+            return Math.max(0, Math.min(8, action.getData().getIntOr("slot", 0)));
+        });
+        if (!itemName.isBlank() && slot < 0) throw new IllegalStateException("No hotbar item matches '" + itemName + "'");
         if (slot >= 0) runOnMain(mc, () -> {
             if (mc.player != null) mc.player.getInventory().setSelectedSlot(Math.max(0, Math.min(8, slot)));
         });
@@ -249,7 +299,9 @@ public final class UiUtilsMacroExecutor {
             if (mc.player == null || mc.gameMode == null) return;
             AbstractContainerMenu menu = mc.player.containerMenu;
             if (menu == null) return;
-            int slot = parsePreferredSlot(action.getData(), "itemName", "slot", -1);
+            String itemName = action.getData().getStringOr("itemName", "").trim();
+            int slot = itemName.isBlank() ? action.getData().getIntOr("slot", -1) : findMenuSlot(menu, itemName);
+            if (!itemName.isBlank() && slot < 0) throw new IllegalStateException("No open-container item matches '" + itemName + "'");
             if (slot < 0) slot = parseLegacyListFirstSlot(action.getData(), "itemNames");
             int clicks = Math.max(1, action.getData().getIntOr("count", action.getData().getIntOr("dropCount", 1)));
             if (slot < 0) return;
@@ -286,12 +338,26 @@ public final class UiUtilsMacroExecutor {
             if (mc.player == null || mc.gameMode == null) return;
             AbstractContainerMenu menu = mc.player.containerMenu;
             if (menu == null) return;
-            int slot = action.getData().getBooleanOr("useSlot", false)
-                ? action.getData().getIntOr("targetSlot", -1) : -1;
-            if (slot < 0) slot = parseLegacyListFirstSlot(action.getData(), "itemNames");
-            if (slot < 0) return;
-            int handlerSlot = resolveHandlerSlot(menu, slot);
-            if (handlerSlot < 0) return;
+            Set<Integer> targetSlots = new java.util.LinkedHashSet<>();
+            if (action.getData().getBooleanOr("useSlot", false)) {
+                int slot = action.getData().getIntOr("targetSlot", -1);
+                if (slot >= 0) targetSlots.add(slot);
+            } else {
+                for (String selector : UiUtilsMacroActions.selectors(action.getData(), "itemNames")) {
+                    if (selector.startsWith("#")) {
+                        String[] parts = selector.substring(1).split("\\|", 2);
+                        try {
+                            int slot = Integer.parseInt(parts[0]);
+                            if (slot >= 0 && slot < menu.slots.size()
+                                && (parts.length == 1 || matchesName(menu.slots.get(slot).getItem(), parts[1]))) targetSlots.add(slot);
+                        } catch (NumberFormatException ignored) {}
+                    } else if (!selector.isBlank()) {
+                        for (int i = 0; i < menu.slots.size(); i++)
+                            if (matchesName(menu.slots.get(i).getItem(), selector)) targetSlots.add(i);
+                    }
+                }
+            }
+            if (targetSlots.isEmpty()) throw new IllegalStateException("No slots match the configured item selection");
             int actionIndex = action.getData().getIntOr("actionIndex", 0);
             int button = action.getData().getIntOr("button", 0);
             int times = Math.max(1, action.getData().getIntOr("times", 1));
@@ -299,33 +365,47 @@ public final class UiUtilsMacroExecutor {
             if (actionIndex == 1 || actionIndex == 6 || actionIndex == 7) button = 0;
             if (actionIndex == 3) button = 2;
             if (actionIndex == 8) button = 1;
-            for (int i = 0; i < times; i++) mc.gameMode.handleContainerInput(menu.containerId, handlerSlot, button, input, mc.player);
+            for (int slot : targetSlots) {
+                int handlerSlot = resolveHandlerSlot(menu, slot);
+                if (handlerSlot < 0) continue;
+                for (int i = 0; i < times; i++) mc.gameMode.handleContainerInput(menu.containerId, handlerSlot, button, input, mc.player);
+            }
         });
     }
 
     private static void runStoreItem(Minecraft mc, UiUtilsMacroAction action) {
-        runOnMain(mc, () -> {
-            if (mc.player == null || mc.gameMode == null) return;
-            AbstractContainerMenu menu = mc.player.containerMenu;
-            if (menu == null || menu == mc.player.inventoryMenu) return;
-            boolean store = action.getData().getStringOr("mode", "STORE").equalsIgnoreCase("STORE");
-            boolean all = action.getData().getBooleanOr("allItems", false);
-            String targetName = parseLegacyListFirstName(action.getData(), "targetItems");
-            for (int i = 0; i < menu.slots.size(); i++) {
-                Slot slot = menu.slots.get(i);
-                if (slot == null) continue;
-                boolean playerInvSide = isPlayerInventorySlot(menu, i);
-                if ((store && !playerInvSide) || (!store && playerInvSide)) continue;
-                ItemStack stack = slot.getItem();
-                if (stack.isEmpty()) continue;
-                if (!all && !targetName.isBlank() && !matchesName(stack, targetName)) continue;
-                mc.gameMode.handleContainerInput(menu.containerId, i, 0, ContainerInput.QUICK_MOVE, mc.player);
-            }
-            if (action.getData().getBooleanOr("closeAfter", false)) {
-                UiUtils.closeScreenWithConfiguredDelay(mc,
-                    action.getData().getBooleanOr("closeSendPkt", false));
-            }
-        });
+        boolean persistent = action.getData().getBooleanOr("persistent", false);
+        List<String> targets = UiUtilsMacroActions.selectors(action.getData(), "targetItems");
+        boolean all = action.getData().getBooleanOr("allItems", false);
+        if (!all && targets.isEmpty()) throw new IllegalArgumentException("Choose target items or enable All Items");
+        boolean store = action.getData().getStringOr("mode", "STORE").equalsIgnoreCase("STORE");
+        do {
+            int moved = runOnMainResult(mc, () -> {
+                if (mc.player == null || mc.gameMode == null) return 0;
+                AbstractContainerMenu menu = mc.player.containerMenu;
+                if (menu == null || menu == mc.player.inventoryMenu) return 0;
+                int count = 0;
+                for (int i = 0; i < menu.slots.size(); i++) {
+                    Slot slot = menu.slots.get(i);
+                    if (slot == null || (store == isPlayerInventorySlot(menu, i))) continue;
+                    ItemStack stack = slot.getItem();
+                    if (stack.isEmpty()) continue;
+                    if (!all && !targets.isEmpty()) {
+                        boolean matches = false;
+                        for (String target : targets) if (storeTargetMatches(menu, i, stack, target)) { matches = true; break; }
+                        if (!matches) continue;
+                    }
+                    mc.gameMode.handleContainerInput(menu.containerId, i, 0, ContainerInput.QUICK_MOVE, mc.player);
+                    count++;
+                }
+                return count;
+            });
+            if (!persistent || !isCurrentRun()) break;
+            // Let the server apply the quick-move results before scanning again.
+            sleepMillis(moved == 0 ? 100 : 50);
+        } while (isCurrentRun());
+        if (action.getData().getBooleanOr("closeAfter", false)) runOnMain(mc, () ->
+            UiUtils.closeScreenWithConfiguredDelay(mc, action.getData().getBooleanOr("closeSendPkt", false)));
     }
 
     private static void waitForHealth(Minecraft mc, UiUtilsMacroAction action) {
@@ -352,11 +432,16 @@ public final class UiUtilsMacroExecutor {
     }
     private static void waitForChat(UiUtilsMacroAction action) {
         String pattern = action.getData().getStringOr("pattern", "");
-        Pattern regex = action.getData().getBooleanOr("useRegex", false) ? Pattern.compile(pattern, Pattern.CASE_INSENSITIVE) : null;
+        boolean useRegex = action.getData().getBooleanOr("useRegex", false);
+        Pattern regex = useRegex ? Pattern.compile(pattern, Pattern.CASE_INSENSITIVE) : null;
+        int fuzzyPercent = Math.max(40, Math.min(100, action.getData().getIntOr("fuzzyPercent", 80)));
         long start = UiUtilsMacroRuntimeState.chatCount();
-        awaitCondition(Minecraft.getInstance(), action, () -> UiUtilsMacroRuntimeState.chats().stream().anyMatch(event -> event.sequence() > start
-            && (!action.getData().getBooleanOr("serverMessageOnly", false) || event.server())
-            && (regex != null ? regex.matcher(event.text()).find() : event.text().toLowerCase(Locale.ROOT).contains(pattern.toLowerCase(Locale.ROOT)))));
+        Minecraft mc = Minecraft.getInstance();
+        awaitCondition(mc, action, () -> (!action.getData().getBooleanOr("waitForGui", false)
+            || guiTitleMatches(mc, action.getData().getStringOr("waitGuiName", "")))
+            && UiUtilsMacroRuntimeState.chats().stream().anyMatch(event -> event.sequence() > start
+                && (!action.getData().getBooleanOr("serverMessageOnly", false) || event.server())
+                && (useRegex ? regex.matcher(event.text()).find() : fuzzyContains(event.text(), pattern, fuzzyPercent))));
     }
     private static void waitForPacket(UiUtilsMacroAction action) {
         String name = action.getData().getStringOr("packetName", "");
@@ -386,15 +471,6 @@ public final class UiUtilsMacroExecutor {
         return s.endsWith("packet") ? s.substring(0, s.length() - 6) : s;
     }
 
-    private static int parsePreferredSlot(net.minecraft.nbt.CompoundTag tag, String legacyTargetKey, String directSlotKey, int fallback) {
-        int slot = tag.getIntOr(directSlotKey, fallback);
-        if (slot >= 0) return slot;
-        if (tag.contains(legacyTargetKey) && tag.get(legacyTargetKey) instanceof net.minecraft.nbt.CompoundTag target) {
-            if (target.contains("slot")) return target.getIntOr("slot", fallback);
-        }
-        return fallback;
-    }
-
     private static int parseLegacyListFirstSlot(net.minecraft.nbt.CompoundTag tag, String listKey) {
         if (!tag.contains(listKey) || !(tag.get(listKey) instanceof net.minecraft.nbt.ListTag list) || list.isEmpty()) return -1;
         var first = list.get(0);
@@ -408,16 +484,138 @@ public final class UiUtilsMacroExecutor {
         return -1;
     }
 
-    private static String parseLegacyListFirstName(net.minecraft.nbt.CompoundTag tag, String listKey) {
-        if (!tag.contains(listKey) || !(tag.get(listKey) instanceof net.minecraft.nbt.ListTag list) || list.isEmpty()) return "";
-        var first = list.get(0);
-        if (first instanceof net.minecraft.nbt.CompoundTag t) {
-            if (t.contains("id")) return t.getStringOr("id", "");
-            if (t.contains("name")) return t.getStringOr("name", "");
+    private static int findHotbarSlot(Minecraft mc, String target) {
+        for (int slot = 0; slot < 9; slot++)
+            if (matchesName(mc.player.getInventory().getItem(slot), target)) return slot;
+        return -1;
+    }
+
+    private static int findMenuSlot(AbstractContainerMenu menu, String target) {
+        for (int slot = 0; slot < menu.slots.size(); slot++)
+            if (matchesName(menu.slots.get(slot).getItem(), target)) return slot;
+        return -1;
+    }
+
+    private static boolean storeTargetMatches(AbstractContainerMenu menu, int slot, ItemStack stack, String target) {
+        if (!target.startsWith("#")) return matchesName(stack, target);
+        String[] parts = target.substring(1).split("\\|", 2);
+        try {
+            if (Integer.parseInt(parts[0]) != slot) return false;
+        } catch (NumberFormatException invalid) { return false; }
+        return parts.length == 1 || matchesName(stack, parts[1]);
+    }
+
+    private static int resolveHotbarSlot(Minecraft mc, String itemName, int fallback) {
+        if (itemName != null && !itemName.isBlank()) {
+            int found = findHotbarSlot(mc, itemName.trim());
+            if (found < 0) throw new IllegalStateException("No hotbar item matches '" + itemName + "'");
+            return found;
         }
-        String s = first.asString().orElse("");
-        int pipe = s.indexOf('|');
-        return pipe >= 0 && pipe + 1 < s.length() ? s.substring(pipe + 1).trim() : s.trim();
+        return Math.max(0, Math.min(8, fallback));
+    }
+
+    private static <T> T runOnMainResult(Minecraft mc, java.util.function.Supplier<T> supplier) {
+        java.util.concurrent.atomic.AtomicReference<T> result = new java.util.concurrent.atomic.AtomicReference<>();
+        runOnMain(mc, () -> result.set(supplier.get()));
+        return result.get();
+    }
+
+    private static boolean guiTitleMatches(Minecraft mc, String expected) {
+        var screen = McCompat.getScreen(mc);
+        return screen != null && screen.getTitle().getString().toLowerCase(Locale.ROOT)
+            .contains((expected == null ? "" : expected).toLowerCase(Locale.ROOT));
+    }
+
+    private static void closeMatchingGui(Minecraft mc, UiUtilsMacroAction action) {
+        if (mc.player == null || !guiTitleMatches(mc, action.getData().getStringOr("guiName", ""))) return;
+        if (action.getData().getBooleanOr("useItemFilter", false)) {
+            AbstractContainerMenu menu = mc.player.containerMenu;
+            String itemName = action.getData().getStringOr("itemName", "").trim();
+            int targetSlot = action.getData().getIntOr("targetSlot", -1);
+            if (itemName.isBlank() && targetSlot < 0) return;
+            if (targetSlot >= 0) {
+                if (targetSlot >= menu.slots.size()) return;
+                ItemStack stack = menu.slots.get(targetSlot).getItem();
+                if (stack.isEmpty() || (!itemName.isBlank() && !matchesName(stack, itemName))) return;
+            } else if (findMenuSlot(menu, itemName) < 0) return;
+        }
+        UiUtils.closeScreenWithConfiguredDelay(mc, action.getData().getBooleanOr("sendPacket", false));
+    }
+
+    private static boolean fuzzyContains(String text, String pattern, int matchPercent) {
+        String haystack = text.toLowerCase(Locale.ROOT);
+        String needle = pattern.toLowerCase(Locale.ROOT).trim();
+        if (haystack.contains(needle)) return true;
+        if (needle.isEmpty()) return true;
+        String[] words = haystack.trim().split("\\s+");
+        int targetWords = needle.split("\\s+").length;
+        int minimumWords = Math.max(1, targetWords - 1);
+        int maximumWords = Math.min(words.length, targetWords + 1);
+        for (int count = minimumWords; count <= maximumWords; count++) {
+            for (int start = 0; start + count <= words.length; start++) {
+                String candidate = String.join(" ", java.util.Arrays.copyOfRange(words, start, start + count));
+                int distance = editDistance(needle, candidate);
+                int similarity = 100 * (Math.max(needle.length(), candidate.length()) - distance)
+                    / Math.max(needle.length(), candidate.length());
+                if (similarity >= matchPercent) return true;
+            }
+        }
+        return false;
+    }
+
+    private static int editDistance(String left, String right) {
+        int[] previous = new int[right.length() + 1];
+        for (int j = 0; j <= right.length(); j++) previous[j] = j;
+        for (int i = 1; i <= left.length(); i++) {
+            int[] current = new int[right.length() + 1];
+            current[0] = i;
+            for (int j = 1; j <= right.length(); j++)
+                current[j] = Math.min(Math.min(current[j - 1] + 1, previous[j] + 1), previous[j - 1] + (left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1));
+            previous = current;
+        }
+        return previous[right.length()];
+    }
+
+    private static void rotate(Minecraft mc, UiUtilsMacroAction action) {
+        float[] start = runOnMainResult(mc, () -> mc.player == null ? null : new float[] { mc.player.getYRot(), mc.player.getXRot() });
+        if (start == null) return;
+        float targetYaw = action.getData().getFloatOr("yaw", start[0]);
+        float targetPitch = action.getData().getFloatOr("pitch", start[1]);
+        if (!Float.isFinite(targetYaw) || !Float.isFinite(targetPitch)) throw new IllegalArgumentException("Rotation must be finite");
+        targetYaw = net.minecraft.util.Mth.wrapDegrees(targetYaw);
+        targetPitch = net.minecraft.util.Mth.clamp(targetPitch, -90, 90);
+        if (!action.getData().getBooleanOr("smooth", false)) {
+            final float yaw = targetYaw, pitch = targetPitch;
+            runOnMain(mc, () -> setRotation(mc, yaw, pitch));
+            return;
+        }
+        int smoothness = Math.max(1, Math.min(10, action.getData().getIntOr("smoothness", 5)));
+        int frames = smoothness * 4;
+        Thread owner = Thread.currentThread();
+        if (action.getData().getBooleanOr("waitForCompletion", false)) {
+            for (int frame = 1; frame <= frames && isCurrentRun(); frame++) {
+                sleepMillis(25);
+                float amount = (float)frame / frames;
+                float yaw = net.minecraft.util.Mth.wrapDegrees(start[0] + net.minecraft.util.Mth.wrapDegrees(targetYaw - start[0]) * amount);
+                float pitch = start[1] + (targetPitch - start[1]) * amount;
+                final float nextYaw = yaw, nextPitch = pitch;
+                runOnMain(mc, () -> setRotation(mc, nextYaw, nextPitch));
+            }
+        } else scheduleRotation(mc, owner, start[0], start[1], targetYaw, targetPitch, 1, frames);
+    }
+
+    private static void scheduleRotation(Minecraft mc, Thread owner, float startYaw, float startPitch,
+        float targetYaw, float targetPitch, int frame, int frames) {
+        UiUtilsTasks.scheduleOwned(owner, () -> {
+            float amount = (float)frame / frames;
+            setRotation(mc, net.minecraft.util.Mth.wrapDegrees(startYaw + net.minecraft.util.Mth.wrapDegrees(targetYaw - startYaw) * amount),
+                startPitch + (targetPitch - startPitch) * amount);
+            if (frame < frames) scheduleRotation(mc, owner, startYaw, startPitch, targetYaw, targetPitch, frame + 1, frames);
+        }, 25);
+    }
+
+    private static void setRotation(Minecraft mc, float yaw, float pitch) {
+        if (mc.player != null) { mc.player.setYRot(yaw); mc.player.setXRot(pitch); }
     }
 
     private static int resolveHandlerSlot(AbstractContainerMenu menu, int visibleSlot) {
@@ -472,17 +670,34 @@ public final class UiUtilsMacroExecutor {
 
     static void releaseHeldKey(Minecraft mc, KeyMapping key) {
         Thread owner = Thread.currentThread();
+        releaseHeldKey(mc, key, owner);
+    }
+    static void releaseHeldKey(Minecraft mc, KeyMapping key, Thread owner) {
         mc.execute(() -> { if (heldKeys.remove(key, owner)) key.setDown(false); });
+    }
+    static void releasePersistentHeldKey(Minecraft mc, KeyMapping key, Thread owner) {
+        mc.execute(() -> {
+            boolean owned = heldKeys.remove(key, owner);
+            boolean persistent = persistentKeys.remove(key);
+            if (owned || persistent) key.setDown(false);
+        });
     }
     static void cleanupOnMain(Minecraft mc, Runnable cleanup) {
         Thread owner = Thread.currentThread();
         var origin = session;
         mc.execute(() -> { if (mc.getConnection() == origin && (worker == owner || worker == null)) cleanup.run(); });
     }
-    static void setHeldKey(Minecraft mc, KeyMapping key, boolean down) {
+    static void setHeldKey(Minecraft mc, KeyMapping key, boolean down) { setHeldKey(mc, key, down, false); }
+    static void setHeldKey(Minecraft mc, KeyMapping key, boolean down, boolean persistent) {
         Thread owner = Thread.currentThread();
         runOnMain(mc, () -> {
-            if (down) heldKeys.put(key, owner); else heldKeys.remove(key, owner);
+            if (down) {
+                heldKeys.put(key, owner);
+                if (persistent) persistentKeys.add(key); else persistentKeys.remove(key);
+            } else {
+                heldKeys.remove(key);
+                persistentKeys.remove(key);
+            }
             key.setDown(down);
         });
     }
