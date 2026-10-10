@@ -100,19 +100,19 @@ public final class UiUtilsSettingsScreen extends UiModernScreen {
 		c.toggle("AntiCheat detector",
 			() -> UiUtilsSettings.get().antiCheatDetectorEnabled,
 			v -> UiUtilsSettings.get().antiCheatDetectorEnabled = v);
-		c.toggle("Bypass resource pack",
+		c.toggle("Bypass RP",
 			() -> UiUtilsSettings.get().bypassResourcePack,
 			v -> UiUtilsSettings.get().bypassResourcePack = v);
-		c.toggle("Force deny resource pack",
+		c.toggle("Force deny RP",
 			() -> UiUtilsSettings.get().resourcePackForceDeny,
 			v -> UiUtilsSettings.get().resourcePackForceDeny = v);
 		c.toggle("Ignore registry sync",
 			() -> UiUtilsSettings.get().ignoreRegistrySync,
 			v -> UiUtilsSettings.get().ignoreRegistrySync = v);
-		c.toggle("Show resource pack buttons",
+		c.toggle("Show RP buttons",
 			() -> UiUtilsSettings.get().showResourcePackButtons,
 			v -> UiUtilsSettings.get().showResourcePackButtons = v);
-		c.toggle("Steal / Store / Dump buttons",
+		c.toggle("Container buttons",
 			() -> UiUtilsSettings.get().showStealDumpButtons,
 			v -> UiUtilsSettings.get().showStealDumpButtons = v);
 		disconnectMethodButton = UiButton.of("", () -> {

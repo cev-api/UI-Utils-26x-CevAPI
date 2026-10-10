@@ -27,6 +27,7 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 	private UiInput packetCommandsField;
 	private UiButton scannerModeButton;
 	private boolean commandOutputVisible;
+	private int commandOutputTop;
 	private int resultsFlowTop;
 	/** Lines built for the last layout, shared by the measure and draw passes. */
 	private List<Line> resultLines = List.of();
@@ -106,16 +107,20 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 			UiContent.of(UiButton.of("Send packet cmds", this::sendPacketCommands),
 				2F));
 
+		if (commandOutputVisible) {
+			c.section("Command output");
+			commandOutputTop = c.cursor();
+			c.space(OUTPUT_LINES * lineHeight() + 4);
+		}
+
 		c.section("Results");
 		resultsFlowTop = c.cursor();
 		int lineHeight = lineHeight();
-		// The results and the command output are painted directly, not as widgets, so
+		// The results and command output are painted directly, not as widgets, so
 		// their exact extent is declared here. Without this the scroll system would
 		// only see the widgets above and could never reach the bottom of the list.
 		resultLines = buildLines(true);
 		int drawnBottom = resultsFlowTop + 2 + resultLines.size() * lineHeight;
-		if (commandOutputVisible)
-			drawnBottom += (OUTPUT_LINES + 2) * lineHeight + 6;
 		c.reportBottom(drawnBottom);
 		c.space(drawnBottom - c.cursor());
 		setStatus("");
@@ -130,6 +135,8 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		int lineHeight = lineHeight();
 		List<Line> lines = resultLines;
 		clickableRows.clear();
+		if (commandOutputVisible)
+			drawCommandOutput(graphics, font, commandOutputTop + 2);
 		int y = resultsFlowTop + 2;
 		for (Line line : lines) {
 			UiTheme.text(graphics, font,
@@ -140,8 +147,6 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 					contentWidthUnits(), lineHeight + 1));
 			y += lineHeight;
 		}
-		if (commandOutputVisible)
-			drawCommandOutput(graphics, font, y + 4);
 	}
 
 	@Override
@@ -217,19 +222,16 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		int top) {
 		int lineHeight = lineHeight();
 		int outputWidth = Math.max(1, contentWidthUnits() - 8);
-		graphics.fill(0, top, contentWidthUnits(), top + 1, UiTheme.BORDER);
-		UiTheme.text(graphics, font, "Command output (after Send packet cmds)", 4,
-			top + 3, 0xFFFFDE7A);
 		List<String> output = UiUtilsCommandScanner.getManualCommandOutputSnapshot();
 		if (output.isEmpty()) {
 			UiTheme.text(graphics, font,
-				"Select a command, then press Send packet cmds.", 4,
-				top + 3 + lineHeight + 2, UiTheme.TEXT_MUTED);
+				"Run packet commands to see their output.", 4, top,
+				UiTheme.TEXT_MUTED);
 			return;
 		}
-		int y = top + 3 + lineHeight + 2;
-		int first = Math.max(0, output.size() - OUTPUT_LINES);
-		for (int i = first; i < output.size(); i++) {
+		int y = top;
+		int firstVisible = Math.max(0, output.size() - OUTPUT_LINES);
+		for (int i = output.size() - 1; i >= firstVisible; i--) {
 			UiTheme.text(graphics, font,
 				UiTheme.ellipsize(font, output.get(i), outputWidth), 4, y,
 				UiTheme.TEXT_DIM);
