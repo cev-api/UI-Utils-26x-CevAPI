@@ -376,7 +376,16 @@ public final class UiUtilsMacroActions {
         boolean toggle = mode.equalsIgnoreCase("TOGGLE"), enabled = !mode.equalsIgnoreCase("DISABLE");
         switch (name.toLowerCase(Locale.ROOT).replace("-", "").replace("_", "").replace(" ", "")) {
             case "uiutils", "ui" -> UiUtilsState.enabled = toggle ? !UiUtilsState.enabled : enabled;
-            case "packethud" -> UiUtilsSettings.get().packetHudEnabled = toggle ? !UiUtilsSettings.get().packetHudEnabled : enabled;
+            case "packethud" -> {
+                UiUtilsSettings.Data settings = UiUtilsSettings.get();
+                boolean hudEnabled = toggle ? !settings.packetHudEnabled : enabled;
+                settings.packetHudEnabled = hudEnabled;
+                if (hudEnabled && !settings.packetHudPosition.isEnabled())
+                    settings.packetHudPosition = UiUtilsSettings.PacketHudPosition.TOP_LEFT;
+                else if (!hudEnabled)
+                    settings.packetHudPosition = UiUtilsSettings.PacketHudPosition.OFF;
+                UiUtilsSettings.save();
+            }
             case "sendpackets" -> UiUtilsState.sendUiPackets = toggle ? !UiUtilsState.sendUiPackets : enabled;
             case "delaypackets" -> UiUtilsState.delayUiPackets = toggle ? !UiUtilsState.delayUiPackets : enabled;
             case "autoduper" -> { if (toggle ? !UiUtilsAutoduper.isRunning() : enabled) UiUtilsAutoduper.start(); else UiUtilsAutoduper.stop("Macro"); }

@@ -23,7 +23,7 @@ Build with Gradle (Java 25+):
 Artifacts land in `build/libs/`.
 The artifact version comes from `mod_version` and `release_version` in `gradle.properties`.
 
-The default build targets Minecraft `26.1`, the oldest supported release, so compilation catches accidental use of newer-only APIs. The resulting jar is designed to run across Minecraft `26.x`; runtime shims cover API changes introduced in later 26.x releases.
+The default build targets Minecraft `26.1`, the oldest supported release, so compilation catches accidental use of newer-only APIs. The resulting jar is designed to run across Minecraft `26.1` through `26.3`; runtime shims cover API changes introduced in later supported 26.x releases.
 To compile specifically against Minecraft `26.3`, override the versions at build time:
 
 ```powershell
@@ -36,7 +36,7 @@ older macros containing only numeric bindings may need rebinding when moved betw
 
 ## Getting Started
 
-1. Install Fabric Loader and Fabric API for your Minecraft `26.x` installation.
+1. Install Fabric Loader and Fabric API for your Minecraft `26.1`–`26.3` installation.
 2. Drop the built jar from `build/libs/` into your `mods/` folder.
 3. Launch Minecraft. Open any container — the UI‑Utils toolbox appears on the left.
 
@@ -102,7 +102,7 @@ older macros containing only numeric bindings may need rebinding when moved betw
   - Passively caches joined-server packet evidence (configuration, known packs, payload channels, registries, dimensions, advancements, tab/scoreboard text, and chat-completion metadata) per connected server. Server-list/status traffic is excluded.
   - Command scans offer two modes:
     - **Packet** probes command suggestions and can discover roots beyond the immediately visible command list.
-    - **Client** recursively enumerates the synced Brigadier command tree, including literal subcommands, argument paths, and redirect/alias branches, without sending probe packets.
+    - **Client** recursively enumerates non-vanilla paths from the server-synced Brigadier command tree, including literal subcommands, argument paths, and redirect/alias branches, without sending probe packets. Vanilla/default commands and Essentials commands/aliases are omitted, matching the scanner's existing filters.
   - Packet-discovered roots that are absent from the current player's synced command tree are highlighted red: they are permission-hidden for that player and should not be assumed executable.
   - Discovered command rows are clickable. Selecting one fills the packet-command field; execution still requires the explicit **Send packet cmds** button.
   - After a manual packet-command send, a temporary output panel records the sent command and system command responses. It does not capture player chat.
@@ -263,7 +263,7 @@ Path behavior:
 ## Notes on the Mojmap Migration
 
 - Entire codebase uses Mojang mappings for clarity and forward‑compat.
-- The default jar is compiled against 26.1 and includes runtime shims for API differences through 26.3.
+- The default jar is compiled against 26.1 and includes runtime shims for API differences through 26.3. Minecraft 26.4 and later are not declared supported.
 - Packet types are discovered at runtime with a reflective catalog for resilience across dot‑releases.
 - APT is fully in-game: a custom dual-list widget backs the packet pickers, and the packet dumping engine is ported from [Wurst7-CevAPI](https://github.com/cev-api/Wurst7-CevAPI).
 

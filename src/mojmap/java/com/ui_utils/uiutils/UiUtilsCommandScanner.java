@@ -2,11 +2,15 @@ package com.ui_utils.uiutils;
 
 import com.mojang.brigadier.suggestion.Suggestion;
 import com.mojang.brigadier.suggestion.Suggestions;
+import com.mojang.brigadier.tree.ArgumentCommandNode;
 import com.mojang.brigadier.tree.CommandNode;
+import com.mojang.brigadier.tree.RootCommandNode;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -795,14 +799,13 @@ public final class UiUtilsCommandScanner {
 		recentEvents.clear();
 		lastFoundCommands = List.of();
 		boundServerKey = currentServerKey(mc);
-		for (char letter : LETTERS)
-			queueProbe(String.valueOf(letter), false);
-
 		if (activeMode == ScanMode.CLIENT_SIDE_ENUMERATION) {
 			runClientSideEnumerationScan();
 			return "[UI-Utils] Command scanner started (CLIENT_SIDE_ENUMERATION).";
 		}
 
+		for (char letter : LETTERS)
+			queueProbe(String.valueOf(letter), false);
 		sendNextRequest();
 		return "[UI-Utils] Command scanner started (PACKET_PROBING).";
 	}
@@ -1051,8 +1054,8 @@ public final class UiUtilsCommandScanner {
 		if (mc.player == null || mc.player.connection == null)
 			return;
 
-		// This lookup only classifies a command already returned by the server. It
-		// deliberately never enumerates or adds commands from the merged dispatcher.
+		// Packet mode only classifies commands the server returned in suggestions.
+		// Client mode enumerates the separate server-synchronized command tree.
 		var dispatcher = mc.player.connection.getCommands();
 		if (dispatcher == null || dispatcher.getRoot() == null) {
 			permissionDeniedPaths.add(normalizeFullCommandPath(command));
@@ -1081,10 +1084,68 @@ public final class UiUtilsCommandScanner {
 	}
 
 	private static void runClientSideEnumerationScan() {
-		// Intentionally removed: the client dispatcher is merged and cannot distinguish
-		// server-synchronized commands from commands registered by client-side mods.
-		print("Client-side command enumeration is disabled; no local commands were added.");
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.player == null || mc.player.connection == null) {
+			print("Could not read the server-synchronized command tree.");
+			finishScan();
+			return;
+		}
+
+		var dispatcher = mc.player.connection.getCommands();
+		RootCommandNode<ClientSuggestionProvider> root = dispatcher == null
+			? null : dispatcher.getRoot();
+		if (root == null) {
+			print("The server has not supplied a command tree yet.");
+			finishScan();
+			return;
+		}
+
+		Set<CommandNode<ClientSuggestionProvider>> visiting =
+			Collections.newSetFromMap(new IdentityHashMap<>());
+		ClientSuggestionProvider source = mc.player.connection.getSuggestionsProvider();
+		for (CommandNode<ClientSuggestionProvider> child : root.getChildren())
+			collectClientCommandPaths(child, "", source, visiting);
+		print("Read " + scannedCommands.size()
+			+ " command path(s) from the synced server tree without sending probes.");
 		finishScan();
+	}
+
+	private static void collectClientCommandPaths(CommandNode<ClientSuggestionProvider> node,
+		String parentPath, ClientSuggestionProvider source,
+		Set<CommandNode<ClientSuggestionProvider>> visiting) {
+		if (node == null || !node.canUse(source) || !visiting.add(node))
+			return;
+
+		String name = node instanceof ArgumentCommandNode<?, ?>
+			? "<" + node.getName() + ">" : node.getName();
+		String path = parentPath.isEmpty() ? name : parentPath + " " + name;
+		String root = path;
+		int firstSpace = root.indexOf(' ');
+		if (firstSpace >= 0)
+			root = root.substring(0, firstSpace);
+		if (!root.isBlank() && !isIgnoredEssentialsCommand(root)
+			&& !isVanillaOrDefaultCommand(root))
+			scannedCommands.add(path);
+
+		for (CommandNode<ClientSuggestionProvider> child : node.getChildren())
+			collectClientCommandPaths(child, path, source, visiting);
+		// Redirect nodes are aliases. Expand their target's children beneath the
+		// alias path, while the identity-based visiting set prevents redirect cycles.
+		if (node.getRedirect() != null)
+			collectClientRedirectChildren(node.getRedirect(), path, source, visiting);
+		visiting.remove(node);
+	}
+
+	private static void collectClientRedirectChildren(CommandNode<ClientSuggestionProvider> target,
+		String aliasPath, ClientSuggestionProvider source,
+		Set<CommandNode<ClientSuggestionProvider>> visiting) {
+		if (target == null || !target.canUse(source) || !visiting.add(target))
+			return;
+		for (CommandNode<ClientSuggestionProvider> child : target.getChildren())
+			collectClientCommandPaths(child, aliasPath, source, visiting);
+		if (target.getRedirect() != null)
+			collectClientRedirectChildren(target.getRedirect(), aliasPath, source, visiting);
+		visiting.remove(target);
 	}
 	private static void finishScan() {
 		List<String> results = new ArrayList<>(scannedCommands);
@@ -1098,7 +1159,8 @@ public final class UiUtilsCommandScanner {
 			return;
 		}
 
-		if (UiUtilsSettings.get().commandScannerRunFoundCommands) {
+		if (activeMode == ScanMode.PACKET_PROBING
+			&& UiUtilsSettings.get().commandScannerRunFoundCommands) {
 			commandsToExecute.clear();
 		unavailableCommands.clear();
 		pendingManualCommands.clear();
