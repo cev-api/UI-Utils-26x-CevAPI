@@ -39,6 +39,15 @@ public final class ActionFieldRegistry {
         SCHEMAS.put(UiUtilsMacroActionType.SAVE_GUI, ActionFieldSchema.builder().toggle("closeAfter", "Close After Saving").toggle("sendPacket", "Close without pkt").showWhen("closeAfter").build());
         SCHEMAS.put(UiUtilsMacroActionType.SEND_TOGGLE, ActionFieldSchema.builder().enumField("mode", "Mode", "ENABLE", "DISABLE").build());
         SCHEMAS.put(UiUtilsMacroActionType.DELAY_PACKETS, ActionFieldSchema.builder().enumField("mode", "Mode", "ENABLE", "DISABLE").toggle("flushOnDisable", "Flush on Disable").showWhenEnum("mode", "DISABLE").build());
+        SCHEMAS.put(UiUtilsMacroActionType.PACKET_CONTROL, ActionFieldSchema.builder()
+            .enumField("direction", "Direction", "C2S", "S2C")
+            .stringList("packetNames", "Packets").addLabel("Add")
+            .enumField("mode", "Rule", "DELAY", "DENY", "ALLOW")
+            .number("delayTicks", "Packet delay (ticks; 20 = 1 sec)").range(1, 9999).showWhenEnum("mode", "DELAY")
+            .number("durationMs", "Rule duration (ms; 0 = until stopped)").range(0, 300000)
+            .build());
+        SCHEMAS.put(UiUtilsMacroActionType.FLUSH_PACKETS, ActionFieldSchema.builder()
+            .enumField("direction", "Direction", "BOTH", "C2S", "S2C").build());
         SCHEMAS.put(UiUtilsMacroActionType.STORE_ITEM, ActionFieldSchema.builder().enumField("mode", "Mode", "LOOT", "STORE").toggle("allItems", "All Items").stringList("targetItems", "Target Items").addLabel("Add").hideWhen("allItems").toggle("persistent", "Loop Forever").toggle("closeAfter", "Close After").hideWhen("persistent").toggle("closeSendPkt", "Close without pkt").showWhen("closeAfter").build());
         SCHEMAS.put(UiUtilsMacroActionType.WAIT_SOUND, ActionFieldSchema.builder().stringList("soundIds", "Sound IDs").addLabel("Add").toggle("waitForGui", "Wait for GUI").text("waitGuiName", "GUI Name").showWhen("waitForGui").toggle("checkDistance", "Check Distance").decimal("maxDistance", "Max Distance").decRange(0.0, 256.0).showWhen("checkDistance").build());
         SCHEMAS.put(UiUtilsMacroActionType.PAY, ActionFieldSchema.builder().text("commandTemplate", "Command Template").text("amountInput", "Amount").toggle("delayEnabled", "Use Delay").number("delayMs", "Delay (ms)").range(0, 60000).showWhen("delayEnabled").stringList("players", "Players").addLabel("Add").build());

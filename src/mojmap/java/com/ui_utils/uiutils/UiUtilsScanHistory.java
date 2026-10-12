@@ -174,6 +174,7 @@ public final class UiUtilsScanHistory {
 			for (JsonElement item : entries) {
 				if (!item.isJsonObject()) continue;
 				JsonObject object = item.getAsJsonObject();
+				if ("removed".equals(getString(object, "change"))) continue;
 				String name = getString(object, "name");
 				if (name == null || name.isBlank()) continue;
 				List<String> commands = new ArrayList<>();

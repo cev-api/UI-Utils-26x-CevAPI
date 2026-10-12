@@ -249,8 +249,33 @@ public final class UiUtilsCommandSystem {
 		};
 	}
 
+	static java.util.List<String> commandArguments(String input) {
+		java.util.List<String> result = new java.util.ArrayList<>();
+		StringBuilder token = new StringBuilder();
+		char quote = 0;
+		boolean started = false;
+		for (char c : (input == null ? "" : input).toCharArray()) {
+			if (quote != 0) {
+				if (c == quote) quote = 0; else token.append(c);
+			} else if (!started && (c == '"' || c == '\'')) { quote = c; started = true; }
+			else if (Character.isWhitespace(c)) {
+				if (started) { result.add(token.toString()); token.setLength(0); started = false; }
+			} else { token.append(c); started = true; }
+		}
+		if (quote != 0) throw new IllegalArgumentException("Unclosed quoted argument");
+		if (started) result.add(token.toString());
+		return result;
+	}
+
 	private static String macro(String args) {
-		String[] parts = args == null ? new String[0] : args.trim().split("\\s+", 3);
+		java.util.List<String> arguments;
+		try { arguments = commandArguments(args); }
+		catch (IllegalArgumentException invalid) { return PREFIX + invalid.getMessage(); }
+		String[] parts = arguments.toArray(String[]::new);
+		if (parts.length > 2 && java.util.Set.of("run", "start", "delete", "remove").contains(parts[0].toLowerCase(Locale.ROOT)))
+			parts = new String[]{parts[0], String.join(" ", arguments.subList(1, arguments.size()))};
+		else if (parts.length > 3 && java.util.Set.of("export", "import").contains(parts[0].toLowerCase(Locale.ROOT)))
+			parts = new String[]{parts[0], parts[1], String.join(" ", arguments.subList(2, arguments.size()))};
 		String action = parts.length == 0 || parts[0].isBlank() ? "list" : parts[0].toLowerCase(Locale.ROOT);
 		return switch (action) {
 			case "list" -> {

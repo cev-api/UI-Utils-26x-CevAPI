@@ -33,7 +33,7 @@ public final class UiUtilsTasks {
         long owner = generation;
         mc.execute(() -> {
             if (owner != generation || session != mc.getConnection() || macro != null && CANCELLED_MACROS.contains(macro)) return;
-            if (delayMs <= 0) action.run();
+            if (delayMs <= 0) runOwned(macro, action);
             else TASKS.add(new Task(System.nanoTime() + delayMs * 1_000_000L, session, owner, macro, action));
         });
     }
@@ -42,7 +42,15 @@ public final class UiUtilsTasks {
         long now = System.nanoTime();
         for (Task task : TASKS) {
             if (task.generation != generation || task.session != mc.getConnection()) TASKS.remove(task);
-            else if (now >= task.due && TASKS.remove(task)) task.action.run();
+            else if (task.macro != null && CANCELLED_MACROS.contains(task.macro)) TASKS.remove(task);
+            else if (now >= task.due && TASKS.remove(task)) {
+                try { runOwned(task.macro, task.action); }
+                catch (Throwable failure) {
+                    cancelMacroTasks(task.macro);
+                    UiUtils.LOGGER.error("Scheduled action failed", failure);
+                    if (task.macro != null) com.ui_utils.uiutils.macro.UiUtilsMacroExecutor.stop();
+                }
+            }
         }
     }
 }

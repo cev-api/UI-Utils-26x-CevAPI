@@ -69,7 +69,8 @@ public final class UiUtilsMacroTypePickerScreen extends UiModernScreen {
             )),
             new PickerSection("Network", List.of(
                 UiUtilsMacroActionType.PACKET, UiUtilsMacroActionType.PAYLOAD, UiUtilsMacroActionType.CLOSE_GUI,
-                UiUtilsMacroActionType.DESYNC, UiUtilsMacroActionType.NBT_BOOK, UiUtilsMacroActionType.DISCONNECT
+                UiUtilsMacroActionType.DESYNC, UiUtilsMacroActionType.NBT_BOOK, UiUtilsMacroActionType.DISCONNECT,
+                UiUtilsMacroActionType.PACKET_CONTROL, UiUtilsMacroActionType.FLUSH_PACKETS
             )),
             new PickerSection("Automation", List.of(
                 UiUtilsMacroActionType.PAY, UiUtilsMacroActionType.MINE, UiUtilsMacroActionType.TOGGLE_MODULE,

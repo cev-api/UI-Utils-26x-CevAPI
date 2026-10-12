@@ -505,6 +505,13 @@ public final class UiUtilsMacrosScreen extends UiModernScreen {
             }
             case SELECT_SLOT -> d.putInt("slot", 0);
             case STORE_ITEM -> d.putString("mode", "STORE");
+            case PACKET_CONTROL -> {
+                d.putString("direction", "C2S");
+                d.putString("mode", "DELAY");
+                d.putInt("delayTicks", 5);
+                d.putInt("durationMs", 5000);
+            }
+            case FLUSH_PACKETS -> d.putString("direction", "BOTH");
             default -> {}
         }
         a.setData(d);

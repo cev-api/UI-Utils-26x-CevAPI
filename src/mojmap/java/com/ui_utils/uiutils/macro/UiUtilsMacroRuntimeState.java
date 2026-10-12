@@ -24,13 +24,15 @@ public final class UiUtilsMacroRuntimeState {
         String name = normalize(packet.getClass().getSimpleName());
         long sequence = incomingCount.incrementAndGet(); lastIncomingPacket = name;
         incomingEvents.put(name, sequence); incomingEvents.put(normalize(packet.type().id().toString()), sequence);
+        incomingEvents.put(normalize(com.ui_utils.packettools.PacketCatalog.formatPacketName(packet)), sequence);
     }
     public static void onOutgoingPacket(Packet<?> packet) {
         String name = normalize(packet.getClass().getSimpleName());
         long sequence = outgoingCount.incrementAndGet(); lastOutgoingPacket = name;
         outgoingEvents.put(name, sequence); outgoingEvents.put(normalize(packet.type().id().toString()), sequence);
+        outgoingEvents.put(normalize(com.ui_utils.packettools.PacketCatalog.formatPacketName(packet)), sequence);
     }
-    public static void observeOutgoing(Packet<?> packet) { outgoing.put(normalize(packet.getClass().getSimpleName()), packet); outgoing.put(normalize(packet.type().id().toString()), packet); }
+    public static void observeOutgoing(Packet<?> packet) { outgoing.put(normalize(packet.getClass().getSimpleName()), packet); outgoing.put(normalize(packet.type().id().toString()), packet); outgoing.put(normalize(com.ui_utils.packettools.PacketCatalog.formatPacketName(packet)), packet); }
     public static Packet<?> outgoingPacket(String name) { return outgoing.get(normalize(name)); }
     public static synchronized void onSound(String id, double x, double y, double z) {
         sounds.addLast(new Sound(soundCount.incrementAndGet(), id, x, y, z));

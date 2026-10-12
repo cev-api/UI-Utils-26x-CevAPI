@@ -1109,15 +1109,13 @@ public final class UiUtilsPanels {
 		ItemStack carriedBeforeStack = menu.getCarried().copy();
 
 		menu.clicked(slot, button, action, mc.player);
-		int revision = menu.getStateId();
+		int revision = parseInt(clickRevisionField.getValue());
 
 		Int2ObjectMap<HashedStack> diffSlots = new Int2ObjectArrayMap<>();
 		for (int i = 0; i < menu.slots.size(); i++) {
 			ItemStack before = beforeStacks.get(i);
 			ItemStack after = menu.slots.get(i).getItem();
-			boolean changed = before.isEmpty() != after.isEmpty()
-				|| (!before.isEmpty() && (before.getItem() != after.getItem()
-					|| before.getCount() != after.getCount()));
+			boolean changed = !ItemStack.matches(before, after);
 			if (changed)
 				diffSlots.put(i, HashedStack.create(after, hashGenerator));
 		}
@@ -1130,10 +1128,10 @@ public final class UiUtilsPanels {
 			syncId, revision, slot, button, action, timesToSend, diffSlots.size(),
 			HashedStack.create(carriedBeforeStack, hashGenerator));
 
-		Runnable toRun = UiUtils.getFabricatePacketRunnable(mc, clickDelayEnabled, packet);
+		int submitted = 0;
 		for (int i = 0; i < timesToSend; i++)
-			toRun.run();
-		setFabricateStatus("Sent " + timesToSend + "x ClickSlot slot=" + slot + " action="
+			if (UiUtils.fabricatePacket(mc, clickDelayEnabled, packet)) submitted++;
+		setFabricateStatus((clickDelayEnabled ? "Queued " : "Submitted ") + submitted + "x ClickSlot slot=" + slot + " action="
 			+ action + ", diff=" + diffSlots.size(), 0xFF8BE88B);
 	}
 
@@ -1151,10 +1149,10 @@ public final class UiUtilsPanels {
 		}
 		ServerboundContainerButtonClickPacket packet =
 			new ServerboundContainerButtonClickPacket(syncId, buttonId);
-		Runnable toRun = UiUtils.getFabricatePacketRunnable(mc, buttonDelayEnabled, packet);
+		int submitted = 0;
 		for (int i = 0; i < timesToSend; i++)
-			toRun.run();
-		setFabricateStatus("Sent " + timesToSend + "x ButtonClick buttonId=" + buttonId,
+			if (UiUtils.fabricatePacket(mc, buttonDelayEnabled, packet)) submitted++;
+		setFabricateStatus((buttonDelayEnabled ? "Queued " : "Submitted ") + submitted + "x ButtonClick buttonId=" + buttonId,
 			0xFF8BE88B);
 	}
 

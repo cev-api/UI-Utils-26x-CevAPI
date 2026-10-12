@@ -20,6 +20,8 @@ public final class UiUtilsLegacyPluginScanner {
 	private static final Random RANDOM = new Random();
 
 	private static boolean scanning;
+	private static int elapsed;
+	private static net.minecraft.client.multiplayer.ClientPacketListener session;
 	private static int requestId = -1;
 	private static final List<String> foundPlugins = new ArrayList<>();
 	private static final Set<String> dedupe = new HashSet<>();
@@ -34,7 +36,16 @@ public final class UiUtilsLegacyPluginScanner {
 	}
 
 	public static void onTick() {
-		// legacy scanner is a one-shot probe; no continuous logic needed
+		Minecraft mc = Minecraft.getInstance();
+		if (session != null && (mc == null || mc.getConnection() != session)) {
+			clearResultsForUi();
+			session = null;
+			lastStatus = "Cleared due to connection change.";
+		} else if (scanning && ++elapsed >= 40) {
+			scanning = false;
+			requestId = -1;
+			lastStatus = "Legacy scan response timeout.";
+		}
 	}
 
 	public static String startScan() {
@@ -44,8 +55,10 @@ public final class UiUtilsLegacyPluginScanner {
 		if (scanning)
 			return "[UI-Utils] Legacy plugin scan already in progress.";
 
+		session = mc.getConnection();
+		elapsed = 0;
 		requestId = RANDOM.nextInt(100000);
-		mc.getConnection().send(new ServerboundCommandSuggestionPacket(requestId, "ver "));
+		mc.getConnection().send(new ServerboundCommandSuggestionPacket(requestId, "/ver "));
 		foundPlugins.clear();
 		dedupe.clear();
 		lastRows.clear();
@@ -95,7 +108,7 @@ public final class UiUtilsLegacyPluginScanner {
 		requestId = -1;
 
 		Minecraft mc = Minecraft.getInstance();
-		if (mc.player == null) {
+		if (mc == null || mc.player == null) {
 			foundPlugins.clear();
 			dedupe.clear();
 			lastRows.clear();

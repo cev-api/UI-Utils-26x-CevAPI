@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.ui_utils.uiutils.UiUtils;
+import com.ui_utils.uiutils.macro.UiUtilsMacroPacketRules;
 import java.io.IOException;
 import java.io.Writer;
 import java.nio.file.Files;
@@ -115,8 +116,7 @@ public final class AdvancedPacketTool {
 		boolean delayActive = delayEnabled && delayTicks > 0;
 		if (!delayActive && lastDelayEnabledState)
 			flushQueues(true);
-		else if (delayActive)
-			flushQueues(false);
+        else flushQueues(false);
 
 		lastDelayEnabledState = delayEnabled;
 
@@ -172,17 +172,20 @@ public final class AdvancedPacketTool {
 			&& (logC2S.contains(name) || (verboseOutsideGame && isOutsideGame())))
 			verboseDump("C2S", packet);
 
+        var macroRule = UiUtilsMacroPacketRules.get(source, "C2S", name);
+        if (macroRule != null && macroRule.mode() == UiUtilsMacroPacketRules.Mode.DENY) return false;
 		if (denyEnabled && denyC2S.contains(name))
 			return false;
 
 		if (packet.isTerminal()) {
-            flushOutgoing(getCurrentTick(), true);
+            flushOutgoing(Long.MAX_VALUE, true);
             if (delayEnabled && delayC2S.contains(name))
                 UiUtils.LOGGER.warn("Not delaying protocol-transition packet {}: the outbound protocol changes immediately", name);
             return true;
         }
-        if (!com.ui_utils.uiutils.UiUtilsPacketReplay.isReplaying() && delayEnabled && delayTicks > 0 && delayC2S.contains(name)) {
-			delayedOutgoing.addLast(new QueuedPacket(packet, getCurrentTick() + delayTicks, source, source.getPacketListener()));
+        int selectedDelay = macroRule != null ? macroRule.delayTicks() : delayEnabled && delayC2S.contains(name) ? delayTicks : 0;
+        if (!com.ui_utils.uiutils.UiUtilsPacketReplay.isReplaying() && selectedDelay > 0) {
+            delayedOutgoing.addLast(new QueuedPacket(packet, getCurrentTick() + selectedDelay, source, source.getPacketListener(), macroRule != null));
 			return false;
 		}
 
@@ -209,11 +212,14 @@ public final class AdvancedPacketTool {
 			trackEntityPacket(packet);
 		}
 
+        var macroRule = UiUtilsMacroPacketRules.get(source, "S2C", name);
+        if (macroRule != null && macroRule.mode() == UiUtilsMacroPacketRules.Mode.DENY) return false;
 		if (denyEnabled && denyS2C.contains(name))
 			return false;
 
-        boolean selected = delayEnabled && delayTicks > 0 && delayS2C.contains(name);
-        long release = getCurrentTick() + (selected ? delayTicks : 0);
+        int selectedDelay = macroRule != null ? macroRule.delayTicks() : delayEnabled && delayS2C.contains(name) ? delayTicks : 0;
+        boolean selected = selectedDelay > 0;
+        long release = getCurrentTick() + selectedDelay;
         boolean orderedTail = false;
         var listener = source.getPacketListener();
         for (QueuedPacket queued : delayedIncoming) {
@@ -223,7 +229,7 @@ public final class AdvancedPacketTool {
             }
         }
         if (selected || orderedTail) {
-            delayedIncoming.addLast(new QueuedPacket(packet, release, source, listener)); return false;
+            delayedIncoming.addLast(new QueuedPacket(packet, release, source, listener, macroRule != null)); return false;
         }
 
 		return true;
@@ -419,6 +425,12 @@ public final class AdvancedPacketTool {
 		return !lower.startsWith("class_");
 	}
 
+    /** Explicit macro flush releases queued traffic for the selected direction. */
+    public static synchronized void flushSelected(String direction) {
+        if (!direction.equals("C2S")) flushIncoming(Long.MAX_VALUE, true);
+        if (!direction.equals("S2C")) flushOutgoing(Long.MAX_VALUE, true);
+    }
+
 	private static synchronized void flushQueues(boolean forceAll) {
 		long now = getCurrentTick();
 		flushIncoming(now, forceAll);
@@ -432,10 +444,12 @@ public final class AdvancedPacketTool {
 
     private static synchronized void flushIncoming(long now, boolean forceAll) {
         delayedIncoming.removeIf(queued -> !valid(queued));
-        while (!delayedIncoming.isEmpty()) {
-            QueuedPacket queued = delayedIncoming.peekFirst();
-            if (!forceAll && queued.releaseTick > now) break;
-            delayedIncoming.removeFirst();
+        for (QueuedPacket queued : new ArrayList<>(delayedIncoming)) {
+            if ((!forceAll || queued.macroDelay) && queued.releaseTick > now) {
+                if (queued.packet.isTerminal() || queued.listener.protocol() != net.minecraft.network.ConnectionProtocol.PLAY) break;
+                continue;
+            }
+            delayedIncoming.remove(queued);
             if (valid(queued) && queued.listener.shouldHandleMessage(queued.packet)) {
                 try { com.ui_utils.uiutils.UiUtilsPacketReplay.handle(queued.source, queued.listener, queued.packet); }
                 catch (Exception failure) { queued.listener.onPacketError(queued.packet, failure); }
@@ -445,10 +459,12 @@ public final class AdvancedPacketTool {
 
     private static synchronized void flushOutgoing(long now, boolean forceAll) {
         delayedOutgoing.removeIf(queued -> !valid(queued));
-        while (!delayedOutgoing.isEmpty()) {
-            QueuedPacket queued = delayedOutgoing.peekFirst();
-            if (!forceAll && queued.releaseTick > now) break;
-            delayedOutgoing.removeFirst();
+        for (QueuedPacket queued : new ArrayList<>(delayedOutgoing)) {
+            if ((!forceAll || queued.macroDelay) && queued.releaseTick > now) {
+                if (queued.packet.isTerminal() || queued.listener.protocol() != net.minecraft.network.ConnectionProtocol.PLAY) break;
+                continue;
+            }
+            delayedOutgoing.remove(queued);
             if (valid(queued)) com.ui_utils.uiutils.UiUtilsPacketReplay.send(queued.source, queued.packet);
         }
     }
@@ -494,6 +510,7 @@ public final class AdvancedPacketTool {
         delayedIncoming.removeIf(queued -> queued.source == source || !valid(queued));
         delayedOutgoing.removeIf(queued -> queued.source == source || !valid(queued));
         bypassOutput.clear();
+        UiUtilsMacroPacketRules.disconnect(source);
         lifecycleTracker.clear();
     }
 
@@ -560,6 +577,20 @@ public final class AdvancedPacketTool {
 		// Defensive: never write verbose output while logging is switched off.
 		if (!loggingEnabled) {
 			discardVerboseBuffers();
+			return;
+		}
+		if (!fileOutput) {
+			List<String> lines;
+			synchronized (verboseJsonlBuffer) {
+				lines = new ArrayList<>(verboseJsonlBuffer);
+				verboseJsonlBuffer.clear();
+			}
+			synchronized (verboseHumanBuffer) { verboseHumanBuffer.clear(); }
+			Minecraft mc = Minecraft.getInstance();
+			for (String line : lines) {
+				if (mc != null && mc.player != null) UiUtils.postSystemMessage(net.minecraft.network.chat.Component.literal(line));
+				else UiUtils.LOGGER.info("{}", line);
+			}
 			return;
 		}
 		try {
@@ -756,7 +787,9 @@ public final class AdvancedPacketTool {
         private final net.minecraft.network.Connection source;
         private final net.minecraft.network.PacketListener listener;
 
-		private QueuedPacket(Packet<?> packet, long releaseTick, net.minecraft.network.Connection source, net.minecraft.network.PacketListener listener) {
+        private final boolean macroDelay;
+        private QueuedPacket(Packet<?> packet, long releaseTick, net.minecraft.network.Connection source, net.minecraft.network.PacketListener listener, boolean macroDelay) {
+            this.macroDelay = macroDelay;
 			this.packet = packet;
 			this.releaseTick = releaseTick;
             this.source = source; this.listener = listener;

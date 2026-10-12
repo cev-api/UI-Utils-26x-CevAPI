@@ -35,16 +35,14 @@ public abstract class ChatScreenMixin extends Screen {
 
 		if (UiUtilsCommandSystem.isUiUtilsCommand(message)) {
 			String command = UiUtilsCommandSystem.extractCommandBody(message);
+			McCompat.setScreen(minecraft, null);
 			String result = UiUtilsCommandSystem.execute(command);
-			boolean opensScreen = command.equalsIgnoreCase("settings") || command.toLowerCase().startsWith("settings ");
 			if (addToHistory)
 				McCompat.addRecentChat(minecraft, message);
 			if (minecraft.player != null && !result.isEmpty()) {
 				for (String line : result.split("\\n"))
 					minecraft.player.sendSystemMessage(Component.literal(line));
 			}
-			if (!opensScreen)
-				McCompat.setScreen(minecraft, null);
 			ci.cancel();
 		}
 	}

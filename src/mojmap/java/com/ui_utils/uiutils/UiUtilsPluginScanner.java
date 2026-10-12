@@ -32,7 +32,10 @@ public final class UiUtilsPluginScanner {
 	private static final Set<String> VANILLA_NAMESPACES = Set.of("minecraft",
 		"brigadier", "bukkit", "spigot", "paper", "purpur", "velocity",
 		"bungeecord", "waterfall");
-	private static final String[] COMMON_PLUGIN_NAMESPACES = {"essentials",
+	private static final Set<String> GENERIC_HELP_HEADINGS = Set.of("help", "commands",
+		"available commands", "command help", "usage", "aliases", "syntax", "description", "server commands");
+	// Extra probe targets, never a whitelist for classifying returned evidence.
+	private static final String[] DEFAULT_NAMESPACE_PROBES = {"essentials",
 		"essentialsx", "worldedit", "worldguard", "luckperms", "vault",
 		"citizens", "cmi", "cmilib", "multiverse-core", "multiverse",
 		"viaversion", "viabackwards", "viarewind", "geysermc", "geyser",
@@ -41,30 +44,29 @@ public final class UiUtilsPluginScanner {
 		"advancedanticheat", "vulcan", "grimac", "matrix", "spartan", "aac",
 		"karhu", "verus", "nocheatplus", "authme", "deluxemenus", "plotsquared",
 		"supervanish", "packetevents", "oraxen", "itemsadder"};
-	private static final Map<String, String> ROOT_COMMAND_PLUGIN_ALIASES =
-		Map.ofEntries(
-			Map.entry("lp", "luckperms"),
-			Map.entry("we", "worldedit"),
-			Map.entry("rg", "worldguard"),
-			Map.entry("mv", "multiverse-core"),
-			Map.entry("npc", "citizens"),
-			Map.entry("papi", "placeholderapi"),
-			Map.entry("cmi", "cmi"),
-			Map.entry("co", "coreprotect"),
-			Map.entry("grim", "grimac"),
-			Map.entry("geyser", "geysermc"),
-			Map.entry("floodgate", "floodgate"),
-			Map.entry("viaver", "viaversion"),
-			Map.entry("sr", "skinsrestorer"),
-			Map.entry("authme", "authme"),
-			Map.entry("dm", "deluxemenus"),
-			Map.entry("plots", "plotsquared"),
-			Map.entry("sv", "supervanish"));
+	// Supplementary fingerprints; unfamiliar roots remain available to command discovery.
+	private static final Map<String, String> ROOT_COMMAND_PLUGIN_ALIASES = Map.ofEntries(
+		Map.entry("lp", "luckperms"), Map.entry("we", "worldedit"),
+		Map.entry("rg", "worldguard"), Map.entry("mv", "multiverse-core"),
+		Map.entry("npc", "citizens"), Map.entry("papi", "placeholderapi"),
+		Map.entry("cmi", "cmi"), Map.entry("co", "coreprotect"),
+		Map.entry("grim", "grimac"), Map.entry("geyser", "geysermc"),
+		Map.entry("floodgate", "floodgate"), Map.entry("viaver", "viaversion"),
+		Map.entry("sr", "skinsrestorer"), Map.entry("authme", "authme"),
+		Map.entry("dm", "deluxemenus"), Map.entry("plots", "plotsquared"),
+		Map.entry("sv", "supervanish"));
 
 	private static final int RESPONSE_TIMEOUT_TICKS = 30;
 	private static final int HARD_TIMEOUT_TICKS = 20 * 15;
 
 	private static boolean scanning;
+	private static boolean scanCompleted;
+	private static int scanDeadline;
+	private static final java.util.concurrent.atomic.AtomicInteger PROBE_IDS = new java.util.concurrent.atomic.AtomicInteger(1_000_000);
+	private static String helpHeading = "";
+	private static long helpExpires;
+	private static boolean helpHistoryDirty;
+	private static final Map<String, Set<String>> serverHelp = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 	private static int ticksSinceStart;
 	private static int ticksSinceLastResponse;
 	private static int ticksUntilNextProbe;
@@ -102,7 +104,9 @@ public final class UiUtilsPluginScanner {
 		parseCommandTree(mc.player.connection);
 		mergePassiveKnownPacks();
 		queueProbeBatch(buildPluginProbes());
-		print("Plugin scan started. Probes: " + queuedProbes.size() + ".");
+		scanDeadline = Math.max(HARD_TIMEOUT_TICKS,
+			queuedProbes.size() * Math.max(1, UiUtilsSettings.getProbeDelayTicks()) + RESPONSE_TIMEOUT_TICKS + 20);
+		print("Plugin scan started. Suggestion probes: " + queuedProbes.size() + ".");
 		sendNextProbeIfReady(mc.player.connection);
 		return "[UI-Utils] Scanning plugins...";
 	}
@@ -115,6 +119,10 @@ public final class UiUtilsPluginScanner {
 			return;
 		}
 
+		if (!scanning && helpHistoryDirty && System.nanoTime() > helpExpires) {
+			UiUtilsScanHistory.recordPlugins(boundServerKey, "plugin", getResultsSnapshot());
+			helpHistoryDirty = false;
+		}
 		if (!scanning)
 			return;
 
@@ -126,7 +134,7 @@ public final class UiUtilsPluginScanner {
 		ticksSinceStart++;
 		ticksSinceLastResponse++;
 
-		if (ticksSinceStart >= HARD_TIMEOUT_TICKS) {
+		if (ticksSinceStart >= scanDeadline) {
 			print("Plugin scan timed out; finalizing with current evidence.");
 			lastStatus = "Plugin scan timed out.";
 			finishAndPrint();
@@ -165,11 +173,12 @@ public final class UiUtilsPluginScanner {
 		for (ClientboundCommandSuggestionsPacket.Entry s : list) {
 			String text = s.text();
 			String normalizedToken = normalizeCommandToken(text);
-			if (!normalizedToken.isEmpty())
+			if (!normalizedToken.isEmpty() && probe != null
+				&& probe.kind != PluginProbeKind.PLUGIN_LIST && probe.kind != PluginProbeKind.VERSION)
 				addObservedPluginCommand(normalizedToken);
 
 			if (text != null && text.contains(":")) {
-				String[] parts = text.split(":", 2);
+				String[] parts = text.trim().replaceFirst("^/+", "").split(":", 2);
 				String ns = parts[0].toLowerCase(Locale.ROOT);
 				String cmd = parts[1];
 				if (!VANILLA_NAMESPACES.contains(ns)) {
@@ -180,20 +189,21 @@ public final class UiUtilsPluginScanner {
 
 			if (probe == null || text == null)
 				continue;
-			if (probe.kind == PluginProbeKind.NAMESPACE && probe.hint != null && !normalizedToken.isEmpty()) {
+			if (probe.kind == PluginProbeKind.NAMESPACE && probe.hint != null
+				&& normalizedToken.startsWith(probe.hint + ":")) {
 				mergePluginEntry(probe.hint, List.of(normalizedToken), true, PluginEvidence.NAMESPACE);
 				continue;
 			}
 			if (probe.kind != PluginProbeKind.PLUGIN_LIST && probe.kind != PluginProbeKind.VERSION)
 				continue;
+			int argumentStart = probe.query.indexOf(' ');
+			if (argumentStart < 0 || packet.start() <= argumentStart) continue;
 
 			String pluginCandidate = text.trim();
-			String pluginKey = normalizePluginKey(pluginCandidate);
 			if (!isLikelyPluginNameCandidate(pluginCandidate, probe.kind)
 				|| isOnlinePlayerName(pluginCandidate)
 				|| UiUtilsCommandScanner.isVanillaOrDefaultCommand(pluginCandidate)
-				|| isDefaultFabricPlugin(pluginCandidate)
-				|| ROOT_COMMAND_PLUGIN_ALIASES.containsKey(pluginKey))
+				|| isDefaultFabricPlugin(pluginCandidate))
 				continue;
 
 			mergePluginEntry(pluginCandidate, List.of(), false,
@@ -201,11 +211,11 @@ public final class UiUtilsPluginScanner {
 					? PluginEvidence.PLUGIN_LIST : PluginEvidence.VERSION_HINT);
 		}
 
-		inferPluginsFromObservedCommands();
 	}
 
 	private static void resetState() {
 		scanning = false;
+		scanCompleted = false;
 		ticksSinceStart = 0;
 		ticksSinceLastResponse = 0;
 		ticksUntilNextProbe = 0;
@@ -221,7 +231,7 @@ public final class UiUtilsPluginScanner {
 	}
 
 	private static void parseCommandTree(ClientPacketListener connection) {
-		CommandDispatcher<ClientSuggestionProvider> dispatcher = connection.getCommands();
+		CommandDispatcher<ClientSuggestionProvider> dispatcher = UiUtilsServerCommands.dispatcher(connection);
 		if (dispatcher == null)
 			return;
 		RootCommandNode<ClientSuggestionProvider> root = dispatcher.getRoot();
@@ -242,9 +252,19 @@ public final class UiUtilsPluginScanner {
 				addObservedPluginCommand(cmd);
 			} else {
 				addObservedPluginCommand(name);
+				CommandNode<ClientSuggestionProvider> target = child.getRedirect();
+				Set<CommandNode<ClientSuggestionProvider>> visited = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+				while (target != null && visited.add(target)) {
+					String owner = target.getName();
+					int colon = owner.indexOf(':');
+					if (colon > 0 && !VANILLA_NAMESPACES.contains(owner.substring(0, colon))) {
+						mergePluginEntry(owner.substring(0, colon), List.of(name), true, PluginEvidence.COMMAND_TREE);
+						break;
+					}
+					target = target.getRedirect();
+				}
 			}
 		}
-		inferPluginsFromObservedCommands();
 	}
 
 	// Configuration-phase Known Packs outlive an active scan reset.
@@ -261,7 +281,6 @@ public final class UiUtilsPluginScanner {
 	}
 	private static void queueProbeBatch(Map<Integer, PluginProbeSpec> probes) {
 		for (Map.Entry<Integer, PluginProbeSpec> entry : probes.entrySet()) {
-			pendingProbeIds.add(entry.getKey());
 			probesById.put(entry.getKey(), entry.getValue());
 			queuedProbes.addLast(new PluginProbeRequest(entry.getKey(), entry.getValue()));
 		}
@@ -269,7 +288,7 @@ public final class UiUtilsPluginScanner {
 
 	private static Map<Integer, PluginProbeSpec> buildPluginProbes() {
 		Map<Integer, PluginProbeSpec> probes = new LinkedHashMap<>();
-		int nextId = 1337;
+		int nextId = PROBE_IDS.getAndAdd(1000);
 		probes.put(nextId++, new PluginProbeSpec("/", PluginProbeKind.ROOT, null));
 		probes.put(nextId++, new PluginProbeSpec("/ ", PluginProbeKind.ROOT, null));
 		nextId = addProbeVariants(probes, nextId, PluginProbeKind.PLUGIN_LIST,
@@ -287,7 +306,7 @@ public final class UiUtilsPluginScanner {
 			probes.put(nextId++, new PluginProbeSpec("/? " + prefix, PluginProbeKind.HELP, String.valueOf(prefix)));
 		}
 
-		for (String namespace : COMMON_PLUGIN_NAMESPACES)
+		for (String namespace : DEFAULT_NAMESPACE_PROBES)
 			probes.put(nextId++, new PluginProbeSpec("/" + namespace + ":", PluginProbeKind.NAMESPACE, namespace));
 
 		return probes;
@@ -311,6 +330,8 @@ public final class UiUtilsPluginScanner {
 		PluginProbeRequest request = queuedProbes.pollFirst();
 		if (request == null)
 			return;
+		pendingProbeIds.add(request.id);
+		ticksSinceLastResponse = 0;
 		try {
 			connection.send(new ServerboundCommandSuggestionPacket(request.id, request.spec.query));
 		} catch (Exception e) {
@@ -328,8 +349,12 @@ public final class UiUtilsPluginScanner {
 			return;
 		if (VANILLA_NAMESPACES.contains(token))
 			return;
-		if (getOnlinePlayerNames().contains(token))
-			return;
+		String heuristicOwner = ROOT_COMMAND_PLUGIN_ALIASES.get(token);
+		if (heuristicOwner == null)
+			for (String namespace : DEFAULT_NAMESPACE_PROBES)
+				if (namespace.equalsIgnoreCase(token)) { heuristicOwner = namespace; break; }
+		if (heuristicOwner != null)
+			mergePluginEntry(heuristicOwner, List.of(token), true, PluginEvidence.ROOT_HINT);
 		observedPluginCommands.add(token);
 	}
 
@@ -369,30 +394,6 @@ public final class UiUtilsPluginScanner {
 		return token.toLowerCase(Locale.ROOT);
 	}
 
-	private static void inferPluginsFromObservedCommands() {
-		Map<String, Set<String>> inferred = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-		for (String token : observedPluginCommands) {
-			String plugin = null;
-			if (isKnownPluginNamespace(token))
-				plugin = token;
-			else if (ROOT_COMMAND_PLUGIN_ALIASES.containsKey(token))
-				plugin = ROOT_COMMAND_PLUGIN_ALIASES.get(token);
-			if (plugin == null || plugin.isBlank())
-				continue;
-			inferred.computeIfAbsent(plugin,
-				ignored -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER)).add(token);
-		}
-		for (Map.Entry<String, Set<String>> entry : inferred.entrySet())
-			mergePluginEntry(entry.getKey(), entry.getValue(), true, PluginEvidence.ROOT_HINT);
-	}
-
-	private static boolean isKnownPluginNamespace(String key) {
-		for (String namespace : COMMON_PLUGIN_NAMESPACES)
-			if (namespace.equalsIgnoreCase(key))
-				return true;
-		return false;
-	}
-
 	private static void mergePluginEntry(String pluginName, Collection<String> commands,
 		boolean commandBacked, PluginEvidence evidence) {
 		if (pluginName == null || pluginName.isBlank())
@@ -411,6 +412,9 @@ public final class UiUtilsPluginScanner {
 				String normalized = normalizeCommandToken(command);
 				if (!normalized.isEmpty())
 					entry.commands.add(normalized);
+				if (evidence == PluginEvidence.ROOT_HINT) entry.heuristicCommands.add(normalized);
+				else if (evidence == PluginEvidence.COMMAND_TREE || evidence == PluginEvidence.NAMESPACE)
+					entry.namespaceCommands.add(normalized);
 			}
 	}
 
@@ -474,13 +478,15 @@ public final class UiUtilsPluginScanner {
 
 	private static void finishAndPrint() {
 		scanning = false;
+		scanCompleted = true;
+		boolean timedOut = lastStatus.contains("timeout") || lastStatus.contains("timed out");
 		pendingProbeIds.clear();
 		probesById.clear();
 		queuedProbes.clear();
 		lastRows.clear();
 
 		Minecraft mc = Minecraft.getInstance();
-		if (mc.player == null) {
+		if (mc == null || mc.player == null) {
 			entries.clear();
 			observedPluginCommands.clear();
 			return;
@@ -515,41 +521,29 @@ public final class UiUtilsPluginScanner {
 			}
 		}
 
-		UiUtilsScanHistory.recordPlugins(boundServerKey, "plugin", lastRows);
+		UiUtilsScanHistory.recordPlugins(boundServerKey, "plugin", getResultsSnapshot());
+		helpHistoryDirty = false;
 
-		if (ordered.isEmpty()) {
+		List<PluginResultRow> results = getResultsSnapshot();
+		if (results.isEmpty()) {
 			lastStatus = "No plugins found or blocked.";
 		} else {
-			lastStatus = "Detected " + ordered.size() + " plugins.";
-			Component line = Component.literal("[UI-Utils] Plugins (" + ordered.size() + "): ")
+			lastStatus = "Detected " + results.size() + " plugins.";
+			Component line = Component.literal("[UI-Utils] Plugins (" + results.size() + "): ")
 				.withColor(0x55CCFF);
 			boolean first = true;
-			for (PluginEvidence evidence : List.of(PluginEvidence.KNOWN_PACK, PluginEvidence.COMMAND_TREE,
-				PluginEvidence.NAMESPACE, PluginEvidence.ROOT_HINT, PluginEvidence.HELP_HINT,
-				PluginEvidence.PLUGIN_LIST, PluginEvidence.VERSION_HINT, PluginEvidence.UNKNOWN)) {
-				List<PluginScanEntry> list = grouped.get(evidence);
-				if (list == null || list.isEmpty())
-					continue;
-				list.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.displayName, b.displayName));
-				for (PluginScanEntry entry : list) {
-					if (!first)
-						line = line.copy().append(Component.literal(", ").withColor(0xD0D0D0));
-					first = false;
-					String lower = entry.displayName.toLowerCase(Locale.ROOT);
-					boolean anticheat = ANTICHEAT_WORDS.stream().anyMatch(lower::contains);
-					boolean vulnerable = UiUtilsVulnerablePlugins.keys()
-						.contains(UiUtilsVulnerablePlugins.normalizeKey(entry.displayName));
-					String text = (anticheat ? "!" : "") + entry.displayName
-						+ (entry.commands.isEmpty() ? "" : "{" + entry.commands.size() + "}");
-					int color = vulnerable ? 0xFF6B6B : 0x93F7A4;
-					line = line.copy().append(Component.literal(text).withColor(color));
-				}
+			for (PluginResultRow row : results) {
+				if (!first) line = line.copy().append(Component.literal(", ").withColor(0xD0D0D0));
+				first = false;
+				boolean vulnerable = UiUtilsVulnerablePlugins.keys().contains(UiUtilsVulnerablePlugins.normalizeKey(row.plugin()));
+				String text = (row.anticheatFlagged() ? "!" : "") + row.plugin()
+					+ (row.commands().isEmpty() ? "" : "{" + row.commandCount() + "}");
+				line = line.copy().append(Component.literal(text).withColor(vulnerable ? 0xFF6B6B : 0x93F7A4));
 			}
 			mc.player.sendSystemMessage(line);
 		}
 
-		entries.clear();
-		observedPluginCommands.clear();
+		if (timedOut) lastStatus += " (partial: response timeout)";
 	}
 
 	private static void print(String msg) {
@@ -558,12 +552,16 @@ public final class UiUtilsPluginScanner {
 			recentEvents.remove(0);
 		if (UiUtilsSettings.get().commandScannerDebugProbe) {
 			Minecraft mc = Minecraft.getInstance();
-			if (mc.player != null)
+			if (mc != null && mc.player != null)
 				UiUtils.postSystemMessage(Component.literal("[UI-Utils] " + msg));
 		}
 	}
 
-	private static void resetForServerChange() {
+	public static void resetForServerChange() {
+		serverHelp.clear();
+		helpHistoryDirty = false;
+		helpHeading = "";
+		scanCompleted = false;
 		scanning = false;
 		ticksSinceStart = 0;
 		ticksSinceLastResponse = 0;
@@ -599,18 +597,41 @@ public final class UiUtilsPluginScanner {
 		if (scanning)
 			return lastStatus + " [queued=" + queuedProbes.size()
 				+ ", pending=" + pendingProbeIds.size() + "]";
+		if (!serverHelp.isEmpty())
+			return "Detected " + getResultsSnapshot().size() + " server products; server help received."
+				+ (lastStatus.contains("timeout") ? " (partial: response timeout)" : "");
 		return lastStatus;
 	}
 
 	public static boolean hasResultsForCurrentServer() {
-		return !lastRows.isEmpty() && boundServerKey.equals(currentServerKey(Minecraft.getInstance()));
+		return (scanCompleted || !serverHelp.isEmpty()) && boundServerKey.equals(currentServerKey(Minecraft.getInstance()));
 	}
 	public static boolean isActive() {
 		return scanning;
 	}
 
 	public static List<PluginResultRow> getResultsSnapshot() {
-		return new ArrayList<>(lastRows);
+		List<PluginResultRow> rows = new ArrayList<>();
+		for (PluginScanEntry entry : entries.values()) {
+			PluginEvidence evidence = entry.evidence == null ? PluginEvidence.UNKNOWN : entry.evidence;
+			rows.add(new PluginResultRow(evidence.name(), entry.displayName, entry.commands.size(),
+				ANTICHEAT_WORDS.stream().anyMatch(entry.displayName.toLowerCase(Locale.ROOT)::contains),
+				List.copyOf(entry.commands)));
+		}
+		rows.sort(java.util.Comparator.comparingInt((PluginResultRow row) ->
+			evidenceRank(PluginEvidence.valueOf(row.evidence()))).thenComparing(PluginResultRow::plugin, String.CASE_INSENSITIVE_ORDER));
+		for (Map.Entry<String, Set<String>> help : serverHelp.entrySet()) {
+			Set<String> commands = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+			commands.addAll(help.getValue());
+			rows.removeIf(row -> {
+				if (!row.plugin().equalsIgnoreCase(help.getKey())) return false;
+				commands.addAll(row.commands());
+				return true;
+			});
+			rows.add(new PluginResultRow("SERVER_HELP", help.getKey(), commands.size(),
+				ANTICHEAT_WORDS.stream().anyMatch(help.getKey().toLowerCase(Locale.ROOT)::contains), List.copyOf(commands)));
+		}
+		return rows;
 	}
 
 	public static List<String> getRecentEventsSnapshot() {
@@ -618,6 +639,10 @@ public final class UiUtilsPluginScanner {
 	}
 
 	public static void clearResultsForUi() {
+		serverHelp.clear();
+		helpHistoryDirty = false;
+		helpHeading = "";
+		scanCompleted = false;
 		scanning = false;
 		ticksSinceStart = 0;
 		ticksSinceLastResponse = 0;
@@ -631,6 +656,58 @@ public final class UiUtilsPluginScanner {
 		lastRows.clear();
 		recentEvents.clear();
 		lastStatus = "Cleared.";
+	}
+
+	/** Server system help may arrive after a scan, including as separate chat packets.
+	 * A heading alone is never evidence of a plugin; require advertised command lines. */
+	public static void onSystemChat(String message) {
+		if (message == null) return;
+		String server = currentServerKey(Minecraft.getInstance());
+		if (!boundServerKey.isEmpty() && !boundServerKey.equals(server)) resetForServerChange();
+		long now = System.nanoTime();
+		if (now > helpExpires) helpHeading = "";
+		for (String raw : message.split("\\R")) {
+			String line = raw.replaceAll("§[0-9a-fk-orA-FK-OR]", "").trim();
+			java.util.regex.Matcher command = java.util.regex.Pattern.compile(
+				"^/([A-Za-z0-9_.:-]+)(?:\\s.*?)?\\s+-\\s+.+$").matcher(line);
+			if (command.matches() && !helpHeading.isEmpty()) {
+				if (serverHelp.computeIfAbsent(helpHeading, ignored -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER))
+					.add(normalizeCommandToken(command.group(1)))) helpHistoryDirty = true;
+				boundServerKey = currentServerKey(Minecraft.getInstance());
+				helpExpires = now + 2_000_000_000L;
+			} else if (line.matches("[A-Za-z][A-Za-z0-9_. -]{1,63}") && !line.contains(" - ")) {
+				helpHeading = line.replaceFirst("(?i) (?:help|commands)$", "");
+				if (GENERIC_HELP_HEADINGS.contains(line.toLowerCase(Locale.ROOT))) helpHeading = "";
+				helpExpires = now + 2_000_000_000L;
+			} else if (!line.isEmpty()) {
+				helpHeading = "";
+			}
+		}
+	}
+
+	public static String commandAttribution(String command) {
+		String root = normalizeCommandToken(command);
+		List<String> claims = new ArrayList<>();
+		for (Map.Entry<String, Set<String>> help : serverHelp.entrySet())
+			if (help.getValue().contains(root)) claims.add(help.getKey() + " (advertised in server help)");
+		for (PluginScanEntry entry : entries.values()) {
+			if (!entry.commands.contains(root)) continue;
+			String source = entry.namespaceCommands.contains(root) ? "namespace"
+				: entry.heuristicCommands.contains(root) ? "heuristic alias/name" : "command clue";
+			claims.add(entry.displayName + " (" + source + ")");
+		}
+		return claims.isEmpty() ? "" : " — " + String.join(", ", claims);
+	}
+
+	/** Commands belong in the command results, independent of ownership evidence. */
+	public static List<String> getObservedCommandsSnapshot() {
+		if (!boundServerKey.isEmpty() && !boundServerKey.equals(currentServerKey(Minecraft.getInstance()))) return List.of();
+		return List.copyOf(observedPluginCommands);
+	}
+
+	/** Keep unqualified roots visible even when the server supplies no ownership evidence. */
+	public static List<String> getUnattributedCommandsSnapshot() {
+		return observedPluginCommands.stream().filter(command -> commandAttribution(command).isEmpty()).toList();
 	}
 
 	private enum PluginEvidence {
@@ -656,6 +733,8 @@ public final class UiUtilsPluginScanner {
 		private String displayName;
 		private boolean commandBacked;
 		private PluginEvidence evidence = PluginEvidence.UNKNOWN;
+		private final Set<String> heuristicCommands = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+		private final Set<String> namespaceCommands = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 		private final Set<String> commands =
 			new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 	}

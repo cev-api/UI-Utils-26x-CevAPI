@@ -30,6 +30,7 @@ public final class UiUtilsMacroExecutor {
     private static volatile boolean running;
     private static volatile String currentName;
     private static volatile Thread worker;
+    private static volatile Thread effectOwner;
     private static volatile net.minecraft.client.multiplayer.ClientPacketListener session;
     private static volatile String lastError = "";
     public static String lastError() { return lastError; }
@@ -54,6 +55,7 @@ public final class UiUtilsMacroExecutor {
         running = true;
         currentName = macro.name;
         worker = new Thread(() -> runMacro(snapshot), "ui-utils-macro-exec");
+        effectOwner = worker;
         worker.setDaemon(true);
         worker.start();
     }
@@ -61,8 +63,12 @@ public final class UiUtilsMacroExecutor {
     public static synchronized void stop() { stopRun(true); }
 
     private static void stopRun(boolean cancelPending) {
-        Thread previous = worker;
-        if (cancelPending) UiUtilsTasks.cancelMacroTasks(previous);
+        Thread previous = worker != null ? worker : effectOwner;
+        if (cancelPending) {
+            UiUtilsTasks.cancelMacroTasks(previous);
+            UiUtilsMacroPacketRules.clear();
+            effectOwner = null;
+        }
         worker = null;
         running = false;
         currentName = null;
@@ -76,7 +82,7 @@ public final class UiUtilsMacroExecutor {
                         entry.getKey().setDown(false);
                         persistentKeys.remove(entry.getKey());
                     }
-                    return true;
+                    return cancelPending;
                 }
                 entry.getKey().setDown(false); return true;
             });
@@ -105,14 +111,17 @@ public final class UiUtilsMacroExecutor {
             for (int loop = 0; isCurrentRun() && loop < loops; loop++) runSteps(macro, 0, macro.actions.size(), 0);
         } catch (java.util.concurrent.CancellationException ignored) {
         } catch (Throwable failure) {
+            String error;
             synchronized (UiUtilsMacroExecutor.class) {
-                if (worker == Thread.currentThread()) UiUtilsTasks.cancelMacroTasks(Thread.currentThread());
+                if (worker != Thread.currentThread()) return;
+                lastError = failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
+                error = lastError;
+                stopRun(true);
             }
-            lastError = failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
-            UiUtils.LOGGER.warn("Macro {} stopped: {}", macro.name, lastError);
+            UiUtils.LOGGER.warn("Macro {} stopped: {}", macro.name, error);
             UiUtils.LOGGER.debug("Macro failure details", failure);
             Minecraft mc = Minecraft.getInstance();
-            if (mc != null) UiUtils.reportError("Macro " + macro.name + " stopped: " + lastError);
+            if (mc != null) UiUtils.reportError("Macro " + macro.name + " stopped: " + error);
         } finally { finishRun(Thread.currentThread()); }
     }
 
@@ -224,6 +233,25 @@ public final class UiUtilsMacroExecutor {
                 case WAIT_GUI -> waitForGui(mc, action);
                 case WAIT_CHAT -> waitForChat(action);
                 case WAIT_PACKET -> waitForPacket(action);
+                case PACKET_CONTROL -> runOnMain(mc, () -> {
+                    if (mc.getConnection() == null) throw new IllegalStateException("Not connected");
+                    var data = action.getData();
+                    String direction = data.getStringOr("direction", "C2S");
+                    List<String> names = UiUtilsMacroActions.selectors(data, "packetNames");
+                    var catalog = direction.equals("S2C") ? com.ui_utils.packettools.PacketCatalog.getS2CNames()
+                        : com.ui_utils.packettools.PacketCatalog.getC2SNames();
+                    if (names.stream().anyMatch(name -> !catalog.contains(name)))
+                        throw new IllegalArgumentException("Choose packets from the picker for " + direction);
+                    UiUtilsMacroPacketRules.configure(mc.getConnection().getConnection(), direction, names,
+                        UiUtilsMacroPacketRules.Mode.valueOf(data.getStringOr("mode", "DELAY")),
+                        data.getIntOr("delayTicks", 5), data.getIntOr("durationMs", 5000));
+                });
+                case FLUSH_PACKETS -> runOnMain(mc, () -> {
+                    String direction = action.getData().getStringOr("direction", "BOTH");
+                    if (!List.of("BOTH", "C2S", "S2C").contains(direction)) throw new IllegalArgumentException("Invalid flush direction");
+                    com.ui_utils.packettools.AdvancedPacketTool.flushSelected(direction);
+                    if (!direction.equals("S2C")) { UiUtils.sendQueuedPackets(mc, 1); UiUtils.clearQueuedPackets(); }
+                });
                 case SEND_TOGGLE -> runOnMain(mc, () -> {
                     String mode = action.getData().getStringOr("mode", "");
                     boolean state = "DISABLE".equalsIgnoreCase(mode) ? false :
@@ -381,13 +409,16 @@ public final class UiUtilsMacroExecutor {
         boolean store = action.getData().getStringOr("mode", "STORE").equalsIgnoreCase("STORE");
         do {
             int moved = runOnMainResult(mc, () -> {
-                if (mc.player == null || mc.gameMode == null) return 0;
+                if (mc.player == null || mc.gameMode == null) throw new IllegalStateException("Not connected");
                 AbstractContainerMenu menu = mc.player.containerMenu;
-                if (menu == null || menu == mc.player.inventoryMenu) return 0;
+                if (menu == null || menu == mc.player.inventoryMenu) {
+                    if (!persistent) throw new IllegalStateException("Open a container before Store Item");
+                    return 0;
+                }
                 int count = 0;
                 for (int i = 0; i < menu.slots.size(); i++) {
                     Slot slot = menu.slots.get(i);
-                    if (slot == null || (store == isPlayerInventorySlot(menu, i))) continue;
+                    if (!shouldTransferSlot(slot, mc.player.getInventory(), store)) continue;
                     ItemStack stack = slot.getItem();
                     if (stack.isEmpty()) continue;
                     if (!all && !targets.isEmpty()) {
@@ -639,14 +670,14 @@ public final class UiUtilsMacroExecutor {
         };
     }
 
-    private static boolean isPlayerInventorySlot(AbstractContainerMenu menu, int index) {
-        int start = Math.max(0, menu.slots.size() - 36);
-        return index >= start;
+    static boolean shouldTransferSlot(Slot slot, net.minecraft.world.Container inventory, boolean store) {
+        return slot != null && store == (slot.container == inventory);
     }
 
-    private static boolean matchesName(ItemStack stack, String target) {
+    static boolean matchesName(ItemStack stack, String target) {
+        if (stack.isEmpty()) return false;
         if (target == null || target.isBlank()) return true;
-        String needle = target.toLowerCase(Locale.ROOT);
+        String needle = target.trim().toLowerCase(Locale.ROOT);
         String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().toLowerCase(Locale.ROOT);
         String hover = stack.getHoverName().getString().toLowerCase(Locale.ROOT);
         return id.contains(needle) || hover.contains(needle);
@@ -677,9 +708,10 @@ public final class UiUtilsMacroExecutor {
     }
     static void releasePersistentHeldKey(Minecraft mc, KeyMapping key, Thread owner) {
         mc.execute(() -> {
-            boolean owned = heldKeys.remove(key, owner);
-            boolean persistent = persistentKeys.remove(key);
-            if (owned || persistent) key.setDown(false);
+            if (heldKeys.remove(key, owner)) {
+                persistentKeys.remove(key);
+                key.setDown(false);
+            }
         });
     }
     static void cleanupOnMain(Minecraft mc, Runnable cleanup) {

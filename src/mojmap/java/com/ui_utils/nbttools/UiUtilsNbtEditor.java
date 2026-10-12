@@ -486,22 +486,22 @@ public final class UiUtilsNbtEditor {
 	public static String formatNbt(String text) {
 		StringBuilder result = new StringBuilder();
 		int indent = 0;
-		boolean quoted = false;
+		char quote = 0;
 		boolean escaped = false;
 		for (int i = 0; i < text.length(); i++) {
 			char c = text.charAt(i);
-			if (quoted) {
+			if (quote != 0) {
 				result.append(c);
 				if (escaped)
 					escaped = false;
 				else if (c == '\\')
 					escaped = true;
-				else if (c == '"')
-					quoted = false;
+				else if (c == quote)
+					quote = 0;
 				continue;
 			}
-			if (c == '"') {
-				quoted = true;
+			if (c == '"' || c == '\'') {
+				quote = c;
 				result.append(c);
 			} else if (c == '{' || c == '[') {
 				result.append(c).append('\n');
@@ -542,20 +542,20 @@ public final class UiUtilsNbtEditor {
 		if (text == null || text.isEmpty())
 			return "";
 		StringBuilder result = new StringBuilder(text.length());
-		boolean quoted = false;
+		char quote = 0;
 		boolean escaped = false;
 		for (int i = 0; i < text.length(); i++) {
 			char c = text.charAt(i);
-			if (quoted) {
+			if (quote != 0) {
 				result.append(c);
 				if (escaped)
 					escaped = false;
 				else if (c == '\\')
 					escaped = true;
-				else if (c == '"')
-					quoted = false;
-			} else if (c == '"') {
-				quoted = true;
+				else if (c == quote)
+					quote = 0;
+			} else if (c == '"' || c == '\'') {
+				quote = c;
 				result.append(c);
 			} else if (!Character.isWhitespace(c))
 				result.append(c);

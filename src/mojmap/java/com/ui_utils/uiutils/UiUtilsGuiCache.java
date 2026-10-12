@@ -165,6 +165,8 @@ public final class UiUtilsGuiCache {
 		JsonObject cursor = new JsonObject();
 		cursor.addProperty("item", itemId(menu.getCarried()));
 		cursor.addProperty("count", menu.getCarried().getCount());
+		JsonElement cursorData = registries == null ? null : encodeStack(menu.getCarried(), registries);
+		if (cursorData != null) cursor.add("data", cursorData);
 		root.add("cursor", cursor);
 
 		JsonArray slots = new JsonArray();

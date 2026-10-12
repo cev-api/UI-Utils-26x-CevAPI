@@ -50,6 +50,10 @@ public final class UiUtilsMacroLabels {
                 + " for " + data.getIntOr("durationTicks", 20) + " ticks";
             case STORE_ITEM -> data.getStringOr("mode", "STORE").equalsIgnoreCase("LOOT")
                 ? "Loot items" : "Store items";
+            case PACKET_CONTROL -> sentence(data.getStringOr("mode", "DELAY")) + " "
+                + data.getStringOr("direction", "C2S") + " packets"
+                + (data.getStringOr("mode", "DELAY").equals("DELAY") ? " by " + data.getIntOr("delayTicks", 5) + " ticks" : "");
+            case FLUSH_PACKETS -> "Flush queued " + data.getStringOr("direction", "BOTH") + " packets";
             case CLOSE_GUI -> "Close GUI";
             case DESYNC -> "Send a close packet";
             case SAVE_GUI -> "Save GUI";

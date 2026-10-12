@@ -53,6 +53,8 @@ public enum UiUtilsMacroActionType {
     SEND_CHAT,
     SEND_COMMAND,
     NBT_BOOK,
+    PACKET_CONTROL,
+    FLUSH_PACKETS,
     WAIT_LAN_STEP;
 
     public static UiUtilsMacroActionType byName(String name) {

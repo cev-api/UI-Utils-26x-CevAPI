@@ -126,6 +126,9 @@ public final class UiUtils {
         com.ui_utils.uiutils.macro.UiUtilsMacroRuntimeState.reset();
         com.ui_utils.uiutils.macro.UiUtilsMacroActions.reset();
         UiUtilsGuiCache.onDisconnect();
+        UiUtilsInventoryEvidence.clear();
+        UiUtilsPluginScanner.resetForServerChange();
+        UiUtilsLegacyPluginScanner.clearResultsForUi();
 		boolean wasDelayed = UiUtilsState.delayUiPackets;
 		int queued = UiUtilsState.delayedUiPackets.size();
 		UiUtilsState.delayUiPackets = false;
@@ -321,8 +324,8 @@ public final class UiUtils {
 			}
 			case "clear_queue" -> chatIfEnabled("Cleared queued packets (" + clearQueuedPackets() + ")");
 			case "resync_inv" -> {
-				if(mc.player != null && tryResyncInventory(mc.player.containerMenu))
-					chatIfEnabled("Inventory resynced");
+				if(mc.player != null && requestInventoryResync(mc))
+					chatIfEnabled("Inventory resync requested");
 			}
 			case "disconnect" -> UiUtilsDisconnect.disconnectWithConfiguredMethod(mc);
 			case "spam_inc" -> UiUtilsState.spamCount = Math.min(100, UiUtilsState.spamCount + 1);
@@ -596,15 +599,18 @@ public final class UiUtils {
 			button.setMessage(Component.literal(text));
 	}
 
-	private static boolean tryResyncInventory(AbstractContainerMenu menu) {
-		String[] methods = {"broadcastFullState", "sendAllDataToRemote", "broadcastChanges", "syncState"};
-		for (String name : methods)
-			try {
-				java.lang.reflect.Method method = menu.getClass().getMethod(name);
-				method.invoke(menu);
-				return true;
-			} catch (ReflectiveOperationException ignored) {}
-		return false;
+	public static boolean requestInventoryResync(Minecraft mc) {
+		if (mc == null || mc.player == null || mc.getConnection() == null) return false;
+		AbstractContainerMenu menu = mc.player.containerMenu;
+		if (menu == null) return false;
+		// -1 is a valid, inert PICKUP slot. A mismatched revision makes the vanilla
+		// server send authoritative contents without predicting a local inventory edit.
+		mc.getConnection().send(new net.minecraft.network.protocol.game.ServerboundContainerClickPacket(
+			menu.containerId, (menu.getStateId() + 1) & 32767, (short) -1, (byte) 0,
+			net.minecraft.world.inventory.ContainerInput.PICKUP,
+			new it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap<>(),
+			net.minecraft.network.HashedStack.create(menu.getCarried(), mc.getConnection().decoratedHashOpsGenenerator())));
+		return true;
 	}
 
 	/**
@@ -711,8 +717,8 @@ public final class UiUtils {
 					new UiUtilsGuiPacketLogScreen(McCompat.getScreen(mc))))));
 		rows.add(UiWidgetRow.pair(
 			new UiWidgetButton("Resync Inv", naturalFullWidth, b -> {
-				if (mc.player != null && tryResyncInventory(mc.player.containerMenu))
-					chatIfEnabled("Inventory resynced");
+				if (mc.player != null && requestInventoryResync(mc))
+					chatIfEnabled("Inventory resync requested");
 				else
 					chatIfEnabled("Failed to resync inventory");
 			}),
@@ -1127,14 +1133,17 @@ return field;
 		}
 	}
 
+	public static boolean fabricatePacket(Minecraft mc, boolean delay, Packet<?> packet) {
+		if (mc == null || mc.getConnection() == null || packet == null) return false;
+		var connection = mc.getConnection().getConnection();
+		if (!connection.isConnected() || connection.getPacketListener() != mc.getConnection()) return false;
+		if (delay) enqueueUiPacket(connection, packet, -1);
+		else mc.getConnection().send(packet);
+		return true;
+	}
+
 	public static Runnable getFabricatePacketRunnable(Minecraft mc, boolean delay, Packet<?> packet) {
-		return () -> {
-			if (mc.getConnection() == null) {
-				LOGGER.warn("Minecraft connection was null while sending packets.");
-				return;
-			}
-			replayQueuedPacket(mc, packet);
-		};
+		return () -> fabricatePacket(mc, delay, packet);
 	}
 
 	public static void closeScreenWithConfiguredDelay(Minecraft mc) {

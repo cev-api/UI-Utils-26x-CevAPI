@@ -16,8 +16,6 @@ import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.StringTag;
 import net.minecraft.network.chat.Component;
 
 public final class UiUtilsStepEditScreen extends UiModernScreen {
@@ -44,7 +42,7 @@ public final class UiUtilsStepEditScreen extends UiModernScreen {
 
     @Override
     protected void buildContent(UiContent c) {
-        applyTransientInputs();
+        apply();
         defs.clear();
         defs.addAll(ActionFieldRegistry.get(action.getType()).fields());
         if ((action.getType().name().startsWith("WAIT_") || action.getType().name().endsWith("_SYNC"))
@@ -53,6 +51,15 @@ public final class UiUtilsStepEditScreen extends UiModernScreen {
         fields.clear();
         stringListEditors.clear();
         visibleDefs.clear();
+        // Materialize displayed defaults before evaluating fields that depend on them.
+        for (FieldDef def : defs) {
+            if (action.getData().contains(def.key())) continue;
+            if (def.type() == com.ui_utils.uiutils.macroeditor.FieldType.ENUM && !def.enumOptions().isEmpty())
+                action.getData().putString(def.key(), def.enumOptions().get(0));
+            if (def.type() == com.ui_utils.uiutils.macroeditor.FieldType.TOGGLE
+                && List.of("waitForArrival", "openInventory", "enabled", "tap", "sneak", "sprint", "centerOnPlayer").contains(def.key()))
+                action.getData().putBoolean(def.key(), true);
+        }
         for (FieldDef def : defs) {
             if (isVisible(def)) visibleDefs.add(def);
         }
@@ -81,6 +88,7 @@ public final class UiUtilsStepEditScreen extends UiModernScreen {
                         String next = opts.get((idx + 1) % opts.size());
                         action.getData().putString(def.key(), next);
                         button.setMessage(Component.literal(UiUtilsMacroLabels.sentence(next)));
+                        Minecraft.getInstance().execute(this::rebuildWidgets);
                     });
                     button.setMessage(Component.literal(UiUtilsMacroLabels.sentence(button.getMessage().getString())));
                     c.row(UiContent.text(UiUtilsMacroLabels.sentence(def.label())), UiContent.of(button, 2F));
@@ -90,23 +98,35 @@ public final class UiUtilsStepEditScreen extends UiModernScreen {
                     UiInput box = new UiInput(this.font, 1,
                         String.join(", ", currentItems), Component.literal("value1, value2"));
                     box.setMaxLength(1024);
+                    // Initial width is a layout placeholder; show the list's beginning
+                    // instead of keeping the caret scrolled to its final character.
+                    box.moveCursorToStart(false);
                     UiButton add = UiButton.of(UiUtilsMacroLabels.sentence(def.addLabel()), null);
                     UiButton clear = UiButton.of("Clear", null);
-                    StringListEditor editor = new StringListEditor(box, add, clear,
-                        currentItems);
+                    StringListEditor editor = new StringListEditor(box);
                     add.action(() -> {
-                        for (String v : parseStringItems(box.getValue())) {
-                            if (!editor.items.contains(v)) editor.items.add(v);
-                        }
-                        box.setValue(String.join(", ", editor.items));
+                        box.setValue(String.join(", ", parseStringItems(box.getValue()).stream().distinct().toList()));
+                        box.moveCursorToStart(false);
                     });
                     clear.action(() -> {
-                        editor.items.clear();
                         box.setValue("");
                     });
                     stringListEditors.put(def.key(), editor);
                     c.row(UiContent.text(UiUtilsMacroLabels.sentence(def.label())), UiContent.of(box, 4F),
                         UiContent.fixed(add, 40), UiContent.fixed(clear, 38));
+                    if (def.key().equals("packetNames")) {
+                        c.row(UiContent.of(UiButton.of("Browse / search packets", () -> {
+                            apply();
+                            McCompat.setScreen(minecraft, new UiUtilsMacroPacketPickerScreen(this,
+                                action.getData().getStringOr("direction", "C2S"), parseStringItems(box.getValue()),
+                                names -> {
+                                    box.setValue(String.join(", ", names));
+                                    box.moveCursorToStart(false);
+                                }));
+                        })));
+                        c.note("Rules expire after the chosen duration. 0 lasts until Stop or the next macro. Allow removes the selected macro rules.");
+                    }
+                    if (def.key().equals("targetItems")) c.note("Example: gunpowder or minecraft:gunpowder. Separate items with commas. #slot selects an open-menu slot.");
                 }
                 case NUMBER, DECIMAL, TEXT, BLOCK_POS, SLOT -> {
                     UiInput box = new UiInput(this.font, 1, readFieldValue(def),
@@ -179,36 +199,12 @@ public final class UiUtilsStepEditScreen extends UiModernScreen {
     private void apply() {
         applyTransientInputs();
         for (var entry : stringListEditors.entrySet()) {
-            ListTag list = new ListTag();
-            List<String> values = new ArrayList<>(entry.getValue().items);
-            for (String typed : parseStringItems(entry.getValue().input.getValue())) {
-                if (!values.contains(typed)) values.add(typed);
-            }
-            for (String s : values) {
-                if (!s.isBlank()) list.add(StringTag.valueOf(s.trim()));
-            }
-            action.getData().put(entry.getKey(), list);
+            com.ui_utils.uiutils.macro.UiUtilsMacroActions.writeSelectors(action.getData(), entry.getKey(), entry.getValue().input.getValue());
         }
     }
 
     private List<String> readStringList(String key) {
-        List<String> out = new ArrayList<>();
-        if (action.getData().contains(key) && action.getData().get(key) instanceof ListTag list) {
-            for (int i = 0; i < list.size(); i++) {
-                String v = list.get(i).asString().orElse("");
-                if (!v.isBlank()) out.add(v);
-            }
-        }
-        if (out.isEmpty()) {
-            String fallback = action.getData().getStringOr(key, "");
-            if (!fallback.isBlank()) {
-                for (String part : fallback.split(",")) {
-                    String p = part.trim();
-                    if (!p.isBlank()) out.add(p);
-                }
-            }
-        }
-        return out;
+        return com.ui_utils.uiutils.macro.UiUtilsMacroActions.selectors(action.getData(), key);
     }
 
     private static int parseInt(String s, int fallback) {
@@ -220,13 +216,7 @@ public final class UiUtilsStepEditScreen extends UiModernScreen {
     }
 
     private static List<String> parseStringItems(String raw) {
-        List<String> out = new ArrayList<>();
-        if (raw == null || raw.isBlank()) return out;
-        for (String part : raw.split("[,\\n]")) {
-            String value = part.trim();
-            if (!value.isBlank()) out.add(value);
-        }
-        return out;
+        return com.ui_utils.uiutils.macro.UiUtilsMacroActions.parseSelectors(raw);
     }
 
     @Override
@@ -234,17 +224,5 @@ public final class UiUtilsStepEditScreen extends UiModernScreen {
         McCompat.setScreen(minecraft, parent);
     }
 
-    private static final class StringListEditor {
-        private final EditBox input;
-        private final UiButton addButton;
-        private final UiButton clearButton;
-        private final List<String> items;
-
-        private StringListEditor(EditBox input, UiButton addButton, UiButton clearButton, List<String> items) {
-            this.input = input;
-            this.addButton = addButton;
-            this.clearButton = clearButton;
-            this.items = items;
-        }
-    }
+    private record StringListEditor(EditBox input) {}
 }

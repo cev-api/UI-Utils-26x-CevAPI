@@ -162,6 +162,7 @@ public final class UiUtilsSettings {
 		// Wurst-style command scanner options
 		public String commandScannerMode = "PACKET_PROBING";
 		public boolean commandScannerDebugProbe = false;
+		public boolean commandScannerShowVanilla = false;
 		public boolean commandScannerRunFoundCommands = false;
 		public String commandScannerDontSendFilter = "";
 		public String commandScannerPacketCommands = "I Love Cevapcici!";

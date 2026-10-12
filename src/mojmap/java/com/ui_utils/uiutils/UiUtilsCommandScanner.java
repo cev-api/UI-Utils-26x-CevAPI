@@ -740,6 +740,8 @@ public final class UiUtilsCommandScanner {
 		"whitelist", "worldborder", "xp"));
 
 	private static final Set<String> scannedCommands = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+	private static final Set<String> knownCommands = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+	private static boolean scanCompleted;
 	private static final Set<String> triggerValues = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 	private static final Set<Character> truncatedCommandLetters = new HashSet<>();
 	private static final Set<String> scheduledProbePrefixes = new HashSet<>();
@@ -777,6 +779,10 @@ public final class UiUtilsCommandScanner {
 			return "[UI-Utils] Command scanner already running.";
 
 		active = true;
+		scanCompleted = false;
+		knownCommands.clear();
+		var dispatcher = UiUtilsServerCommands.dispatcher(mc.player.connection);
+		if (dispatcher != null) for (var child : dispatcher.getRoot().getChildren()) knownCommands.add(child.getName());
 		scannedCommands.clear();
 		triggerValues.clear();
 		truncatedCommandLetters.clear();
@@ -1040,23 +1046,26 @@ public final class UiUtilsCommandScanner {
 			return;
 		for (Suggestion suggestion : suggestions.getList()) {
 			String command = extractRootCommand(suggestion.getText());
-			if (command != null && !command.equalsIgnoreCase("trigger")
-				&& !isIgnoredEssentialsCommand(command)
-				&& !isVanillaOrDefaultCommand(command)) {
+			if (command != null) {
 				scannedCommands.add(command);
 				updateCommandVisibility(command);
+				if (UiUtilsSettings.get().commandScannerDebugProbe)
+					UiUtils.LOGGER.info("CommandScanner /{}: {} retained ({})", awaitingProbe, command,
+						knownCommands.contains(command) ? "already known" : "newly discovered");
+			} else if (UiUtilsSettings.get().commandScannerDebugProbe) {
+				UiUtils.LOGGER.info("CommandScanner /{}: rejected suggestion {} (empty root)", awaitingProbe, suggestion.getText());
 			}
 		}
 	}
 
 	private static void updateCommandVisibility(String command) {
 		Minecraft mc = Minecraft.getInstance();
-		if (mc.player == null || mc.player.connection == null)
+		if (mc == null || mc.player == null || mc.player.connection == null)
 			return;
 
 		// Packet mode only classifies commands the server returned in suggestions.
 		// Client mode enumerates the separate server-synchronized command tree.
-		var dispatcher = mc.player.connection.getCommands();
+		var dispatcher = UiUtilsServerCommands.dispatcher(mc.player.connection);
 		if (dispatcher == null || dispatcher.getRoot() == null) {
 			permissionDeniedPaths.add(normalizeFullCommandPath(command));
 			return;
@@ -1091,7 +1100,7 @@ public final class UiUtilsCommandScanner {
 			return;
 		}
 
-		var dispatcher = mc.player.connection.getCommands();
+		var dispatcher = UiUtilsServerCommands.dispatcher(mc.player.connection);
 		RootCommandNode<ClientSuggestionProvider> root = dispatcher == null
 			? null : dispatcher.getRoot();
 		if (root == null) {
@@ -1123,8 +1132,7 @@ public final class UiUtilsCommandScanner {
 		int firstSpace = root.indexOf(' ');
 		if (firstSpace >= 0)
 			root = root.substring(0, firstSpace);
-		if (!root.isBlank() && !isIgnoredEssentialsCommand(root)
-			&& !isVanillaOrDefaultCommand(root))
+		if (!root.isBlank())
 			scannedCommands.add(path);
 
 		for (CommandNode<ClientSuggestionProvider> child : node.getChildren())
@@ -1148,11 +1156,13 @@ public final class UiUtilsCommandScanner {
 		visiting.remove(target);
 	}
 	private static void finishScan() {
+		scanCompleted = true;
 		List<String> results = new ArrayList<>(scannedCommands);
 		for (String value : triggerValues) results.add("trigger (" + value + ")");
 		print("Command scanner found " + results.size() + " commands.");
 		lastFoundCommands = results;
-		lastStatus = "Found " + results.size() + " commands.";
+		lastStatus = "Found " + results.size() + " commands (" + getKnownCommandsSnapshot().size()
+			+ " already known, " + getNewCommandsSnapshot().size() + " newly discovered).";
 		UiUtilsScanHistory.recordCommands(boundServerKey, "command_" + activeMode.name().toLowerCase(Locale.ROOT), lastFoundCommands);
 		if (results.isEmpty()) {
 			finish();
@@ -1164,11 +1174,11 @@ public final class UiUtilsCommandScanner {
 			commandsToExecute.clear();
 		unavailableCommands.clear();
 		pendingManualCommands.clear();
-		permissionDeniedPaths.clear();
 			Set<String> denyTerms = parseDenyTerms(UiUtilsSettings.get().commandScannerDontSendFilter);
 			for (String cmd : scannedCommands) {
 				String lower = cmd.toLowerCase(Locale.ROOT);
-				if (VANILLA_COMMANDS.contains(lower))
+				// Discovery is complete; automatic execution retains its conservative exclusions.
+				if (isVanillaOrDefaultCommand(lower) || isIgnoredEssentialsCommand(lower))
 					continue;
 				boolean blocked = false;
 				for (String deny : denyTerms) {
@@ -1236,6 +1246,11 @@ public final class UiUtilsCommandScanner {
 			if (mc.player != null)
 				mc.player.sendSystemMessage(Component.literal("[UI-Utils] " + msg));
 		}
+	}
+
+	public static List<String> filterVisibleCommands(List<String> commands, boolean showVanilla) {
+		return commands.stream().filter(command -> showVanilla
+			|| !isVanillaOrDefaultCommand(normalizeCommandPath(command))).toList();
 	}
 
 	public static boolean isVanillaOrDefaultCommand(String raw) {
@@ -1307,6 +1322,8 @@ private static ScanMode getScanMode() {
 	}
 
 	private static void resetForServerChange() {
+		scanCompleted = false;
+		knownCommands.clear();
 		active = false;
 		awaitingResponse = false;
 		awaitingRequestId = -1;
@@ -1351,18 +1368,35 @@ private static ScanMode getScanMode() {
 			return lastStatus + " [probes " + probesSent + ", queued " + commandProbeQueue.size() + "]";
 		if (active && phase == Phase.EXECUTING)
 			return lastStatus + " [remaining " + commandsToExecute.size() + "]";
+		if (!UiUtilsPluginScanner.getObservedCommandsSnapshot().isEmpty() && lastFoundCommands.isEmpty())
+			return "Commands collected during plugin scan.";
 		return lastStatus;
 	}
 
 	public static boolean hasResultsForCurrentServer() {
-		return !lastFoundCommands.isEmpty() && boundServerKey.equals(currentServerKey(Minecraft.getInstance()));
+		return scanCompleted && boundServerKey.equals(currentServerKey(Minecraft.getInstance()));
+	}
+	private static boolean isKnownRoot(String command) {
+		String root = normalizeCommandPath(command).split(" ", 2)[0];
+		var connection = Minecraft.getInstance().getConnection();
+		return knownCommands.contains(root) || (connection != null && UiUtilsServerCommands.dispatcher(connection) != null
+			&& UiUtilsServerCommands.dispatcher(connection).getRoot().getChild(root) != null);
+	}
+	public static List<String> getKnownCommandsSnapshot() {
+		return getFoundCommandsSnapshot().stream().filter(UiUtilsCommandScanner::isKnownRoot).toList();
+	}
+	public static List<String> getNewCommandsSnapshot() {
+		return getFoundCommandsSnapshot().stream().filter(cmd -> !isKnownRoot(cmd)).toList();
 	}
 	public static boolean isActive() {
 		return active;
 	}
 
 	public static List<String> getFoundCommandsSnapshot() {
-		return new ArrayList<>(lastFoundCommands);
+		Set<String> commands = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+		commands.addAll(lastFoundCommands);
+		commands.addAll(UiUtilsPluginScanner.getObservedCommandsSnapshot());
+		return List.copyOf(commands);
 	}
 
 	public static List<String> getRecentEventsSnapshot() {
@@ -1378,6 +1412,8 @@ private static ScanMode getScanMode() {
 	}
 
 	public static void clearResultsForUi() {
+		scanCompleted = false;
+		knownCommands.clear();
 		active = false;
 		awaitingResponse = false;
 		awaitingRequestId = -1;

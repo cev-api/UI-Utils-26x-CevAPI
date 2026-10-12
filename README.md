@@ -260,6 +260,14 @@ Path behavior:
 - Export field points to: `<gameDir>/config/ui-utils/macro_export`
 - Both folders are created automatically if they do not exist.
 
+## Macro item targets and packet controls
+
+- Store Item: choose `STORE`, open a container, and put `gunpowder` or `minecraft:gunpowder` in Target Items. Commas, semicolons, and newlines separate targets; `#slot|item` restricts a target to an open-menu slot. `LOOT` transfers in the opposite direction. All Items bypasses the target filter.
+- Packet Control: choose C2S (outgoing) or S2C (incoming), then Browse / search packets and select one or more packet names. `DELAY` holds matching packets for the chosen number of ticks (20 ticks = one second); `DENY` drops them; `ALLOW` removes the selected macro rules. Packet Tools and GUI packet settings still apply.
+- Rule duration is in milliseconds, independently of the per-packet delay. `0` keeps rules until Stop, another macro starts, or disconnect. Timed rules can outlive a completed macro. These rules are temporary and do not change saved Packet Tools settings. Packets already delayed retain their release time after rules are removed.
+- Flush Packets releases queued incoming, outgoing, or both directions immediately; outgoing also includes the UI packet queue. Stale packets from previous connections are discarded. Outgoing protocol-transition packets are sent immediately after flushing the outgoing queue.
+- Lists can be edited directly and saved without pressing Add. Edits survive changing toggles, modes, and resizing the editor; deleting a value removes it.
+
 ## Notes on the Mojmap Migration
 
 - Entire codebase uses Mojang mappings for clarity and forward‑compat.

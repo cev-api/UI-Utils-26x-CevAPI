@@ -142,17 +142,22 @@ public final class UiUtilsGuiPacketLog {
 		}
 		if (PENDING_FILE_LINES.isEmpty())
 			return;
-		StringBuilder batch = new StringBuilder();
-		if (headerPending)
-			batch.append(HEADER).append('\n');
-		headerPending = false;
-		String line;
-		while ((line = PENDING_FILE_LINES.poll()) != null)
-			batch.append(line).append('\n');
+		java.util.List<String> lines = new java.util.ArrayList<>();
 		try {
-			Files.writeString(file(), batch.toString(), StandardCharsets.UTF_8,
+			Path target = file();
+			StringBuilder batch = new StringBuilder();
+			if (headerPending) batch.append(HEADER).append('\n');
+			String line;
+			while ((line = PENDING_FILE_LINES.poll()) != null) {
+				lines.add(line);
+				batch.append(line).append('\n');
+			}
+			Files.writeString(target, batch.toString(), StandardCharsets.UTF_8,
 				StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-		} catch (IOException ignored) {
+			headerPending = false;
+		} catch (IOException failure) {
+			PENDING_FILE_LINES.addAll(lines);
+			UiUtils.LOGGER.warn("Failed to write GUI packet log", failure);
 		}
 	}
 
@@ -257,5 +262,6 @@ public final class UiUtilsGuiPacketLog {
 
 	private static void closeFile() {
 		logFile = null;
+		headerPending = false;
 	}
 }

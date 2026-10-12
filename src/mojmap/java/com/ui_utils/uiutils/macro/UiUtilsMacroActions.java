@@ -261,18 +261,30 @@ public final class UiUtilsMacroActions {
         if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)) throw new IllegalArgumentException("Position must contain finite coordinates");
         return new Vec3(x, y, z);
     }
-    static List<String> selectors(CompoundTag data, String key) {
+    public static List<String> selectors(CompoundTag data, String key) {
         List<String> result = new ArrayList<>();
         if (data.get(key) instanceof ListTag list) for (var value : list) {
             if (value instanceof CompoundTag tag) {
-                if (tag.contains("slot")) result.add("#" + tag.getIntOr("slot", -1));
+                if (tag.contains("slot")) {
+                    String name = tag.getStringOr("id", tag.getStringOr("name", "")).trim();
+                    result.add("#" + tag.getIntOr("slot", -1) + (name.isEmpty() ? "" : "|" + name));
+                }
                 else result.add(tag.getStringOr("id", tag.getStringOr("name", "")));
             } else value.asString().ifPresent(result::add);
         } else {
             String raw = data.getStringOr(key, "");
-            if (!raw.isBlank()) result.addAll(Arrays.asList(raw.split("[,;\\n]")));
+            result.addAll(parseSelectors(raw));
         }
         return result.stream().map(String::trim).filter(s -> !s.isBlank()).toList();
+    }
+    public static List<String> parseSelectors(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        return Arrays.stream(raw.split("[,;\\n]")).map(String::trim).filter(s -> !s.isBlank()).distinct().toList();
+    }
+    public static void writeSelectors(CompoundTag data, String key, String raw) {
+        ListTag list = new ListTag();
+        for (String value : parseSelectors(raw)) list.add(net.minecraft.nbt.StringTag.valueOf(value));
+        data.put(key, list);
     }
     private static List<String> requiredList(CompoundTag data, String key) {
         List<String> result = selectors(data, key);
@@ -299,6 +311,7 @@ public final class UiUtilsMacroActions {
     private static boolean slotMatches(List<String> targets, int slot, ItemStack before, ItemStack after) {
         return targets.stream().anyMatch(target -> target.startsWith("#")
             ? Integer.parseInt(target.substring(1).split("\\|", 2)[0]) == slot
+                && (!target.contains("|") || matches(before, target) || matches(after, target))
             : matches(before, target) || matches(after, target));
     }
     private static boolean inventoryContains(Minecraft mc, String target) {
@@ -397,20 +410,31 @@ public final class UiUtilsMacroActions {
     }
     private static void craft(Minecraft mc, UiUtilsMacroAction action) {
         String requested = required(action.getData(), "recipeId");
+        ItemStack[] output = new ItemStack[1];
+        net.minecraft.world.inventory.AbstractContainerMenu[] menu = new net.minecraft.world.inventory.AbstractContainerMenu[1];
         net.minecraft.world.item.crafting.display.RecipeDisplayId[] id = new net.minecraft.world.item.crafting.display.RecipeDisplayId[1];
         main(mc, () -> {
             requirePlayer(mc);
-            for (var collection : mc.player.getRecipeBook().getCollections()) for (var recipe : collection.getRecipes()) {
+            menu[0] = mc.player.containerMenu;
+            if (!(menu[0] instanceof net.minecraft.world.inventory.CraftingMenu)
+                && !(menu[0] instanceof net.minecraft.world.inventory.InventoryMenu))
+                throw new IllegalStateException("Craft requires a crafting table or player crafting grid");
+            search: for (var collection : mc.player.getRecipeBook().getCollections()) for (var recipe : collection.getRecipes()) {
+                if (!(recipe.display() instanceof net.minecraft.world.item.crafting.display.ShapedCraftingRecipeDisplay)
+                    && !(recipe.display() instanceof net.minecraft.world.item.crafting.display.ShapelessCraftingRecipeDisplay)) continue;
                 ItemStack result = recipe.display().result().resolveForFirstStack(net.minecraft.world.item.crafting.display.SlotDisplayContext.fromLevel(mc.level));
-                if (Integer.toString(recipe.id().index()).equals(requested) || matches(result, requested)) { id[0] = recipe.id(); break; }
+                if (Integer.toString(recipe.id().index()).equals(requested) || matches(result, requested)) { id[0] = recipe.id(); output[0] = result.copy(); break search; }
             }
             if (id[0] == null) throw new IllegalArgumentException("No known recipe display/output matches " + requested);
         });
         for (int i = 0; i < bounded(action.getData(), "times", 1, 1, 128); i++) {
             int[] revision = new int[1];
-            main(mc, () -> { requirePlayer(mc); revision[0] = mc.player.containerMenu.getStateId(); mc.gameMode.handlePlaceRecipe(mc.player.containerMenu.containerId, id[0], false); });
-            wait(mc, action, () -> mc.player != null && mc.player.containerMenu.getStateId() != revision[0] && !mc.player.containerMenu.slots.get(0).getItem().isEmpty());
-            main(mc, () -> mc.gameMode.handleContainerInput(mc.player.containerMenu.containerId, 0, 0, ContainerInput.QUICK_MOVE, mc.player));
+            main(mc, () -> { requirePlayer(mc); if (mc.player.containerMenu != menu[0]) throw new IllegalStateException("Crafting menu changed"); revision[0] = menu[0].getStateId(); mc.gameMode.handlePlaceRecipe(mc.player.containerMenu.containerId, id[0], false); });
+            wait(mc, action, () -> mc.player != null && mc.player.containerMenu == menu[0] && menu[0].getStateId() != revision[0] && ItemStack.isSameItemSameComponents(menu[0].slots.get(0).getItem(), output[0]));
+            main(mc, () -> {
+                if (mc.player.containerMenu != menu[0]) throw new IllegalStateException("Crafting menu changed");
+                mc.gameMode.handleContainerInput(menu[0].containerId, 0, 0, ContainerInput.QUICK_MOVE, mc.player);
+            });
         }
     }
     private static void main(Minecraft mc, Runnable action) { UiUtilsMacroExecutor.runOnMain(mc, action); }

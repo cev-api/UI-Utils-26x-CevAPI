@@ -27,6 +27,7 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 	private UiInput packetCommandsField;
 	private UiButton scannerModeButton;
 	private boolean commandOutputVisible;
+	private int commandCategory;
 	private int commandOutputTop;
 	private int resultsFlowTop;
 	/** Lines built for the last layout, shared by the measure and draw passes. */
@@ -95,6 +96,15 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		c.button("Legacy Plugin Scan (Safer)",
 			UiUtilsLegacyPluginScanner::startScan);
 		c.section("Commands");
+		c.row(UiContent.of(toggle("Show vanilla commands", () -> UiUtilsSettings.get().commandScannerShowVanilla, value -> {
+			UiUtilsSettings.get().commandScannerShowVanilla = value;
+			UiUtilsSettings.save();
+			rebuildWidgetsPreservingScroll();
+		})));
+		c.button("Show: " + new String[] {"All discovered", "Already known", "Newly discovered"}[commandCategory], () -> {
+			commandCategory = (commandCategory + 1) % 3;
+			rebuildWidgetsPreservingScroll();
+		});
 		searchField = c.input(searchField == null ? "" : searchField.getValue(), value ->
 			Minecraft.getInstance().execute(this::rebuildWidgetsPreservingScroll));
 		searchField.setMaxLength(64);
@@ -284,11 +294,15 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 	private List<Line> buildLines(boolean applySearch) {		List<Line> lines = new ArrayList<>();
 		lines.add(new Line("Command Scanner", 0xFFFFB347));
 		lines.add(new Line("Status: " + UiUtilsCommandScanner.getStatusLine(), 0xFFEAEAEA));
-		List<String> commands = UiUtilsCommandScanner.getFoundCommandsSnapshot();
+		List<String> commands = commandCategory == 1 ? UiUtilsCommandScanner.getKnownCommandsSnapshot()
+			: commandCategory == 2 ? UiUtilsCommandScanner.getNewCommandsSnapshot() : UiUtilsCommandScanner.getFoundCommandsSnapshot();
+		commands = UiUtilsCommandScanner.filterVisibleCommands(commands, UiUtilsSettings.get().commandScannerShowVanilla);
 		boolean commandResultsTruncated = UiUtilsCommandScanner.hasTruncatedResponses();
 		lines.add(new Line("Found commands: " + commands.size()
 			+ (commandResultsTruncated ? "+" : ""), 0xFFB8B8B8));
-		lines.add(new Line("Essentials commands/aliases skipped; other e... commands retained.", 0xFF909090));
+		lines.add(new Line("All: " + UiUtilsCommandScanner.filterVisibleCommands(UiUtilsCommandScanner.getFoundCommandsSnapshot(), UiUtilsSettings.get().commandScannerShowVanilla).size()
+			+ " | Known: " + UiUtilsCommandScanner.filterVisibleCommands(UiUtilsCommandScanner.getKnownCommandsSnapshot(), UiUtilsSettings.get().commandScannerShowVanilla).size()
+			+ " | New: " + UiUtilsCommandScanner.filterVisibleCommands(UiUtilsCommandScanner.getNewCommandsSnapshot(), UiUtilsSettings.get().commandScannerShowVanilla).size(), 0xFF909090));
 		if (commandResultsTruncated)
 			lines.add(new Line("! Some responses hit the server limit; counts are lower bounds.", 0xFFFFA8A8));
 		if (commands.size() > 50) {
@@ -313,11 +327,11 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 					+ "] (" + count + ")", 0xFFFFFFFF, key));
 				if (expanded)
 					for (String cmd : entry.getValue())
-						lines.add(new Line("    /" + cmd, commandColor(cmd), "command:" + cmd));
+						lines.add(new Line("    /" + cmd + UiUtilsPluginScanner.commandAttribution(cmd), commandColor(cmd), "command:" + cmd));
 			}
 		} else {
 			for (String cmd : commands)
-				lines.add(new Line("  /" + cmd, commandColor(cmd), "command:" + cmd));
+				lines.add(new Line("  /" + cmd + UiUtilsPluginScanner.commandAttribution(cmd), commandColor(cmd), "command:" + cmd));
 		}
 
 		lines.add(new Line("", 0xFFFFFFFF));
@@ -339,7 +353,7 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		for (UiUtilsPluginScanner.PluginResultRow row : plugins) {
 			if (!row.evidence().equalsIgnoreCase(currentEvidence)) {
 				currentEvidence = row.evidence();
-				lines.add(new Line("[" + currentEvidence + "]", 0xFFF5F5F5));
+				lines.add(new Line("[" + (currentEvidence.equals("ROOT_HINT") ? "Heuristic: command alias/name" : currentEvidence) + "]", 0xFFF5F5F5));
 			}
 			String pluginKey = "plugin:" + row.evidence().toLowerCase() + "|" + row.plugin().toLowerCase();
 			boolean expanded = expandedPlugins.contains(pluginKey);
@@ -358,7 +372,7 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 						lines.add(new Line("    (no commands or cached details)", 0xFF909090));
 				} else {
 					for (String cmd : row.commands())
-						lines.add(new Line("    /" + cmd, commandColor(cmd), "command:" + cmd));
+						lines.add(new Line("    /" + cmd + UiUtilsPluginScanner.commandAttribution(cmd), commandColor(cmd), "command:" + cmd));
 				}
 			}
 		}

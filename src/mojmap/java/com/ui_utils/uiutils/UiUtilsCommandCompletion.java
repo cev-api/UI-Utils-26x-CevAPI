@@ -66,7 +66,7 @@ public final class UiUtilsCommandCompletion {
         if (words.length == 3) {
             String action = words[1].toLowerCase(Locale.ROOT);
             if ((command.equals("macro") || command.equals("macros")) && List.of("run", "start", "delete", "remove", "export").contains(action))
-                return UiUtilsMacroManager.get().getAll().stream().map(m -> m.name).filter(name -> !name.contains(" ")).toList();
+                return UiUtilsMacroManager.get().getAll().stream().map(m -> m.name.contains(" ") ? "\"" + m.name + "\"" : m.name).toList();
             if (command.equals("screen") && List.of("load", "info").contains(action)) return List.copyOf(UiUtilsState.savedScreens.keySet());
             if ((command.equals("guipackets") || command.equals("gpkt")) && action.equals("cycle")) return UiUtilsGuiPacketControl.entries().stream().map(UiUtilsGuiPacketControl.Entry::id).toList();
         }

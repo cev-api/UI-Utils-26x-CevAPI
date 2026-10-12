@@ -22,6 +22,10 @@ import net.minecraft.world.phys.HitResult;
 public final class UiUtilsAutoduper {
 	private static final Strategy[] STRATEGIES = buildStrategies();
 	private static boolean running;
+	private static long runGeneration;
+	private static long strategyGeneration;
+	private static long validationSequence;
+	private static boolean validationRequested;
 	private static int attempt;
 	private static Strategy[] runPlan = STRATEGIES;
 	private static int ticksUntilNext;
@@ -55,6 +59,7 @@ public final class UiUtilsAutoduper {
 	private UiUtilsAutoduper() {}
 
 	public static void start() {
+		runGeneration++;
 		Minecraft mc = Minecraft.getInstance();
 		if(mc.player == null) {
 			status = "Not connected";
@@ -100,6 +105,7 @@ public final class UiUtilsAutoduper {
 	}
 
 	public static void stop(String reason) {
+		runGeneration++;
 		running = false;
 		resumeAfterReconnect = false;
 		resumeAttempt = 0;
@@ -201,6 +207,7 @@ public final class UiUtilsAutoduper {
 	}
 
 	private static void pauseForReconnect(String reason) {
+		runGeneration++;
 		resumeAfterReconnect = true;
 		resumeAttempt = attempt;
 		running = false;
@@ -231,14 +238,10 @@ public final class UiUtilsAutoduper {
 			int observed = countMatching(menu, targetStack);
 			lastObservedCount = observed;
 			if(observed > baselineCount) {
-				if(UiUtilsSettings.get().autoduperDropValidation) {
-					status = "Potential dupe found; validating by drop";
-					phase = Phase.VALIDATE_DROP;
-				}else {
-					stop("Success on dupe attempt #" + activeStrategyNumber
-						+ ": count " + baselineCount + " -> " + observed);
-					return;
-				}
+				validationRequested = false;
+				validationTicks = 0;
+				status = "Candidate increase; waiting for authoritative contents";
+				phase = Phase.VALIDATE_DROP;
 			}
 		}
 
@@ -462,6 +465,7 @@ public final class UiUtilsAutoduper {
 	}
 
 	private static void runStrategy(Minecraft mc) {
+		strategyGeneration++;
 		if(attempt >= getAttemptLimit()) {
 			stop("No confirmed dupe after " + attempt + " attempts");
 			return;
@@ -522,11 +526,10 @@ public final class UiUtilsAutoduper {
 		int observed = menu == null ? 0 : countMatching(menu, targetStack);
 		lastObservedCount = observed;
 		if(observed > baselineCount) {
-			phase = UiUtilsSettings.get().autoduperDropValidation
-				? Phase.VALIDATE_DROP : Phase.IDLE;
-			if(phase == Phase.IDLE)
-				stop("Success on dupe attempt #" + activeStrategyNumber
-					+ ": count " + baselineCount + " -> " + observed);
+			validationRequested = false;
+			validationTicks = 0;
+			phase = Phase.VALIDATE_DROP;
+			status = "Candidate increase; waiting for authoritative contents";
 			return;
 		}
 		if(tryAdvanceReplayStartMode())
@@ -536,54 +539,57 @@ public final class UiUtilsAutoduper {
 
 	private static void validateByDrop(Minecraft mc) {
 		AbstractContainerMenu menu = mc.player.containerMenu;
-		if(menu == null) {
-			stop("Validation failed: no menu");
+		if (menu == null) { stop("Validation failed: no menu"); return; }
+		var snapshot = UiUtilsInventoryEvidence.snapshot(menu);
+		if (!validationRequested) {
+			validationSequence = snapshot == null ? 0 : snapshot.sequence();
+			validationRequested = true;
+			validationTicks = 0;
+			UiUtils.requestInventoryResync(mc);
 			return;
 		}
-		List<Integer> matchingSlots = matchingSlots(menu, targetStack);
-		if(matchingSlots.size() < 2) {
-			if(tryAdvanceReplayStartMode())
-				return;
-			phase = Phase.RUN_STRATEGY;
-			status = "Validation rejected ghost count";
+		if (snapshot == null || snapshot.sequence() <= validationSequence) {
+			if (++validationTicks > 40) rejectValidation("No authoritative contents received");
 			return;
 		}
-		int dropped = 0;
-		int target = activeTargetSlot;
+		int confirmed = snapshot.count(targetStack);
+		if (confirmed <= baselineCount) { rejectValidation("Server rejected candidate increase"); return; }
+		lastObservedCount = confirmed;
+		if (!UiUtilsSettings.get().autoduperDropValidation) {
+			stop("Server confirmed count " + baselineCount + " -> " + confirmed);
+			return;
+		}
+		List<Integer> slots = matchingSlots(menu, targetStack);
+		if (slots.isEmpty()) { rejectValidation("No matching slot available to validate"); return; }
 		validationGroundCountBefore = countNearbyGroundItems(mc, targetStack);
-		validationInventoryCountBefore = countMatching(menu, targetStack);
-		for(int slot : matchingSlots) {
-			if(slot == target && matchingSlots.size() > dropped + 1)
-				continue;
-			click(mc, slot, 1, ContainerInput.THROW);
-			dropped++;
-			if(dropped >= 2)
-				break;
-		}
+		validationInventoryCountBefore = confirmed;
+		validationSequence = snapshot.sequence();
+		// One surplus item is sufficient; merged stacks must work too.
+		click(mc, slots.getFirst(), 0, ContainerInput.THROW);
 		validationTicks = 0;
 		phase = Phase.VALIDATE_OBSERVE;
-		status = "Dropped " + dropped + " matching slot(s); waiting for server";
+		status = "Dropped one surplus item; waiting for authoritative confirmation";
 	}
 
 	private static void validateDropResult(Minecraft mc) {
 		validationTicks++;
 		AbstractContainerMenu menu = mc.player.containerMenu;
-		int groundNow = countNearbyGroundItems(mc, targetStack);
-		int inventoryNow = menu == null ? 0 : countMatching(menu, targetStack);
-		boolean groundAccepted = groundNow > validationGroundCountBefore;
-		boolean inventoryAccepted = inventoryNow < validationInventoryCountBefore;
-		if(groundAccepted || inventoryAccepted) {
-			stop("Validated by server-visible drop; count " + baselineCount
-				+ " -> " + lastObservedCount + " on dupe attempt #"
-				+ activeStrategyNumber);
+		if (validationTicks == 2) UiUtils.requestInventoryResync(mc);
+		var snapshot = menu == null ? null : UiUtilsInventoryEvidence.snapshot(menu);
+		int groundIncrease = countNearbyGroundItems(mc, targetStack) - validationGroundCountBefore;
+		if (snapshot != null && snapshot.sequence() > validationSequence && groundIncrease > 0
+			&& snapshot.count(targetStack) == validationInventoryCountBefore - 1) {
+			stop("Server confirmed increase and drop; count " + baselineCount + " -> " + lastObservedCount);
 			return;
 		}
-		if(validationTicks > 20) {
-			if(tryAdvanceReplayStartMode())
-				return;
-			status = "Validation rejected ghost item";
-			phase = Phase.RUN_STRATEGY;
-		}
+		if (validationTicks > 40) rejectValidation("Drop was not confirmed by the server");
+	}
+
+	private static void rejectValidation(String reason) {
+		validationRequested = false;
+		if (tryAdvanceReplayStartMode()) return;
+		status = reason;
+		phase = Phase.RUN_STRATEGY;
 	}
 
 	private static void sendOpenCommand(Minecraft mc) {
@@ -705,8 +711,12 @@ public final class UiUtilsAutoduper {
 			runnable.run();
 			return;
 		}
+		long run = runGeneration;
+		long strategy = strategyGeneration;
+		var session = mc.getConnection();
 		UiUtils.queueTask(() -> {
-			if(running && Minecraft.getInstance().player != null)
+			if(running && run == runGeneration && strategy == strategyGeneration
+				&& Minecraft.getInstance().getConnection() == session && Minecraft.getInstance().player != null)
 				runnable.run();
 		}, ticks * 50L);
 	}
@@ -1048,7 +1058,7 @@ public final class UiUtilsAutoduper {
 
 	private static int countMatching(AbstractContainerMenu menu,
 		ItemStack target) {
-		int count = 0;
+		int count = matches(menu.getCarried(), target) ? menu.getCarried().getCount() : 0;
 		for(int i = 0; i < menu.slots.size(); i++) {
 			ItemStack stack = menu.slots.get(i).getItem();
 			if(matches(stack, target))

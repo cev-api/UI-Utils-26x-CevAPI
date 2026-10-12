@@ -15,15 +15,18 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class ClientPacketListenerChatMixin {
     @Inject(method = "handleSystemChat(Lnet/minecraft/network/protocol/game/ClientboundSystemChatPacket;)V", at = @At("TAIL"), require = 0)
     private void uiutils$onSystemChat(ClientboundSystemChatPacket packet, CallbackInfo ci) {
+        if (net.minecraft.client.Minecraft.getInstance().getConnection() != (Object)this) return;
         Component content = packet.content();
         if (content != null) {
             UiUtilsMacroRuntimeState.onChatMessage(content.getString(), true);
             UiUtilsCommandScanner.onChatMessage(content.getString());
+            com.ui_utils.uiutils.UiUtilsPluginScanner.onSystemChat(content.getString());
         }
     }
 
     @Inject(method = "handlePlayerChat(Lnet/minecraft/network/protocol/game/ClientboundPlayerChatPacket;)V", at = @At("TAIL"), require = 0)
     private void uiutils$onPlayerChat(ClientboundPlayerChatPacket packet, CallbackInfo ci) {
+        if (net.minecraft.client.Minecraft.getInstance().getConnection() != (Object)this) return;
         String body = packet.body().content();
         if (body != null) {
             UiUtilsMacroRuntimeState.onChatMessage(body);
