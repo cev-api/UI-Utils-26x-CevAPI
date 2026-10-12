@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2014-2026 Wurst-Imperium and contributors.
+ *
+ * This source code is subject to the terms of the GNU General Public
+ * License, version 3. If a copy of the GPL was not distributed with this
+ * file, You can obtain one at: https://www.gnu.org/licenses/gpl-3.0.txt
+ */
 package com.ui_utils.uiutils;
 
 import com.mojang.brigadier.CommandDispatcher;
@@ -5,18 +12,21 @@ import com.mojang.brigadier.tree.CommandNode;
 import com.mojang.brigadier.tree.RootCommandNode;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Deque;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.multiplayer.PlayerInfo;
@@ -32,50 +42,82 @@ public final class UiUtilsPluginScanner {
 	private static final Set<String> VANILLA_NAMESPACES = Set.of("minecraft",
 		"brigadier", "bukkit", "spigot", "paper", "purpur", "velocity",
 		"bungeecord", "waterfall");
-	private static final Set<String> GENERIC_HELP_HEADINGS = Set.of("help", "commands",
-		"available commands", "command help", "usage", "aliases", "syntax", "description", "server commands");
-	// Extra probe targets, never a whitelist for classifying returned evidence.
-	private static final String[] DEFAULT_NAMESPACE_PROBES = {"essentials",
-		"essentialsx", "worldedit", "worldguard", "luckperms", "vault",
-		"citizens", "cmi", "cmilib", "multiverse-core", "multiverse",
-		"viaversion", "viabackwards", "viarewind", "geysermc", "geyser",
-		"floodgate", "protocollib", "coreprotect", "griefprevention",
-		"shopkeepers", "dynmap", "placeholderapi", "skinsrestorer", "skript",
-		"advancedanticheat", "vulcan", "grimac", "matrix", "spartan", "aac",
-		"karhu", "verus", "nocheatplus", "authme", "deluxemenus", "plotsquared",
-		"supervanish", "packetevents", "oraxen", "itemsadder"};
-	// Supplementary fingerprints; unfamiliar roots remain available to command discovery.
-	private static final Map<String, String> ROOT_COMMAND_PLUGIN_ALIASES = Map.ofEntries(
-		Map.entry("lp", "luckperms"), Map.entry("we", "worldedit"),
-		Map.entry("rg", "worldguard"), Map.entry("mv", "multiverse-core"),
-		Map.entry("npc", "citizens"), Map.entry("papi", "placeholderapi"),
-		Map.entry("cmi", "cmi"), Map.entry("co", "coreprotect"),
-		Map.entry("grim", "grimac"), Map.entry("geyser", "geysermc"),
-		Map.entry("floodgate", "floodgate"), Map.entry("viaver", "viaversion"),
-		Map.entry("sr", "skinsrestorer"), Map.entry("authme", "authme"),
-		Map.entry("dm", "deluxemenus"), Map.entry("plots", "plotsquared"),
-		Map.entry("sv", "supervanish"));
+	private static final Set<String> GENERIC_HELP_HEADINGS = Set.of("help", "commands", "plugins", "plugin commands",
+			"available commands", "command help", "usage", "aliases", "syntax", "description", "server commands");
+	private static final Pattern SERVER_HELP_COMMAND_PATTERN =
+		Pattern.compile("^/([A-Za-z0-9_.:-]+)(?:\\s.*?)?\\s+-\\s+.+$");
+	private static final Pattern SERVER_HELP_HEADING_PATTERN =
+		Pattern.compile("[A-Za-z][A-Za-z0-9_. -]{1,63}");
 
-	private static final int RESPONSE_TIMEOUT_TICKS = 30;
-	private static final int HARD_TIMEOUT_TICKS = 20 * 15;
+	private static final int RESPONSE_GRACE_TICKS = 20 * 3;
+	private static final int MIN_HARD_TIMEOUT_TICKS = 20 * 15;
+	private static final int MAX_PROBES_PER_TICK = 2;
+	/**
+	 * How long the server may stay completely silent before the suggestion
+	 * probes are treated as suppressed. This must comfortably exceed realistic
+	 * network latency, otherwise a slow-but-working server gets misdiagnosed as
+	 * suppressing and the scan gives up on it.
+	 */
+	private static final int NO_RESPONSE_ABORT_TICKS = 20 * 3;
+	private static final int MAX_ORACLE_CANDIDATES = 12;
+	private static final AtomicInteger PROBE_IDS = new AtomicInteger(1_000_000);
+	private static final String ACTIVE_PROBING_UNAVAILABLE =
+		"Active plugin probing unavailable. Using passive evidence.";
+	private static final String UNATTRIBUTED_NAME =
+		"Unattributed plugin commands";
+	private static final String SERVER_PLATFORM_NAME = "Server platform";
+	/**
+	 * Phrases meaning the oracle command itself does not exist, so no candidate
+	 * can ever be confirmed and the rest of the queue is pointless.
+	 */
+	private static final String[] ORACLE_UNSUPPORTED_PATTERNS = {"unknown command", "unknown or incomplete", "command not found",
+			"incorrect argument", "too many arguments"};
+	/**
+	 * Phrases meaning we are not allowed to run the oracle command at all.
+	 */
+	private static final String[] ORACLE_DENIED_PATTERNS =
+		{"no permission", "you do not have", "don't have permission",
+			"not permitted", "insufficient permission", "not allowed"};
+	/**
+	 * Phrases meaning this one candidate is absent, while the oracle itself
+	 * still works.
+	 */
+	private static final String[] ORACLE_NEGATIVE_PATTERNS =
+		{"cannot find", "not found", "does not exist", "is not installed",
+			"usage:", "invalid plugin", "no such plugin", "unknown plugin"};
+
+	private static final int ORACLE_TIMEOUT_TICKS = 30;
+	/**
+	 * Matches tokens such as {@code v22.4}, {@code 5.4.102} or
+	 * {@code 1.20-R0.1}.
+	 */
+	private static final Pattern VERSION_PATTERN =
+		Pattern.compile("v?\\d+(?:\\.\\d+)+(?:-[A-Za-z0-9.]+)?");
 
 	private static boolean scanning;
 	private static boolean scanCompleted;
-	private static int scanDeadline;
-	private static final java.util.concurrent.atomic.AtomicInteger PROBE_IDS = new java.util.concurrent.atomic.AtomicInteger(1_000_000);
-	private static String helpHeading = "";
-	private static long helpExpires;
-	private static boolean helpHistoryDirty;
-	private static final Map<String, Set<String>> serverHelp = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 	private static int ticksSinceStart;
+	private static int ticksSinceLastActivity;
 	private static int ticksSinceLastResponse;
-	private static int ticksUntilNextProbe;
 	private static int completionAnnounceCooldown;
+	private static int hardTimeoutTicks = MIN_HARD_TIMEOUT_TICKS;
+	private static long nextProbeAtNanos;
+	private static int probesSent;
+	private static int probesAwaitingResponse;
+	private static int awaitingReported;
+	private static boolean suggestionPhaseDone;
+	private static boolean oracleQueued;
+	private static boolean activeProbingAborted;
 
-	private static final Set<Integer> pendingProbeIds = new HashSet<>();
-	private static final Map<Integer, PluginProbeSpec> probesById = new HashMap<>();
+	private static final Deque<String> oracleQueue = new ArrayDeque<>();
+	private static String oracleInFlight;
+	private static int oracleWaitTicks;
+	private static StringBuilder oracleResponse;
+	private static final Map<Integer, PluginProbeSpec> pendingProbes = new HashMap<>();
 	private static final Deque<PluginProbeRequest> queuedProbes = new ArrayDeque<>();
 	private static final Set<String> observedPluginCommands =
+		new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+	private static final Set<String> unattributedCommands =
 		new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 	private static final Map<String, PluginScanEntry> entries =
 		new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -83,6 +125,12 @@ public final class UiUtilsPluginScanner {
 	private static final List<PluginResultRow> lastRows = new ArrayList<>();
 	private static final List<String> recentEvents = new ArrayList<>();
 	private static String boundServerKey = "";
+
+	private static String helpHeading = "";
+	private static long helpExpires;
+	private static boolean helpHistoryDirty;
+	private static final Map<String, Set<String>> serverHelp =
+		new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 
 	private UiUtilsPluginScanner() {}
 
@@ -96,19 +144,41 @@ public final class UiUtilsPluginScanner {
 			return "[UI-Utils] Not connected.";
 		if (scanning)
 			return "[UI-Utils] Plugin scan already in progress.";
+		String serverKey = currentServerKey(mc);
+		if(!boundServerKey.isEmpty() && !boundServerKey.equals(serverKey))
+			resetForServerChange();
 
 		resetState();
 		scanning = true;
 		lastStatus = "Scanning plugins...";
-		boundServerKey = currentServerKey(mc);
+		boundServerKey = serverKey;
+		UiUtilsSuggestionCapability.bindTo(boundServerKey);
 		parseCommandTree(mc.player.connection);
-		mergePassiveKnownPacks();
-		queueProbeBatch(buildPluginProbes());
-		scanDeadline = Math.max(HARD_TIMEOUT_TICKS,
-			queuedProbes.size() * Math.max(1, UiUtilsSettings.getProbeDelayTicks()) + RESPONSE_TIMEOUT_TICKS + 20);
-		print("Plugin scan started. Suggestion probes: " + queuedProbes.size() + ".");
-		sendNextProbeIfReady(mc.player.connection);
+		mergePassiveFingerprintEvidence();
+		inferPluginsFromEvidence();
+
+		if(UiUtilsSuggestionCapability.isSuppressed())
+			abortIfProbingSuppressed();
+		else
+		{
+			queueProbeBatch(buildPluginProbes());
+			print("Plugin scan started. Probes: " + queuedProbes.size() + ".");
+			sendProbesIfDue(mc.player.connection);
+		}
+		hardTimeoutTicks = computeHardTimeoutTicks(queuedProbes.size());
 		return "[UI-Utils] Scanning plugins...";
+	}
+
+	private static int computeHardTimeoutTicks(int probeCount)
+	{
+		double ticksPerProbe = 20.0 / UiUtilsSettings.getProbesPerSecond();
+		int sendTicks = (int)Math.ceil(probeCount * ticksPerProbe);
+		// Each oracle command is a chat round trip rather than a suggestion
+		// probe, so it gets its own timeout allowance.
+		int oracleTicks = UiUtilsSettings.get().pluginScanVersionOracle
+			? MAX_ORACLE_CANDIDATES * (ORACLE_TIMEOUT_TICKS + 4) : 0;
+		return Math.max(MIN_HARD_TIMEOUT_TICKS,
+			sendTicks + oracleTicks + RESPONSE_GRACE_TICKS + 40);
 	}
 
 	public static void onTick() {
@@ -132,42 +202,181 @@ public final class UiUtilsPluginScanner {
 		}
 
 		ticksSinceStart++;
+		ticksSinceLastActivity++;
 		ticksSinceLastResponse++;
 
-		if (ticksSinceStart >= scanDeadline) {
+		if (ticksSinceStart >= hardTimeoutTicks) {
 			print("Plugin scan timed out; finalizing with current evidence.");
 			lastStatus = "Plugin scan timed out.";
 			finishAndPrint();
 			return;
 		}
 
-		if (ticksUntilNextProbe > 0)
-			ticksUntilNextProbe--;
-
-		sendNextProbeIfReady(mc.player.connection);
-
-		if (queuedProbes.isEmpty() && pendingProbeIds.isEmpty()) {
-			if (++completionAnnounceCooldown >= 4)
-				finishAndPrint();
+		if (oracleInFlight != null)
+		{
+			if(++oracleWaitTicks >= ORACLE_TIMEOUT_TICKS)
+				finishOracleProbe();
 			return;
 		}
 
-		if (queuedProbes.isEmpty() && ticksSinceLastResponse >= RESPONSE_TIMEOUT_TICKS) {
-			print("Plugin scan response wait timeout; finalizing.");
-			lastStatus = "Plugin scan response timeout.";
-			finishAndPrint();
+		if (!suggestionPhaseDone)
+		{
+			if(!queuedProbes.isEmpty()) {
+				if(checkEarlyAbort())
+					return;
+				if(!suggestionPhaseDone)
+					sendProbesIfDue(mc.getConnection());
+				if(abortIfProbingSuppressed())
+					return;
+				if(!queuedProbes.isEmpty())
+					return;
+			}
+
+			// Wait for the outstanding responses before moving on, but never
+			// block the oracle forever.
+			if(!pendingProbes.isEmpty())
+			{
+				if(ticksSinceLastActivity < RESPONSE_GRACE_TICKS)
+					return;
+				print("Plugin scan response wait timeout; continuing.");
+				pendingProbes.clear();
+			}
+			suggestionPhaseDone = true;
 		}
+
+		if(!oracleQueued)
+		{
+			queueVersionOracle();
+			oracleQueued = true;
+			hardTimeoutTicks = Math.max(hardTimeoutTicks, ticksSinceStart
+				+ oracleQueue.size() * (ORACLE_TIMEOUT_TICKS + 4) + 40);
+		}
+		if(!UiUtilsSettings.get().pluginScanVersionOracle)
+			oracleQueue.clear();
+		// The oracle is a chat round trip, so it works even when the server
+		// suppresses suggestion packets. That is exactly the case it exists
+		// for.
+		if(!oracleQueue.isEmpty())
+		{
+			runVersionOracle(mc.getConnection());
+			if(oracleInFlight != null)
+				return;
+		}
+
+		if (++completionAnnounceCooldown >= 4)
+				finishAndPrint();
+	}
+
+	/**
+	 * Routes system chat into the version oracle while one is awaiting a reply.
+	 * Called from the packet listener mixin.
+	 */
+	public static void onSystemChat(String message)
+	{
+		if(message != null)
+			onSystemChat(Component.literal(message));
+	}
+
+	public static void onSystemChat(Component message)
+	{
+		if(message == null)
+			return;
+		Minecraft mc = Minecraft.getInstance();
+		String server = currentServerKey(mc);
+		if (!boundServerKey.isEmpty() && !boundServerKey.equals(server))
+			resetForServerChange();
+		if(boundServerKey.isEmpty())
+			boundServerKey = server;
+
+		long now = System.nanoTime();
+		if(now > helpExpires)
+			helpHeading = "";
+		for(String raw : message.getString().split("\\R")) {
+			String line = raw.replaceAll("§[0-9a-fk-orA-FK-OR]", "").trim();
+			Matcher command = SERVER_HELP_COMMAND_PATTERN.matcher(line);
+			if(command.matches() && !helpHeading.isEmpty())
+			{
+				String root = normalizeCommandToken(command.group(1));
+				if(!root.isEmpty() && serverHelp
+					.computeIfAbsent(helpHeading,
+						ignored -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER))
+					.add(root))
+					helpHistoryDirty = true;
+				helpExpires = now + 2_000_000_000L;
+			}else if(SERVER_HELP_HEADING_PATTERN.matcher(line).matches()
+				&& !line.contains(" - "))
+			{
+				helpHeading = line.replaceFirst("(?i) (?:help|commands)$", "");
+				if(GENERIC_HELP_HEADINGS
+					.contains(line.toLowerCase(Locale.ROOT)))
+					helpHeading = "";
+				helpExpires = now + 2_000_000_000L;
+			}else if(!line.isEmpty())
+				helpHeading = "";
+		}
+
+		if(scanning)
+			onOracleChat(message);
+	}
+
+	/**
+	 * Counts probes that were actually sent but stayed unanswered for far
+	 * longer
+	 * than any healthy server needs. This catches a server that black-holes
+	 * suggestion requests after a handful of packets instead of after the whole
+	 * batch.
+	 *
+	 * @return true if the suggestion phase was aborted
+	 */
+	private static boolean checkEarlyAbort()
+	{
+		if(probesAwaitingResponse <= 0
+			|| ticksSinceLastResponse < NO_RESPONSE_ABORT_TICKS)
+			return false;
+
+		int overdue = probesAwaitingResponse - awaitingReported;
+		if(overdue <= 0)
+			return false;
+		awaitingReported = probesAwaitingResponse;
+
+		if(!UiUtilsSuggestionCapability.recordUnansweredProbes(overdue))
+			return false;
+		return abortIfProbingSuppressed();
+	}
+
+	/**
+	 * Drops the remaining suggestion probes as soon as the server is known to
+	 * swallow suggestion responses. The version oracle is deliberately left
+	 * intact: it talks over chat, so a server that suppresses suggestion
+	 * packets
+	 * is precisely the case where it is still useful.
+	 *
+	 * @return true if the suggestion phase ended here
+	 */
+	private static boolean abortIfProbingSuppressed()
+	{
+		if(!UiUtilsSuggestionCapability.isSuppressed())
+			return false;
+		activeProbingAborted = true;
+		pendingProbes.clear();
+		queuedProbes.clear();
+		suggestionPhaseDone = true;
+		print(ACTIVE_PROBING_UNAVAILABLE);
+			lastStatus = ACTIVE_PROBING_UNAVAILABLE;
+		return true;
 	}
 
 	public static void onSuggestionsPacket(ClientboundCommandSuggestionsPacket packet) {
 		if (!scanning)
 			return;
-		if (!pendingProbeIds.contains(packet.id()))
+		PluginProbeSpec probe = pendingProbes.remove(packet.id());
+		if(probe == null)
 			return;
-
-		PluginProbeSpec probe = probesById.get(packet.id());
-		pendingProbeIds.remove(packet.id());
+		ticksSinceLastActivity = 0;
 		ticksSinceLastResponse = 0;
+		probesAwaitingResponse = 0;
+		awaitingReported = 0;
+		UiUtilsSuggestionCapability.recordResponse();
 
 		List<ClientboundCommandSuggestionsPacket.Entry> list = packet.suggestions();
 		for (ClientboundCommandSuggestionsPacket.Entry s : list) {
@@ -178,20 +387,30 @@ public final class UiUtilsPluginScanner {
 				addObservedPluginCommand(normalizedToken);
 
 			if (text != null && text.contains(":")) {
-				String[] parts = text.trim().replaceFirst("^/+", "").split(":", 2);
-				String ns = parts[0].toLowerCase(Locale.ROOT);
-				String cmd = parts[1];
-				if (!VANILLA_NAMESPACES.contains(ns)) {
-					mergePluginEntry(ns, List.of(cmd), true, PluginEvidence.COMMAND_TREE);
-					addObservedPluginCommand(cmd);
+				String namespaced = text.trim().replaceFirst("^/+", "");
+				int colon = namespaced.indexOf(':');
+				if(colon > 0)
+				{
+					String namespace =
+						namespaced.substring(0, colon).toLowerCase(Locale.ROOT);
+				String command = namespaced.substring(colon + 1);
+					addNamespaceEvidence(namespace);
+				if (!command.isBlank()) {
+						addNamespaceCommandEvidence(namespace, command);
+					addObservedPluginCommand(command);
+					}
 				}
 			}
 
 			if (probe == null || text == null)
 				continue;
 			if (probe.kind == PluginProbeKind.NAMESPACE && probe.hint != null
-				&& normalizedToken.startsWith(probe.hint + ":")) {
-				mergePluginEntry(probe.hint, List.of(normalizedToken), true, PluginEvidence.NAMESPACE);
+				&& normalizedToken.startsWith(probe.hint.toLowerCase(Locale.ROOT) + ":")) {
+				// The namespace completed, so it definitely exists.
+				addNamespaceEvidence(probe.hint);
+				addNamespaceCommandEvidence(probe.hint,
+					normalizedToken.substring(probe.hint.length() + 1));
+				addObservedPluginCommand(normalizedToken);
 				continue;
 			}
 			if (probe.kind != PluginProbeKind.PLUGIN_LIST && probe.kind != PluginProbeKind.VERSION)
@@ -200,30 +419,83 @@ public final class UiUtilsPluginScanner {
 			if (argumentStart < 0 || packet.start() <= argumentStart) continue;
 
 			String pluginCandidate = text.trim();
+			String pluginKey = normalizePluginKey(pluginCandidate);
 			if (!isLikelyPluginNameCandidate(pluginCandidate, probe.kind)
-				|| isOnlinePlayerName(pluginCandidate)
 				|| UiUtilsCommandScanner.isVanillaOrDefaultCommand(pluginCandidate)
-				|| isDefaultFabricPlugin(pluginCandidate))
+				|| isDefaultFabricPlugin(pluginCandidate)
+				|| ((probe.kind == PluginProbeKind.PLUGIN_LIST
+					|| probe.kind == PluginProbeKind.VERSION)
+					&& getOnlinePlayerNames().contains(pluginKey)))
 				continue;
 
-			mergePluginEntry(pluginCandidate, List.of(), false,
-				probe.kind == PluginProbeKind.PLUGIN_LIST
-					? PluginEvidence.PLUGIN_LIST : PluginEvidence.VERSION_HINT);
+			if(probe.kind == PluginProbeKind.PLUGIN_LIST)
+			{
+				mergeEvidenceItem(pluginCandidate, pluginCandidate,
+					UiUtilsPluginSignatures.Source.PLUGIN_LIST,
+					pluginCandidate);
+				continue;
+			}
+
+			// A version query completed for this exact candidate, so the plugin
+			// exists. Any version-looking token in the response is kept.
+			if(probe.hint != null && probe.hint.equalsIgnoreCase(pluginKey))
+			{
+				mergeEvidenceItem(probe.hint,
+					UiUtilsPluginSignatures.displayName(probe.hint),
+					UiUtilsPluginSignatures.Source.VERSION,
+					"/ver " + probe.hint);
+				String version = extractVersion(pluginCandidate);
+				if(version != null)
+					setVersion(probe.hint,
+						UiUtilsPluginSignatures.displayName(probe.hint),
+						version);
+		}else
+			{
+				mergeEvidenceItem(pluginCandidate, pluginCandidate,
+					UiUtilsPluginSignatures.Source.VERSION_HINT,
+					pluginCandidate);
+			}
 		}
 
+		inferPluginsFromEvidence();
+	}
+
+	/**
+	 * Pulls a version-looking token out of a {@code /version <plugin>}
+	 * response,
+	 * e.g. {@code CoreProtect v22.4} or {@code LuckPerms 5.4.102}.
+	 */
+	private static String extractVersion(String text)
+	{
+		if(text == null)
+			return null;
+		Matcher matcher = VERSION_PATTERN.matcher(text);
+		return matcher.find() ? matcher.group() : null;
 	}
 
 	private static void resetState() {
 		scanning = false;
 		scanCompleted = false;
 		ticksSinceStart = 0;
-		ticksSinceLastResponse = 0;
-		ticksUntilNextProbe = 0;
+		ticksSinceLastActivity = 0;
 		completionAnnounceCooldown = 0;
-		pendingProbeIds.clear();
-		probesById.clear();
+		hardTimeoutTicks = MIN_HARD_TIMEOUT_TICKS;
+		nextProbeAtNanos = 0;
+		probesSent = 0;
+		ticksSinceLastResponse = 0;
+		probesAwaitingResponse = 0;
+		awaitingReported = 0;
+		suggestionPhaseDone = false;
+		oracleQueued = false;
+		activeProbingAborted = false;
+		oracleQueue.clear();
+		oracleInFlight = null;
+		oracleWaitTicks = 0;
+		oracleResponse = null;
+		pendingProbes.clear();
 		queuedProbes.clear();
 		observedPluginCommands.clear();
+		unattributedCommands.clear();
 		entries.clear();
 		lastRows.clear();
 		recentEvents.clear();
@@ -243,13 +515,18 @@ public final class UiUtilsPluginScanner {
 			if (name == null || name.isBlank())
 				continue;
 			if (name.contains(":")) {
-				String[] parts = name.split(":", 2);
-				String ns = parts[0].toLowerCase(Locale.ROOT);
-				String cmd = parts[1];
+				// Paper's send-namespaced option leaks plugin namespaces here.
+				int colon = name.indexOf(':');
+				String ns = name.substring(0, colon).toLowerCase(Locale.ROOT);
+				String cmd = name.substring(colon + 1);
 				if (VANILLA_NAMESPACES.contains(ns))
 					continue;
-				mergePluginEntry(ns, List.of(cmd), true, PluginEvidence.COMMAND_TREE);
+				addNamespaceEvidence(ns);
+				if(!cmd.isBlank())
+				{
+					addNamespaceCommandEvidence(ns, cmd);
 				addObservedPluginCommand(cmd);
+				}
 			} else {
 				addObservedPluginCommand(name);
 				CommandNode<ClientSuggestionProvider> target = child.getRedirect();
@@ -257,31 +534,165 @@ public final class UiUtilsPluginScanner {
 				while (target != null && visited.add(target)) {
 					String owner = target.getName();
 					int colon = owner.indexOf(':');
-					if (colon > 0 && !VANILLA_NAMESPACES.contains(owner.substring(0, colon))) {
-						mergePluginEntry(owner.substring(0, colon), List.of(name), true, PluginEvidence.COMMAND_TREE);
+					if (colon > 0)
+					{
+						String namespace = owner.substring(0, colon);
+						if(!VANILLA_NAMESPACES
+							.contains(namespace.toLowerCase(Locale.ROOT))) {
+							addNamespaceEvidence(namespace);
+							addNamespaceCommandEvidence(namespace, name);
 						break;
+						}
 					}
 					target = target.getRedirect();
 				}
 			}
 		}
+		inferPluginsFromEvidence();
 	}
 
-	// Configuration-phase Known Packs outlive an active scan reset.
-	private static void mergePassiveKnownPacks() {
+	/**
+	 * Records a plugin namespace (from a namespaced root or a probe) and
+	 * attributes it through the signature database where possible.
+	 *
+	 * An unknown namespace keeps its own identity instead of collapsing into
+	 * the
+	 * shared unattributed bucket, otherwise every unknown namespace produced
+	 * another row all labelled "Unattributed plugin commands".
+	 */
+	private static void addNamespaceEvidence(String namespace)
+	{
+		if(namespace == null || namespace.isBlank())
+			return;
+		String ns = namespace.toLowerCase(Locale.ROOT);
+		if(VANILLA_NAMESPACES.contains(ns))
+			return;
+		String plugin = UiUtilsPluginSignatures.pluginForNamespace(ns);
+		String target = plugin == null ? ns : plugin;
+		mergeEvidenceItem(target, UiUtilsPluginSignatures.displayName(target),
+			UiUtilsPluginSignatures.Source.NAMESPACE, ns + ":*");
+	}
+
+	private static void addNamespaceCommandEvidence(String namespace,
+		String command)
+	{
+		if(namespace == null || command == null || namespace.isBlank()
+			|| command.isBlank())
+			return;
+		String ns = namespace.toLowerCase(Locale.ROOT);
+		if(VANILLA_NAMESPACES.contains(ns))
+			return;
+		String token = normalizeCommandToken(command);
+		if(token.isEmpty())
+			return;
+		String plugin = UiUtilsPluginSignatures.pluginForNamespace(ns);
+		String target = plugin == null ? ns : plugin;
+		mergeEvidenceItem(target, UiUtilsPluginSignatures.displayName(target),
+			UiUtilsPluginSignatures.Source.NAMESPACE, ns + ":" + token);
+		PluginScanEntry entry = entries.get(normalizePluginKey(target));
+		if(entry != null)
+		{
+			entry.commands.add(token);
+			entry.namespaceCommands.add(token);
+		}
+	}
+
+	/**
+	 * Records a clientbound plugin-message channel namespace. Bukkit/Paper
+	 * plugins register namespaced channels, so namespaces such as
+	 * {@code worldedit:cui} are strong evidence even when tab completion is
+	 * suppressed.
+	 */
+	private static void addChannelEvidence(
+		UiUtilsServerFingerprintCollector.ChannelInfo channel)
+	{
+		if(channel == null || channel.namespace() == null
+			|| channel.namespace().isBlank())
+			return;
+		String ns = channel.namespace().toLowerCase(Locale.ROOT);
+		String plugin = UiUtilsPluginSignatures.pluginForChannel(ns);
+		String target = plugin == null ? ns : plugin;
+		mergeEvidenceItem(target, UiUtilsPluginSignatures.displayName(target),
+			UiUtilsPluginSignatures.Source.CHANNEL, channel.id());
+	}
+
+	/**
+	 * Mines the passive protocol fingerprint (channels, known packs, foreign
+	 * registry/advancement/dimension namespaces, brand) for plugin evidence.
+	 */
+	private static void mergePassiveFingerprintEvidence() {
+		UiUtilsServerFingerprintCollector.Snapshot snapshot =
+			UiUtilsServerFingerprintCollector.snapshot();
+
 		for (UiUtilsServerFingerprintCollector.KnownPackInfo pack
-			: UiUtilsServerFingerprintCollector.snapshot().knownPacks()) {
+			: snapshot
+			.knownPacks()) {
 			if ("minecraft".equalsIgnoreCase(pack.namespace()) && "core".equalsIgnoreCase(pack.id()))
 				continue;
 			String product = UiUtilsServerFingerprintCollector.friendlyName(pack.id());
-			String display = pack.version() == null || pack.version().isBlank()
-				? product : product + " " + pack.version();
-			mergePluginEntry(display, List.of(), false, PluginEvidence.KNOWN_PACK);
+			mergeEvidenceItem(product,
+				UiUtilsPluginSignatures.displayName(product),
+				UiUtilsPluginSignatures.Source.KNOWN_PACK,
+				pack.namespace() + ":" + pack.id() + " " + pack.version());
 		}
+
+		for(UiUtilsServerFingerprintCollector.ChannelInfo channel : snapshot
+			.payloads())
+			addChannelEvidence(channel);
+
+		for(String namespace : foreignNamespaces(snapshot))
+			addForeignNamespaceEvidence(namespace);
+
+		if(!snapshot.brand().isBlank())
+			mergeEvidenceItem(SERVER_PLATFORM_NAME, SERVER_PLATFORM_NAME,
+				UiUtilsPluginSignatures.Source.BRAND, snapshot.brand());
+	}
+
+	/**
+	 * Collects namespaces used by server-provided registries, advancements and
+	 * dimensions. These are usually datapacks rather than plugins, so they are
+	 * reported as signatures rather than confirmations.
+	 */
+	private static Set<String> foreignNamespaces(
+		UiUtilsServerFingerprintCollector.Snapshot snapshot)
+	{
+		Set<String> namespaces = new TreeSet<>();
+		for(UiUtilsServerFingerprintCollector.RegistryInfo registry : snapshot
+			.registries())
+			for(UiUtilsServerFingerprintCollector.RegistryEntryInfo entry : registry
+				.entries())
+				addNamespaceOf(namespaces, entry.id());
+		for(String advancement : snapshot.advancements())
+			addNamespaceOf(namespaces, advancement);
+		for(String dimension : snapshot.dimensions())
+			addNamespaceOf(namespaces, dimension);
+		return namespaces;
+	}
+
+	private static void addNamespaceOf(Set<String> namespaces, String id)
+	{
+		if(id == null)
+			return;
+		int colon = id.indexOf(':');
+		if(colon <= 0)
+			return;
+		String ns = id.substring(0, colon).toLowerCase(Locale.ROOT);
+		if(VANILLA_NAMESPACES.contains(ns))
+			return;
+		namespaces.add(ns);
+	}
+
+	private static void addForeignNamespaceEvidence(String namespace)
+	{
+		if(namespace == null || namespace.isBlank())
+			return;
+		String plugin = UiUtilsPluginSignatures.pluginForNamespace(namespace);
+		String target = plugin == null ? namespace : plugin;
+		mergeEvidenceItem(target, UiUtilsPluginSignatures.displayName(target),
+			UiUtilsPluginSignatures.Source.FOREIGN_NAMESPACE, namespace + ":*");
 	}
 	private static void queueProbeBatch(Map<Integer, PluginProbeSpec> probes) {
 		for (Map.Entry<Integer, PluginProbeSpec> entry : probes.entrySet()) {
-			probesById.put(entry.getKey(), entry.getValue());
 			queuedProbes.addLast(new PluginProbeRequest(entry.getKey(), entry.getValue()));
 		}
 	}
@@ -306,10 +717,192 @@ public final class UiUtilsPluginScanner {
 			probes.put(nextId++, new PluginProbeSpec("/? " + prefix, PluginProbeKind.HELP, String.valueOf(prefix)));
 		}
 
-		for (String namespace : DEFAULT_NAMESPACE_PROBES)
+		nextId = addNamespaceProbes(probes, nextId);
+		return probes;
+	}
+
+	/**
+	 * Probes every known plugin namespace, e.g. {@code /luckperms:}. When Paper
+	 * sends namespaced commands these complete, and when the namespace exists
+	 * but is hidden from the root tree the response still reveals it.
+	 */
+	private static int addNamespaceProbes(Map<Integer, PluginProbeSpec> probes,
+		int nextId)
+	{
+		for (String namespace : UiUtilsPluginSignatures.knownNamespaces())
 			probes.put(nextId++, new PluginProbeSpec("/" + namespace + ":", PluginProbeKind.NAMESPACE, namespace));
 
-		return probes;
+		return nextId;
+	}
+
+	/**
+	 * Queues {@code /ver <candidate>} oracle commands. This is a chat-response
+	 * oracle rather than a tab-completion probe, so it still works on servers
+	 * that suppress {@code ClientboundCommandSuggestionsPacket}. Suspected
+	 * plugins are tested first, then known plugin names from the signature
+	 * database fill the remaining budget.
+	 *
+	 * Strictly opt-in: sends command packets; server replies appear in local
+	 * chat.
+	 */
+	private static void queueVersionOracle()
+	{
+		if(!UiUtilsSettings.get().pluginScanVersionOracle)
+			return;
+
+		Set<String> candidates = new LinkedHashSet<>();
+		entries.values().stream()
+			.sorted(java.util.Comparator.comparing(PluginScanEntry::confidence))
+			.forEach(entry -> {
+				if(!entry.has(UiUtilsPluginSignatures.Source.KNOWN_PACK))
+					addOracleCandidate(candidates, entry.displayName);
+			});
+		if(UiUtilsSettings.get().pluginScanOracleDictionary)
+			for(String known : UiUtilsPluginSignatures.candidatePluginNames())
+				addOracleCandidate(candidates, known);
+		if(candidates.isEmpty())
+			return;
+
+		for(String candidate : candidates)
+			oracleQueue.addLast(candidate);
+		print("Queued " + oracleQueue.size() + " version-oracle command(s).");
+	}
+
+	private static void addOracleCandidate(Set<String> candidates,
+		String candidate)
+	{
+		if(candidates.size() >= MAX_ORACLE_CANDIDATES)
+			return;
+		if(candidate == null || candidates.size() >= MAX_ORACLE_CANDIDATES)
+			return;
+		String token = candidate.trim();
+		if(token.isEmpty() || token.contains(" ") || token.contains("/"))
+			return;
+		if(!token.chars().allMatch(ch -> Character.isLetterOrDigit(ch)
+			|| ch == '_' || ch == '-' || ch == '.'))
+			return;
+		if(VANILLA_NAMESPACES.contains(token.toLowerCase(Locale.ROOT)))
+			return;
+		if(candidates.stream()
+			.noneMatch(value -> value.equalsIgnoreCase(token)))
+			candidates.add(token.toLowerCase(Locale.ROOT));
+	}
+
+	private static void runVersionOracle(ClientPacketListener connection)
+	{
+		if(oracleQueue.isEmpty() || oracleInFlight != null
+			|| connection == null)
+			return;
+
+		oracleInFlight = oracleQueue.pollFirst();
+		oracleWaitTicks = 0;
+		oracleResponse = new StringBuilder();
+		try
+		{
+			connection.sendCommand("ver " + oracleInFlight);
+		}catch(Exception e)
+		{
+			UiUtils.LOGGER.warn("Failed to send version oracle for {}",
+				oracleInFlight, e);
+			oracleInFlight = null;
+		}
+	}
+
+	/**
+	 * Collects chat while a version-oracle command is in flight.
+	 *
+	 * @return true if the response was consumed
+	 */
+	private static boolean onOracleChat(Component message)
+	{
+		if(oracleInFlight == null || message == null)
+			return false;
+		String text = message.getString();
+		if(text == null || text.isBlank())
+			return true;
+		if(oracleResponse.length() < 512)
+		{
+			if(oracleResponse.length() > 0)
+				oracleResponse.append('\n');
+			oracleResponse
+				.append(text.replaceAll("§[0-9a-fk-orA-FK-OR]", "").trim());
+		}
+		return true;
+	}
+
+	private static void finishOracleProbe()
+	{
+		String candidate = oracleInFlight;
+		oracleInFlight = null;
+		if(candidate == null)
+			return;
+
+		String raw = oracleResponse == null ? "" : oracleResponse.toString();
+		if(raw.isBlank())
+			return; // No reply at all says nothing about this candidate.
+
+		String lower = raw.toLowerCase(Locale.ROOT);
+
+		// An error echo can contain the candidate name, e.g. "Unknown or
+		// incomplete command ... ver LuckPerms<--[HERE]", so a rejection always
+		// wins over a name match.
+		if(matchesAny(lower, ORACLE_UNSUPPORTED_PATTERNS))
+		{
+			abandonVersionOracle(
+				"/ver is not usable on this server (" + abbreviate(raw) + ")");
+			return;
+		}
+		if(matchesAny(lower, ORACLE_DENIED_PATTERNS))
+		{
+			abandonVersionOracle(
+				"version queries are not permitted on this server");
+			return;
+		}
+		if(matchesAny(lower, ORACLE_NEGATIVE_PATTERNS))
+			return; // This candidate is absent; the oracle still works.
+
+		java.util.regex.Matcher header = java.util.regex.Pattern
+			.compile("(?im)^\\s*([A-Za-z0-9_.-]+)\\s+version\\s+([^\\s]+)")
+			.matcher(raw);
+		if(!header.find())
+			return;
+		String reported = header.group(1);
+		if(!reported.toLowerCase(Locale.ROOT)
+			.startsWith(candidate.toLowerCase(Locale.ROOT)))
+			return;
+		String version = header.group(2);
+		String display = UiUtilsPluginSignatures.displayName(reported);
+		if(display.equalsIgnoreCase(reported))
+			display = reported;
+		mergeEvidenceItem(reported, display,
+			UiUtilsPluginSignatures.Source.VERSION, "/ver " + candidate);
+		setVersion(reported, display, version);
+	}
+
+	private static void abandonVersionOracle(String reason)
+	{
+		int dropped = oracleQueue.size();
+		oracleQueue.clear();
+		if(dropped > 0)
+			print("Abandoned " + dropped
+				+ " remaining version-oracle command(s): " + reason + ".");
+	}
+
+	private static String abbreviate(String text)
+	{
+		if(text == null)
+			return "";
+		String trimmed = text.replaceAll("\\s+", " ").trim();
+		return trimmed.length() <= 80 ? trimmed
+			: trimmed.substring(0, 77) + "...";
+	}
+
+	private static boolean matchesAny(String text, String[] patterns)
+	{
+		for(String pattern : patterns)
+			if(text.contains(pattern))
+				return true;
+		return false;
 	}
 
 	private static int addProbeVariants(Map<Integer, PluginProbeSpec> probes, int nextId,
@@ -324,21 +917,40 @@ public final class UiUtilsPluginScanner {
 		return nextId;
 	}
 
-	private static void sendNextProbeIfReady(ClientPacketListener connection) {
-		if (ticksUntilNextProbe > 0)
+	private static void sendProbesIfDue(ClientPacketListener connection) {
+		if (connection == null || queuedProbes.isEmpty())
 			return;
-		PluginProbeRequest request = queuedProbes.pollFirst();
-		if (request == null)
-			return;
-		pendingProbeIds.add(request.id);
-		ticksSinceLastResponse = 0;
+
+		long interval = UiUtilsSettings.getProbeIntervalNanos();
+		long now = System.nanoTime();
+		if(nextProbeAtNanos == 0)
+			nextProbeAtNanos = now;
+
+		int sent = 0;
+		while(sent < MAX_PROBES_PER_TICK && !queuedProbes.isEmpty()
+			&& now >= nextProbeAtNanos)
+		{
+			PluginProbeRequest request = queuedProbes.pollFirst();
+			pendingProbes.put(request.id, request.spec);
 		try {
 			connection.send(new ServerboundCommandSuggestionPacket(request.id, request.spec.query));
+				probesAwaitingResponse++;
 		} catch (Exception e) {
 			UiUtils.LOGGER.warn("Failed to send plugin probe {}", request.spec.query, e);
-			pendingProbeIds.remove(request.id);
+				pendingProbes.remove(request.id);
 		}
-		ticksUntilNextProbe = UiUtilsSettings.getProbeDelayTicks();
+			sent++;
+			ticksSinceLastActivity = 0;
+			nextProbeAtNanos += interval;
+		}
+
+		if(sent == 0)
+			return;
+		probesSent += sent;
+
+		// Frame hitches must not turn into a burst of catch-up probes.
+		if(nextProbeAtNanos < now)
+			nextProbeAtNanos = now + interval;
 	}
 
 	private static void addObservedPluginCommand(String raw) {
@@ -349,12 +961,8 @@ public final class UiUtilsPluginScanner {
 			return;
 		if (VANILLA_NAMESPACES.contains(token))
 			return;
-		String heuristicOwner = ROOT_COMMAND_PLUGIN_ALIASES.get(token);
-		if (heuristicOwner == null)
-			for (String namespace : DEFAULT_NAMESPACE_PROBES)
-				if (namespace.equalsIgnoreCase(token)) { heuristicOwner = namespace; break; }
-		if (heuristicOwner != null)
-			mergePluginEntry(heuristicOwner, List.of(token), true, PluginEvidence.ROOT_HINT);
+		if (getOnlinePlayerNames().contains(token))
+			return;
 		observedPluginCommands.add(token);
 	}
 
@@ -373,11 +981,6 @@ public final class UiUtilsPluginScanner {
 		return names;
 	}
 
-	private static boolean isOnlinePlayerName(String candidate) {
-		String key = normalizePluginKey(candidate);
-		return !key.isEmpty() && getOnlinePlayerNames().contains(key);
-	}
-
 	private static String normalizeCommandToken(String raw) {
 		if (raw == null)
 			return "";
@@ -394,51 +997,75 @@ public final class UiUtilsPluginScanner {
 		return token.toLowerCase(Locale.ROOT);
 	}
 
-	private static void mergePluginEntry(String pluginName, Collection<String> commands,
-		boolean commandBacked, PluginEvidence evidence) {
-		if (pluginName == null || pluginName.isBlank())
+	private static void inferPluginsFromEvidence()
+	{
+		for(String token : observedPluginCommands)
+		{
+			String plugin = UiUtilsPluginSignatures.pluginForCommand(token);
+			if(plugin == null)
+			{
+				// Roots such as /home or /tpa are provided by so many plugins
+				// that naming one would be a guess, so they stay unattributed.
+				if(UiUtilsPluginSignatures.isAmbiguousRoot(token))
+					unattributedCommands.add(token);
+				else
+					unattributedCommands.add(token);
+				continue;
+			}
+			mergeEvidenceItem(plugin,
+				UiUtilsPluginSignatures.displayName(plugin),
+				UiUtilsPluginSignatures.Source.COMMAND, "/" + token);
+			PluginScanEntry entry = entries.get(normalizePluginKey(plugin));
+			if(entry != null)
+				entry.heuristicCommands.add(token);
+		}
+	}
+
+	/**
+	 * Records one piece of evidence, creating the entry on demand.
+	 *
+	 * @param pluginName
+	 *            the plugin key the evidence belongs to
+	 * @param displayName
+	 *            a nicer display name, or null to keep the existing one
+	 * @param source
+	 *            which kind of evidence this is
+	 * @param value
+	 *            the concrete evidence text shown in the UI
+	 */
+	private static void mergeEvidenceItem(String pluginName, String displayName,
+		UiUtilsPluginSignatures.Source source, String value) {
+		if (pluginName == null || pluginName.isBlank() || source == null)
+			return;
+		String key = normalizePluginKey(pluginName);
+		if(key.isBlank())
+			return;
+
+		PluginScanEntry entry =
+			entries.computeIfAbsent(key, ignored -> new PluginScanEntry());
+		String resolved = displayName == null ? pluginName : displayName;
+		if(entry.displayName == null || entry.displayName.isBlank()
+			|| entry.displayName.equalsIgnoreCase(key))
+			entry.displayName = resolved.trim();
+		entry.addEvidence(source, value);
+	}
+
+	private static void setVersion(String pluginName, String displayName,
+		String version)
+	{
+		if(pluginName == null || pluginName.isBlank() || version == null
+			|| version.isBlank())
 			return;
 		String key = normalizePluginKey(pluginName);
 		if (key.isBlank())
 			return;
 
 		PluginScanEntry entry = entries.computeIfAbsent(key, ignored -> new PluginScanEntry());
-		if (entry.displayName == null || entry.displayName.isBlank())
-			entry.displayName = pluginName.trim();
-		entry.commandBacked = entry.commandBacked || commandBacked;
-		entry.evidence = mergeEvidence(entry.evidence, evidence);
-		if (commands != null)
-			for (String command : commands) {
-				String normalized = normalizeCommandToken(command);
-				if (!normalized.isEmpty())
-					entry.commands.add(normalized);
-				if (evidence == PluginEvidence.ROOT_HINT) entry.heuristicCommands.add(normalized);
-				else if (evidence == PluginEvidence.COMMAND_TREE || evidence == PluginEvidence.NAMESPACE)
-					entry.namespaceCommands.add(normalized);
-			}
-	}
-
-	private static PluginEvidence mergeEvidence(PluginEvidence current, PluginEvidence candidate) {
-		if (candidate == null)
-			return current == null ? PluginEvidence.UNKNOWN : current;
-		if (current == null)
-			return candidate;
-		return evidenceRank(candidate) < evidenceRank(current) ? candidate : current;
-	}
-
-	private static int evidenceRank(PluginEvidence evidence) {
-		if (evidence == null)
-			return 99;
-		return switch (evidence) {
-			case KNOWN_PACK -> -1;
-			case COMMAND_TREE -> 0;
-			case NAMESPACE -> 1;
-			case ROOT_HINT -> 2;
-			case HELP_HINT -> 3;
-			case PLUGIN_LIST -> 4;
-			case VERSION_HINT -> 5;
-			case UNKNOWN -> 6;
-		};
+		String resolved = displayName == null ? pluginName : displayName;
+		if (entry.displayName == null || entry.displayName.isBlank()
+			|| entry.displayName.equalsIgnoreCase(key))
+			entry.displayName = resolved.trim();
+		entry.version = version.trim();
 	}
 
 	private static String normalizePluginKey(String raw) {
@@ -479,71 +1106,109 @@ public final class UiUtilsPluginScanner {
 	private static void finishAndPrint() {
 		scanning = false;
 		scanCompleted = true;
-		boolean timedOut = lastStatus.contains("timeout") || lastStatus.contains("timed out");
-		pendingProbeIds.clear();
-		probesById.clear();
+		pendingProbes.clear();
 		queuedProbes.clear();
+		oracleQueue.clear();
+		oracleInFlight = null;
 		lastRows.clear();
 
 		Minecraft mc = Minecraft.getInstance();
-		if (mc == null || mc.player == null) {
+		if (mc.player == null) {
 			entries.clear();
 			observedPluginCommands.clear();
+			unattributedCommands.clear();
 			return;
 		}
 
-		Map<PluginEvidence, List<PluginScanEntry>> grouped = new EnumMap<>(PluginEvidence.class);
-		for (PluginEvidence evidence : PluginEvidence.values())
-			grouped.put(evidence, new ArrayList<>());
-		for (PluginScanEntry entry : entries.values())
-			grouped.get(entry.evidence == null ? PluginEvidence.UNKNOWN : entry.evidence).add(entry);
+		if(activeProbingAborted)
+			print(ACTIVE_PROBING_UNAVAILABLE);
 
-		List<String> ordered = new ArrayList<>();
-		for (PluginEvidence evidence : List.of(PluginEvidence.KNOWN_PACK, PluginEvidence.COMMAND_TREE,
-			PluginEvidence.NAMESPACE, PluginEvidence.ROOT_HINT, PluginEvidence.HELP_HINT,
-			PluginEvidence.PLUGIN_LIST, PluginEvidence.VERSION_HINT, PluginEvidence.UNKNOWN)) {
-			List<PluginScanEntry> list = grouped.get(evidence);
-			if (list == null || list.isEmpty())
-				continue;
-			list.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.displayName, b.displayName));
-			for (PluginScanEntry entry : list) {
-				String lower = entry.displayName.toLowerCase(Locale.ROOT);
-				boolean flagged = ANTICHEAT_WORDS.stream().anyMatch(lower::contains);
-				String marker = flagged ? "!" : "";
-				String suffix = entry.commands.isEmpty() ? "" : "{" + entry.commands.size() + "}";
-				ordered.add(marker + entry.displayName + suffix);
-				lastRows.add(new PluginResultRow(
-					evidence.name(),
-					entry.displayName,
-					entry.commands.size(),
-					flagged,
-					new ArrayList<>(entry.commands)));
-			}
+		if(!unattributedCommands.isEmpty())
+		{
+			String joined =
+				String.join(", ", bounded(unattributedCommands, 16));
+			mergeEvidenceItem(UNATTRIBUTED_NAME, UNATTRIBUTED_NAME,
+				UiUtilsPluginSignatures.Source.COMMAND, joined);
 		}
 
+		Map<PluginConfidence, List<PluginScanEntry>> grouped = new EnumMap<>(PluginConfidence.class);
+		for (PluginConfidence confidence : PluginConfidence.values())
+			grouped.put(confidence, new ArrayList<>());
+		for (PluginScanEntry entry : entries.values())
+			grouped.get(entry.confidence()).add(entry);
+		for (List<PluginScanEntry> list : grouped.values())
+			list.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.displayName, b.displayName));
+			for (PluginConfidence confidence : PluginConfidence.values())
+			for(PluginScanEntry entry : grouped.get(confidence))
+				lastRows.add(new PluginResultRow(confidence.name(),
+					entry.displayName,
+					entry.commands.size(),
+					isAnticheat(entry.displayName),
+					new ArrayList<>(entry.commands), entry.evidenceLines()));
+
 		UiUtilsScanHistory.recordPlugins(boundServerKey, "plugin", getResultsSnapshot());
-		helpHistoryDirty = false;
 
 		List<PluginResultRow> results = getResultsSnapshot();
-		if (results.isEmpty()) {
-			lastStatus = "No plugins found or blocked.";
+		int total = results.size();
+		if (total == 0) {
+			lastStatus = activeProbingAborted ? ACTIVE_PROBING_UNAVAILABLE
+				: "No plugins found or blocked.";
 		} else {
-			lastStatus = "Detected " + results.size() + " plugins.";
-			Component line = Component.literal("[UI-Utils] Plugins (" + results.size() + "): ")
+			lastStatus = "Detected " + total + " software signature(s)"
+				+ (activeProbingAborted ? " (passive evidence only)." : ".");
+			if(total <= 12)
+			{
+				Component line = Component.literal("[UI-Utils] Detected (" + total + "): ")
 				.withColor(0x55CCFF);
 			boolean first = true;
 			for (PluginResultRow row : results) {
 				if (!first) line = line.copy().append(Component.literal(", ").withColor(0xD0D0D0));
 				first = false;
-				boolean vulnerable = UiUtilsVulnerablePlugins.keys().contains(UiUtilsVulnerablePlugins.normalizeKey(row.plugin()));
-				String text = (row.anticheatFlagged() ? "!" : "") + row.plugin()
-					+ (row.commands().isEmpty() ? "" : "{" + row.commandCount() + "}");
-				line = line.copy().append(Component.literal(text).withColor(vulnerable ? 0xFF6B6B : 0x93F7A4));
+					String text = (row.anticheatFlagged() ? "!" : "") + row.plugin()
+					+ " [" + row.confidence() + "]";
+					int color = UiUtilsVulnerablePlugins.keys().contains(
+						UiUtilsVulnerablePlugins.normalizeKey(row.plugin()))
+							? 0xFF6B6B : confidenceColor(row.confidenceLevel());
+				line = line.copy().append(Component.literal(text).withColor(color));
 			}
 			mc.player.sendSystemMessage(line);
+		}else
+				mc.player.sendSystemMessage(Component
+					.literal("[UI-Utils] Detected " + total
+						+ " software signatures; open the ServerIntel screen for the full evidence list.")
+					.withColor(0x55CCFF));
 		}
 
-		if (timedOut) lastStatus += " (partial: response timeout)";
+	}
+
+	private static <T> List<T> bounded(Set<T> values, int max)
+	{
+		List<T> result = new ArrayList<>();
+		for(T value : values)
+		{
+			if (result.size() >= max)
+				break;
+			result.add(value);
+		}
+		return result;
+	}
+
+	private static boolean isAnticheat(String displayName)
+	{
+		if(displayName == null)
+			return false;
+		String lower = displayName.toLowerCase(Locale.ROOT);
+		return ANTICHEAT_WORDS.stream().anyMatch(lower::contains);
+	}
+
+	private static int confidenceColor(PluginConfidence confidence)
+	{
+		return switch(confidence)
+		{
+			case HIGH -> 0x93F7A4;
+			case MEDIUM -> 0xFFD479;
+			case LOW -> 0xB8B8B8;
+		};
 	}
 
 	private static void print(String msg) {
@@ -552,28 +1217,42 @@ public final class UiUtilsPluginScanner {
 			recentEvents.remove(0);
 		if (UiUtilsSettings.get().commandScannerDebugProbe) {
 			Minecraft mc = Minecraft.getInstance();
-			if (mc != null && mc.player != null)
-				UiUtils.postSystemMessage(Component.literal("[UI-Utils] " + msg));
+			if (mc.player != null)
+				mc.player
+					.sendSystemMessage(Component.literal("[UI-Utils] " + msg));
 		}
 	}
 
 	public static void resetForServerChange() {
-		serverHelp.clear();
-		helpHistoryDirty = false;
-		helpHeading = "";
-		scanCompleted = false;
 		scanning = false;
+		scanCompleted = false;
 		ticksSinceStart = 0;
-		ticksSinceLastResponse = 0;
-		ticksUntilNextProbe = 0;
+		ticksSinceLastActivity = 0;
 		completionAnnounceCooldown = 0;
-		pendingProbeIds.clear();
-		probesById.clear();
+		hardTimeoutTicks = MIN_HARD_TIMEOUT_TICKS;
+		nextProbeAtNanos = 0;
+		probesSent = 0;
+		ticksSinceLastResponse = 0;
+		probesAwaitingResponse = 0;
+		awaitingReported = 0;
+		suggestionPhaseDone = false;
+		oracleQueued = false;
+		activeProbingAborted = false;
+		oracleQueue.clear();
+		oracleInFlight = null;
+		oracleWaitTicks = 0;
+		oracleResponse = null;
+		pendingProbes.clear();
 		queuedProbes.clear();
 		observedPluginCommands.clear();
+		unattributedCommands.clear();
 		entries.clear();
 		lastRows.clear();
 		recentEvents.clear();
+		serverHelp.clear();
+		helpHeading = "";
+		helpExpires = 0;
+		helpHistoryDirty = false;
 		lastStatus = "Cleared due to server change.";
 		boundServerKey = currentServerKey(Minecraft.getInstance());
 	}
@@ -596,9 +1275,9 @@ public final class UiUtilsPluginScanner {
 	public static String getStatusLine() {
 		if (scanning)
 			return lastStatus + " [queued=" + queuedProbes.size()
-				+ ", pending=" + pendingProbeIds.size() + "]";
+				+ ", pending=" + pendingProbes.size() + "]";
 		if (!serverHelp.isEmpty())
-			return "Detected " + getResultsSnapshot().size() + " server products; server help received."
+			return "Detected " + getResultsSnapshot().size() + " software signatures; server help received."
 				+ (lastStatus.contains("timeout") ? " (partial: response timeout)" : "");
 		return lastStatus;
 	}
@@ -606,31 +1285,73 @@ public final class UiUtilsPluginScanner {
 	public static boolean hasResultsForCurrentServer() {
 		return (scanCompleted || !serverHelp.isEmpty()) && boundServerKey.equals(currentServerKey(Minecraft.getInstance()));
 	}
+	public static void stopScan()
+	{
+		if(!scanning) return;
+		List<PluginResultRow> partial = getResultsSnapshot();
+		scanning = false;
+		scanCompleted = true;
+		pendingProbes.clear();
+		queuedProbes.clear();
+		oracleQueue.clear();
+		oracleInFlight = null;
+		oracleResponse = null;
+		probesAwaitingResponse = 0;
+		lastRows.clear();
+		lastRows.addAll(partial);
+		lastStatus = "Plugin scan stopped; partial results retained.";
+		print(lastStatus);
+	}
+
 	public static boolean isActive() {
 		return scanning;
 	}
 
 	public static List<PluginResultRow> getResultsSnapshot() {
 		List<PluginResultRow> rows = new ArrayList<>();
-		for (PluginScanEntry entry : entries.values()) {
-			PluginEvidence evidence = entry.evidence == null ? PluginEvidence.UNKNOWN : entry.evidence;
-			rows.add(new PluginResultRow(evidence.name(), entry.displayName, entry.commands.size(),
-				ANTICHEAT_WORDS.stream().anyMatch(entry.displayName.toLowerCase(Locale.ROOT)::contains),
-				List.copyOf(entry.commands)));
-		}
-		rows.sort(java.util.Comparator.comparingInt((PluginResultRow row) ->
-			evidenceRank(PluginEvidence.valueOf(row.evidence()))).thenComparing(PluginResultRow::plugin, String.CASE_INSENSITIVE_ORDER));
+		if(scanning)
+			for (PluginScanEntry entry : entries.values())
+				rows.add(new PluginResultRow(entry.confidence().name(), entry.displayName, entry.commands.size(),
+					isAnticheat(entry.displayName),
+				List.copyOf(entry.commands),
+					entry.evidenceLines()));
+		else
+			rows.addAll(lastRows);
 		for (Map.Entry<String, Set<String>> help : serverHelp.entrySet()) {
 			Set<String> commands = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 			commands.addAll(help.getValue());
-			rows.removeIf(row -> {
-				if (!row.plugin().equalsIgnoreCase(help.getKey())) return false;
-				commands.addAll(row.commands());
-				return true;
-			});
-			rows.add(new PluginResultRow("SERVER_HELP", help.getKey(), commands.size(),
-				ANTICHEAT_WORDS.stream().anyMatch(help.getKey().toLowerCase(Locale.ROOT)::contains), List.copyOf(commands)));
+			int existingIndex = -1;
+			for(int i = 0; i < rows.size(); i++)
+				if (normalizePluginKey(rows.get(i).plugin())
+					.equals(normalizePluginKey(help.getKey())))
+				{
+					existingIndex = i;
+					break;
+				}
+
+			String confidence = PluginConfidence.LOW.name();
+			String displayName = help.getKey();
+			boolean anticheat = isAnticheat(help.getKey());
+			List<String> evidence = new ArrayList<>();
+			if(existingIndex >= 0)
+			{
+				PluginResultRow existing = rows.remove(existingIndex);
+				commands.addAll(existing.commands());
+				confidence = existing.confidence();
+				displayName = existing.plugin();
+				anticheat = existing.anticheatFlagged();
+				evidence.addAll(existing.evidence());
+			}
+			evidence.add("server help: " + String.join(", ",
+				commands.stream().map(command -> "/" + command).toList()));
+			rows.add(new PluginResultRow(confidence, displayName, commands.size(),
+					anticheat, List.copyOf(commands), List.copyOf(evidence)));
 		}
+		rows.sort(java.util.Comparator
+			.comparingInt(
+				(PluginResultRow row) -> row.confidenceLevel().ordinal())
+			.thenComparing(PluginResultRow::plugin,
+				String.CASE_INSENSITIVE_ORDER));
 		return rows;
 	}
 
@@ -638,87 +1359,80 @@ public final class UiUtilsPluginScanner {
 		return new ArrayList<>(recentEvents);
 	}
 
-	public static void clearResultsForUi() {
-		serverHelp.clear();
-		helpHistoryDirty = false;
-		helpHeading = "";
-		scanCompleted = false;
-		scanning = false;
-		ticksSinceStart = 0;
-		ticksSinceLastResponse = 0;
-		ticksUntilNextProbe = 0;
-		completionAnnounceCooldown = 0;
-		pendingProbeIds.clear();
-		probesById.clear();
-		queuedProbes.clear();
-		observedPluginCommands.clear();
-		entries.clear();
-		lastRows.clear();
-		recentEvents.clear();
-		lastStatus = "Cleared.";
-	}
-
-	/** Server system help may arrive after a scan, including as separate chat packets.
-	 * A heading alone is never evidence of a plugin; require advertised command lines. */
-	public static void onSystemChat(String message) {
-		if (message == null) return;
-		String server = currentServerKey(Minecraft.getInstance());
-		if (!boundServerKey.isEmpty() && !boundServerKey.equals(server)) resetForServerChange();
-		long now = System.nanoTime();
-		if (now > helpExpires) helpHeading = "";
-		for (String raw : message.split("\\R")) {
-			String line = raw.replaceAll("§[0-9a-fk-orA-FK-OR]", "").trim();
-			java.util.regex.Matcher command = java.util.regex.Pattern.compile(
-				"^/([A-Za-z0-9_.:-]+)(?:\\s.*?)?\\s+-\\s+.+$").matcher(line);
-			if (command.matches() && !helpHeading.isEmpty()) {
-				if (serverHelp.computeIfAbsent(helpHeading, ignored -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER))
-					.add(normalizeCommandToken(command.group(1)))) helpHistoryDirty = true;
-				boundServerKey = currentServerKey(Minecraft.getInstance());
-				helpExpires = now + 2_000_000_000L;
-			} else if (line.matches("[A-Za-z][A-Za-z0-9_. -]{1,63}") && !line.contains(" - ")) {
-				helpHeading = line.replaceFirst("(?i) (?:help|commands)$", "");
-				if (GENERIC_HELP_HEADINGS.contains(line.toLowerCase(Locale.ROOT))) helpHeading = "";
-				helpExpires = now + 2_000_000_000L;
-			} else if (!line.isEmpty()) {
-				helpHeading = "";
+	public static List<String> getObservedCommandsSnapshot() {
+		if (!boundServerKey.isEmpty() && !boundServerKey.equals(currentServerKey(Minecraft.getInstance())))
+			return List.of();
+		return List.copyOf(observedPluginCommands);
 			}
-		}
+
+	public static List<String> getUnattributedCommandsSnapshot() {
+		return observedPluginCommands.stream()
+			.filter(command -> commandAttribution(command).isEmpty()).toList();
 	}
 
 	public static String commandAttribution(String command) {
 		String root = normalizeCommandToken(command);
+		if(root.isEmpty())
+			return "";
 		List<String> claims = new ArrayList<>();
 		for (Map.Entry<String, Set<String>> help : serverHelp.entrySet())
 			if (help.getValue().contains(root)) claims.add(help.getKey() + " (advertised in server help)");
 		for (PluginScanEntry entry : entries.values()) {
 			if (!entry.commands.contains(root)) continue;
 			String source = entry.namespaceCommands.contains(root) ? "namespace"
-				: entry.heuristicCommands.contains(root) ? "heuristic alias/name" : "command clue";
+				: entry.heuristicCommands.contains(root) ? "command signature"
+					: "scanner evidence";
 			claims.add(entry.displayName + " (" + source + ")");
 		}
 		return claims.isEmpty() ? "" : " — " + String.join(", ", claims);
 	}
 
-	/** Commands belong in the command results, independent of ownership evidence. */
-	public static List<String> getObservedCommandsSnapshot() {
-		if (!boundServerKey.isEmpty() && !boundServerKey.equals(currentServerKey(Minecraft.getInstance()))) return List.of();
-		return List.copyOf(observedPluginCommands);
+	public static void clearResultsForUi() {
+		scanning = false;
+		scanCompleted = false;
+		ticksSinceStart = 0;
+		ticksSinceLastActivity = 0;
+		completionAnnounceCooldown = 0;
+		hardTimeoutTicks = MIN_HARD_TIMEOUT_TICKS;
+		nextProbeAtNanos = 0;
+		probesSent = 0;
+		ticksSinceLastResponse = 0;
+		probesAwaitingResponse = 0;
+		awaitingReported = 0;
+		suggestionPhaseDone = false;
+		oracleQueued = false;
+		activeProbingAborted = false;
+		oracleQueue.clear();
+		oracleInFlight = null;
+		oracleWaitTicks = 0;
+		oracleResponse = null;
+		pendingProbes.clear();
+		queuedProbes.clear();
+		observedPluginCommands.clear();
+		unattributedCommands.clear();
+		entries.clear();
+		lastRows.clear();
+		recentEvents.clear();
+		serverHelp.clear();
+		helpHeading = "";
+		helpExpires = 0;
+		helpHistoryDirty = false;
+		lastStatus = "Cleared.";
 	}
 
-	/** Keep unqualified roots visible even when the server supplies no ownership evidence. */
-	public static List<String> getUnattributedCommandsSnapshot() {
-		return observedPluginCommands.stream().filter(command -> commandAttribution(command).isEmpty()).toList();
-	}
-
-	private enum PluginEvidence {
-		KNOWN_PACK,
-		COMMAND_TREE,
-		NAMESPACE,
-		ROOT_HINT,
-		HELP_HINT,
-		PLUGIN_LIST,
-		VERSION_HINT,
-		UNKNOWN
+	public enum PluginConfidence
+	{
+		/**
+		 * Direct proof: namespaced command, channel, known pack or server
+		 * listing.
+		 */
+		HIGH,
+		/**
+		 * Several characteristic signatures, or one signature plus a namespace.
+		 */
+		MEDIUM,
+		/** Weak or ambiguous evidence only; the attribution may be wrong. */
+		LOW
 	}
 
 	private enum PluginProbeKind {
@@ -729,21 +1443,138 @@ public final class UiUtilsPluginScanner {
 		NAMESPACE
 	}
 
+	/**
+	 * Accumulated evidence for one candidate plugin, plus the confidence the
+	 * evidence justifies.
+	 */
 	private static final class PluginScanEntry {
 		private String displayName;
-		private boolean commandBacked;
-		private PluginEvidence evidence = PluginEvidence.UNKNOWN;
-		private final Set<String> heuristicCommands = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-		private final Set<String> namespaceCommands = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+		private String version;
+		private final Map<UiUtilsPluginSignatures.Source, Set<String>> evidence =
+			new EnumMap<>(UiUtilsPluginSignatures.Source.class);
 		private final Set<String> commands =
 			new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+		private final Set<String> heuristicCommands = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+		private final Set<String> namespaceCommands = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+		private void addEvidence(UiUtilsPluginSignatures.Source source,
+			String value)
+		{
+			if(source == null || value == null || value.isBlank())
+				return;
+			Set<String> values =
+				evidence.computeIfAbsent(source, ignored -> new TreeSet<>());
+			if(values.size() >= 96)
+				return;
+			values.add(value.trim());
+			if(source == UiUtilsPluginSignatures.Source.COMMAND)
+			{
+				String command =
+					value.startsWith("/") ? value.substring(1) : value;
+				if(!command.isBlank())
+					commands.add(command);
+			}
+		}
+
+		private boolean has(UiUtilsPluginSignatures.Source source)
+		{
+			Set<String> values = evidence.get(source);
+			return values != null && !values.isEmpty();
+		}
+
+		/**
+		 * Counts roots that actually fingerprint a plugin, i.e. roots the
+		 * signature database knows and that are not shared by many plugins.
+		 * Ambiguous roots such as /home and unattributed foreign roots both
+		 * score zero, so they can never lift an entry above LOW.
+		 */
+		private int distinctiveRoots()
+		{
+			Set<String> roots =
+				evidence.get(UiUtilsPluginSignatures.Source.COMMAND);
+			if(roots == null)
+				return 0;
+			int count = 0;
+			for(String root : roots)
+			{
+				String token = root.startsWith("/") ? root.substring(1) : root;
+				if(token.isBlank()
+					|| UiUtilsPluginSignatures.isAmbiguousRoot(token))
+					continue;
+				if(UiUtilsPluginSignatures.pluginForCommand(token) != null)
+					count++;
+			}
+			return count;
+		}
+
+		private PluginConfidence confidence()
+		{
+			// The server printed the plugin name itself; that needs no
+			// corroboration.
+			if(version != null && !version.isBlank())
+				return PluginConfidence.HIGH;
+			if(has(UiUtilsPluginSignatures.Source.PLUGIN_LIST)
+				|| has(UiUtilsPluginSignatures.Source.KNOWN_PACK))
+				return PluginConfidence.HIGH;
+
+			boolean namespace = has(UiUtilsPluginSignatures.Source.NAMESPACE);
+			boolean channel = has(UiUtilsPluginSignatures.Source.CHANNEL);
+			boolean version = has(UiUtilsPluginSignatures.Source.VERSION);
+			// A foreign namespace usually means a datapack rather than a
+			// plugin,
+			// so it is treated as a signature and cannot raise the confidence
+			// on
+			// its own.
+			int direct =
+				(namespace ? 1 : 0) + (channel ? 1 : 0) + (version ? 1 : 0);
+			int distinctive = distinctiveRoots();
+
+			if(direct > 0 && distinctive > 0)
+				return PluginConfidence.HIGH;
+			if(direct >= 2)
+				return PluginConfidence.HIGH;
+			if(distinctive >= 3)
+				return PluginConfidence.HIGH;
+			if(direct >= 1 || distinctive >= 1)
+				return PluginConfidence.MEDIUM;
+			return PluginConfidence.LOW;
+		}
+
+		/** Human-readable evidence lines, strongest source first. */
+		private List<String> evidenceLines()
+		{
+			List<String> lines = new ArrayList<>();
+			for(UiUtilsPluginSignatures.Source source : UiUtilsPluginSignatures.Source
+				.values())
+			{
+				Set<String> values = evidence.get(source);
+				if(values == null || values.isEmpty())
+					continue;
+				lines.add(source.label() + ": " + String.join(", ", values));
+			}
+			if(version != null && !version.isBlank())
+				lines.add("version: " + version);
+			return lines;
+		}
 	}
 
 	private record PluginProbeSpec(String query, PluginProbeKind kind, String hint) {}
 
 	private record PluginProbeRequest(int id, PluginProbeSpec spec) {}
 
-	public record PluginResultRow(String evidence, String plugin,
-		int commandCount, boolean anticheatFlagged, List<String> commands) {}
+	public record PluginResultRow(String confidence, String plugin,
+		int commandCount, boolean anticheatFlagged, List<String> commands,
+		List<String> evidence) {
+		public PluginConfidence confidenceLevel()
+		{
+			try
+			{
+				return PluginConfidence.valueOf(confidence);
+			}catch(IllegalArgumentException | NullPointerException ignored)
+			{
+				return PluginConfidence.LOW;
+			}
+
+}
+	}
 
 }

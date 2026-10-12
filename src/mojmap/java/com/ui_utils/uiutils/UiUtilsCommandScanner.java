@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2014-2026 Wurst-Imperium and contributors.
+ *
+ * This source code is subject to the terms of the GNU General Public
+ * License, version 3. If a copy of the GPL was not distributed with this
+ * file, You can obtain one at: https://www.gnu.org/licenses/gpl-3.0.txt
+ */
 package com.ui_utils.uiutils;
 
 import com.mojang.brigadier.suggestion.Suggestion;
@@ -22,7 +29,8 @@ import net.minecraft.network.protocol.game.ClientboundCommandSuggestionsPacket;
 import net.minecraft.network.protocol.game.ServerboundCommandSuggestionPacket;
 
 public final class UiUtilsCommandScanner {
-	private static final int RESPONSE_TIMEOUT_TICKS = 20;
+	private static final int RESPONSE_TIMEOUT_TICKS = 60;
+	private static final int MAX_PROBE_ATTEMPTS = 3;
 	private static final int EXECUTE_COOLDOWN_TICKS = 40;
 	private static final int MAX_SUGGESTIONS_PER_RESPONSE = 1000;
 	private static final int MAX_ADAPTIVE_PROBES = 128;
@@ -752,7 +760,9 @@ public final class UiUtilsCommandScanner {
 	private static boolean triggerProbePending;
 	private static int waitTicks;
 	private static int cooldownTicks;
-	private static int requestId;
+	private static final java.util.concurrent.atomic.AtomicInteger PROBE_IDS =
+		new java.util.concurrent.atomic.AtomicInteger(2_000_000);
+	private static long nextProbeAtNanos;
 	private static int awaitingRequestId;
 	private static int probesSent;
 	private static boolean active;
@@ -768,6 +778,12 @@ public final class UiUtilsCommandScanner {
 	private static final Set<String> pendingManualCommands = new HashSet<>();
 	private static final Set<String> permissionDeniedPaths = new HashSet<>();
 	private static String awaitingProbe = "";
+
+	private static final java.util.Map<String, Integer> probeAttempts =
+		new java.util.HashMap<>();
+	private static final Set<String> unansweredPrefixes = new TreeSet<>();
+	private static final Set<String> cappedPrefixes = new TreeSet<>();
+	private static int probeTimeouts;
 
 	private UiUtilsCommandScanner() {}
 
@@ -787,15 +803,20 @@ public final class UiUtilsCommandScanner {
 		triggerValues.clear();
 		truncatedCommandLetters.clear();
 		scheduledProbePrefixes.clear();
+		probeAttempts.clear();
+		unansweredPrefixes.clear();
+		cappedPrefixes.clear();
+		probeTimeouts = 0;
 		commandProbeQueue.clear();
 		commandsToExecute.clear();
 		unavailableCommands.clear();
 		pendingManualCommands.clear();
 		permissionDeniedPaths.clear();
 		awaitingResponse = false;
+		triggerProbePending = false;
 		waitTicks = 0;
 		cooldownTicks = 0;
-		requestId = 1;
+		nextProbeAtNanos = 0;
 		awaitingRequestId = -1;
 		probesSent = 0;
 		awaitingProbe = "";
@@ -805,9 +826,16 @@ public final class UiUtilsCommandScanner {
 		recentEvents.clear();
 		lastFoundCommands = List.of();
 		boundServerKey = currentServerKey(mc);
+		UiUtilsSuggestionCapability.bindTo(boundServerKey);
 		if (activeMode == ScanMode.CLIENT_SIDE_ENUMERATION) {
 			runClientSideEnumerationScan();
 			return "[UI-Utils] Command scanner started (CLIENT_SIDE_ENUMERATION).";
+		}
+
+		if(UiUtilsSuggestionCapability.isSuppressed())
+		{
+			abortForSuppressedSuggestions();
+			return "[UI-Utils] Active probing unavailable; using synced server tree.";
 		}
 
 		for (char letter : LETTERS)
@@ -837,32 +865,53 @@ public final class UiUtilsCommandScanner {
 		if (activeMode != ScanMode.PACKET_PROBING)
 			return;
 
-		if (awaitingResponse) {
+		if (UiUtilsSuggestionCapability.isSuppressed())
+		{
+			abortForSuppressedSuggestions();
+			return;
+		}
+		if(awaitingResponse) {
 			waitTicks++;
 			if (waitTicks >= RESPONSE_TIMEOUT_TICKS) {
-				if (triggerProbePending) {
-					triggerProbePending = false;
+				probeTimeouts++;
+				String prefix =
+					triggerProbePending? "trigger " : awaitingProbe;
+				boolean trigger = triggerProbePending ;
 					awaitingResponse = false;
 					awaitingRequestId = -1;
-					finishScan();
+					triggerProbePending = false;
+				awaitingProbe = "";
+				if(UiUtilsSuggestionCapability.recordUnansweredProbe())
+				{
+					unansweredPrefixes.add(prefix);
+					abortForSuppressedSuggestions();
 					return;
 				}
-				if (UiUtilsSettings.get().commandScannerDebugProbe)
-					print("Probe timeout: /" + awaitingProbe + " (id=" + awaitingRequestId + ")");
-				lastStatus = "Scanning commands... timed out on /" + awaitingProbe;
-				awaitingResponse = false;
-				awaitingRequestId = -1;
-				awaitingProbe = "";
-				cooldownTicks = UiUtilsSettings.getProbeDelayTicks();
+				if (probeAttempts.getOrDefault(prefix, 0)< MAX_PROBE_ATTEMPTS)
+				{
+					if(!trigger)
+						commandProbeQueue.addLast(prefix)
+					;
+					print("Probe timeout: /" + prefix + "; queued retry.");
+				}else
+				{
+					unansweredPrefixes.add(prefix);
+					print("Probe unanswered after " + MAX_PROBE_ATTEMPTS
+						+ " attempts: /" + prefix);
+					if(trigger)
+					{
+						finishScan();
+						return;
+					}
+				}
+
+				nextProbeAtNanos = System.nanoTime() + UiUtilsSettings.getProbeIntervalNanos();
 			}
 			return;
 		}
 
-		if (cooldownTicks > 0) {
-			cooldownTicks--;
+		if (System.nanoTime() < nextProbeAtNanos)
 			return;
-		}
-
 		sendNextRequest();
 	}
 
@@ -873,6 +922,7 @@ public final class UiUtilsCommandScanner {
 			return;
 		if (packet.id() != awaitingRequestId)
 			return;
+		UiUtilsSuggestionCapability.recordResponse();
 
 		if (triggerProbePending) {
 			Suggestions triggerSuggestions;
@@ -912,7 +962,7 @@ public final class UiUtilsCommandScanner {
 		awaitingResponse = false;
 		awaitingRequestId = -1;
 		awaitingProbe = "";
-		cooldownTicks = UiUtilsSettings.getProbeDelayTicks();
+		nextProbeAtNanos = System.nanoTime() + UiUtilsSettings.getProbeIntervalNanos();
 	}
 
 	public static String sendManualPacketCommands() {
@@ -925,7 +975,8 @@ public final class UiUtilsCommandScanner {
 			return "[UI-Utils] Packet commands list is empty.";
 
 		manualCommandOutput.clear();
-		manualOutputCaptureTicks = 200; // Ten seconds of post-send chat/system output.
+		manualOutputCaptureTicks = 200; // Ten seconds of post-send chat/system
+										// output.
 		String[] parts = raw.split(",");
 		int sent = 0;
 		for (String part : parts) {
@@ -934,6 +985,7 @@ public final class UiUtilsCommandScanner {
 				continue;
 			if (cmd.startsWith("/"))
 				cmd = cmd.substring(1);
+			pendingManualCommands.add(normalizeCommandPath(cmd));
 			manualCommandOutput.add("> /" + cmd);
 			mc.player.connection.sendCommand(cmd);
 			sent++;
@@ -959,6 +1011,7 @@ public final class UiUtilsCommandScanner {
 	}
 
 	public static boolean isCommandHiddenToUser(String command) {
+		updateCommandVisibility(command);
 		return permissionDeniedPaths.contains(normalizeFullCommandPath(command));
 	}
 
@@ -988,6 +1041,7 @@ public final class UiUtilsCommandScanner {
 			|| lower.contains("not allowed") || lower.contains("not authorized");
 	}
 	public static void clearManualCommandOutput() {
+		pendingManualCommands.clear();
 		manualCommandOutput.clear();
 		manualOutputCaptureTicks = 0;
 	}
@@ -1006,9 +1060,10 @@ public final class UiUtilsCommandScanner {
 		}
 
 		String input = "/" + probe;
-		int id = requestId++;
+		int id = PROBE_IDS.getAndIncrement();
 		probesSent++;
 		awaitingProbe = probe;
+		probeAttempts.merge(probe, 1, Integer::sum);
 		if (UiUtilsSettings.get().commandScannerDebugProbe)
 			print("Probe sent: " + input + " (id=" + id + ")");
 
@@ -1016,6 +1071,8 @@ public final class UiUtilsCommandScanner {
 		awaitingResponse = true;
 		awaitingRequestId = id;
 		waitTicks = 0;
+	nextProbeAtNanos =
+			System.nanoTime() + UiUtilsSettings.getProbeIntervalNanos();
 	}
 
 	private static void requestTriggerValues() {
@@ -1024,9 +1081,10 @@ public final class UiUtilsCommandScanner {
 			finishScan();
 			return;
 		}
+		probeAttempts.merge("trigger ", 1, Integer::sum);
 		triggerProbePending = true;
 		awaitingProbe = "";
-		int id = requestId++;
+		int id = PROBE_IDS.getAndIncrement();
 		awaitingRequestId = id;
 		awaitingResponse = true;
 		waitTicks = 0;
@@ -1063,7 +1121,8 @@ public final class UiUtilsCommandScanner {
 		if (mc == null || mc.player == null || mc.player.connection == null)
 			return;
 
-		// Packet mode only classifies commands the server returned in suggestions.
+		// Packet mode only classifies commands the server returned in
+		// suggestions.
 		// Client mode enumerates the separate server-synchronized command tree.
 		var dispatcher = UiUtilsServerCommands.dispatcher(mc.player.connection);
 		if (dispatcher == null || dispatcher.getRoot() == null) {
@@ -1074,6 +1133,8 @@ public final class UiUtilsCommandScanner {
 			.getChild(normalizeCommandPath(command));
 		if (node == null || !node.canUse(mc.player.connection.getSuggestionsProvider()))
 			permissionDeniedPaths.add(normalizeFullCommandPath(command));
+		else
+			permissionDeniedPaths.remove(normalizeFullCommandPath(command));
 	}
 
 	private static String extractRootCommand(String raw) {
@@ -1137,8 +1198,10 @@ public final class UiUtilsCommandScanner {
 
 		for (CommandNode<ClientSuggestionProvider> child : node.getChildren())
 			collectClientCommandPaths(child, path, source, visiting);
-		// Redirect nodes are aliases. Expand their target's children beneath the
-		// alias path, while the identity-based visiting set prevents redirect cycles.
+		// Redirect nodes are aliases. Expand their target's children beneath
+		// the
+		// alias path, while the identity-based visiting set prevents redirect
+		// cycles.
 		if (node.getRedirect() != null)
 			collectClientRedirectChildren(node.getRedirect(), path, source, visiting);
 		visiting.remove(node);
@@ -1163,13 +1226,17 @@ public final class UiUtilsCommandScanner {
 		lastFoundCommands = results;
 		lastStatus = "Found " + results.size() + " commands (" + getKnownCommandsSnapshot().size()
 			+ " already known, " + getNewCommandsSnapshot().size() + " newly discovered).";
-		UiUtilsScanHistory.recordCommands(boundServerKey, "command_" + activeMode.name().toLowerCase(Locale.ROOT), lastFoundCommands);
+		UiUtilsScanHistory.recordCommands(boundServerKey, "command_" + activeMode.name().toLowerCase(Locale.ROOT), lastFoundCommands, getDiagnosticsSnapshot());
+		if(!unansweredPrefixes.isEmpty() || !cappedPrefixes.isEmpty())
+			lastStatus += " Partial: unanswered=" + unansweredPrefixes.size()
+				+ ", capped=" + cappedPrefixes.size() + ".";
 		if (results.isEmpty()) {
 			finish();
 			return;
 		}
 
 		if (activeMode == ScanMode.PACKET_PROBING
+			&& !UiUtilsSuggestionCapability.isSuppressed()
 			&& UiUtilsSettings.get().commandScannerRunFoundCommands) {
 			commandsToExecute.clear();
 		unavailableCommands.clear();
@@ -1177,7 +1244,8 @@ public final class UiUtilsCommandScanner {
 			Set<String> denyTerms = parseDenyTerms(UiUtilsSettings.get().commandScannerDontSendFilter);
 			for (String cmd : scannedCommands) {
 				String lower = cmd.toLowerCase(Locale.ROOT);
-				// Discovery is complete; automatic execution retains its conservative exclusions.
+				// Discovery is complete; automatic execution retains its
+				// conservative exclusions.
 				if (isVanillaOrDefaultCommand(lower) || isIgnoredEssentialsCommand(lower))
 					continue;
 				boolean blocked = false;
@@ -1249,7 +1317,9 @@ public final class UiUtilsCommandScanner {
 	}
 
 	public static List<String> filterVisibleCommands(List<String> commands, boolean showVanilla) {
-		return commands.stream().filter(command -> showVanilla
+		return commands.stream().filter(command -> !UiUtilsSettings.get().commandScannerExcludeEssentials
+				|| !isIgnoredEssentialsCommand(normalizeCommandPath(command)))
+			.filter(command -> showVanilla
 			|| !isVanillaOrDefaultCommand(normalizeCommandPath(command))).toList();
 	}
 
@@ -1292,6 +1362,7 @@ private static ScanMode getScanMode() {
 			return;
 		if (scheduledProbePrefixes.size() > MAX_ADAPTIVE_PROBES) {
 			scheduledProbePrefixes.remove(prefix);
+			cappedPrefixes.add(prefix);
 			return;
 		}
 		if (prioritize)
@@ -1304,8 +1375,8 @@ private static ScanMode getScanMode() {
 		if (prefix == null || prefix.isEmpty()
 			|| prefix.length() >= MAX_ADAPTIVE_PREFIX_LENGTH)
 			return;
-		for (int i = PROBE_SUFFIXES.length - 1; i >= 0; i--)
-			queueProbe(prefix + PROBE_SUFFIXES[i], true);
+		for (char suffix : PROBE_SUFFIXES)
+			queueProbe(prefix + suffix, false);
 	}
 
 	private static boolean isIgnoredEssentialsCommand(String value) {
@@ -1321,7 +1392,7 @@ private static ScanMode getScanMode() {
 		return ESSENTIALS_COMMANDS.contains(command);
 	}
 
-	private static void resetForServerChange() {
+	public static void resetForServerChange() {
 		scanCompleted = false;
 		knownCommands.clear();
 		active = false;
@@ -1330,11 +1401,15 @@ private static ScanMode getScanMode() {
 		phase = Phase.IDLE;
 		cooldownTicks = 0;
 		waitTicks = 0;
-		requestId = 1;
+		nextProbeAtNanos = 0;
 		scannedCommands.clear();
 		triggerValues.clear();
 		truncatedCommandLetters.clear();
 		scheduledProbePrefixes.clear();
+		probeAttempts.clear();
+		unansweredPrefixes.clear();
+		cappedPrefixes.clear();
+		probeTimeouts = 0;
 		commandProbeQueue.clear();
 		commandsToExecute.clear();
 		unavailableCommands.clear();
@@ -1377,6 +1452,7 @@ private static ScanMode getScanMode() {
 		return scanCompleted && boundServerKey.equals(currentServerKey(Minecraft.getInstance()));
 	}
 	private static boolean isKnownRoot(String command) {
+		refreshKnownCommandsFromServer();
 		String root = normalizeCommandPath(command).split(" ", 2)[0];
 		var connection = Minecraft.getInstance().getConnection();
 		return knownCommands.contains(root) || (connection != null && UiUtilsServerCommands.dispatcher(connection) != null
@@ -1388,6 +1464,21 @@ private static ScanMode getScanMode() {
 	public static List<String> getNewCommandsSnapshot() {
 		return getFoundCommandsSnapshot().stream().filter(cmd -> !isKnownRoot(cmd)).toList();
 	}
+	public static void stopScan()
+	{
+		if(!active) return;
+		finish();
+		commandProbeQueue.clear();
+		commandsToExecute.clear();
+		pendingManualCommands.clear();
+		triggerProbePending = false;
+		scanCompleted = true;
+		lastFoundCommands = new ArrayList<>(scannedCommands);
+		for(String value : triggerValues) lastFoundCommands.add("trigger (" + value + ")");
+		lastStatus = "Command scan stopped; partial results retained.";
+		print(lastStatus);
+	}
+
 	public static boolean isActive() {
 		return active;
 	}
@@ -1395,6 +1486,8 @@ private static ScanMode getScanMode() {
 	public static List<String> getFoundCommandsSnapshot() {
 		Set<String> commands = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 		commands.addAll(lastFoundCommands);
+		if(active && phase == Phase.SCANNING)
+			commands.addAll(scannedCommands);
 		commands.addAll(UiUtilsPluginScanner.getObservedCommandsSnapshot());
 		return List.copyOf(commands);
 	}
@@ -1403,8 +1496,21 @@ private static ScanMode getScanMode() {
 		return new ArrayList<>(recentEvents);
 	}
 
+	public static java.util.Map<String, Object> getDiagnosticsSnapshot()
+	{
+		return java.util.Map.of("probesSent", probesSent, "probeTimeouts",
+			probeTimeouts, "probeAttempts",
+			new java.util.TreeMap<>(probeAttempts), "unansweredPrefixes",
+			List.copyOf(unansweredPrefixes), "cappedPrefixes",
+			List.copyOf(cappedPrefixes), "truncatedLetters",
+			List.copyOf(truncatedCommandLetters), "probeResponseTimeoutTicks",
+			RESPONSE_TIMEOUT_TICKS, "maxProbeAttempts", MAX_PROBE_ATTEMPTS,
+			"probesPerSecond", UiUtilsSettings.getProbesPerSecond());
+	}
+
 	public static boolean hasTruncatedResponses() {
-		return !truncatedCommandLetters.isEmpty();
+		return !truncatedCommandLetters.isEmpty()
+			|| !unansweredPrefixes.isEmpty() || !cappedPrefixes.isEmpty();
 	}
 
 	public static boolean wasResponseTruncated(char letter) {
@@ -1412,6 +1518,7 @@ private static ScanMode getScanMode() {
 	}
 
 	public static void clearResultsForUi() {
+		UiUtilsSuggestionCapability.clear();
 		scanCompleted = false;
 		knownCommands.clear();
 		active = false;
@@ -1422,6 +1529,10 @@ private static ScanMode getScanMode() {
 		triggerValues.clear();
 		truncatedCommandLetters.clear();
 		scheduledProbePrefixes.clear();
+		probeAttempts.clear();
+		unansweredPrefixes.clear();
+		cappedPrefixes.clear();
+		probeTimeouts = 0;
 		commandProbeQueue.clear();
 		commandsToExecute.clear();
 		unavailableCommands.clear();
@@ -1429,11 +1540,75 @@ private static ScanMode getScanMode() {
 		lastFoundCommands = List.of();
 		recentEvents.clear();
 		lastStatus = "Cleared.";
-		requestId = 1;
+		nextProbeAtNanos = 0;
 		cooldownTicks = 0;
 		waitTicks = 0;
 		probesSent = 0;
 		awaitingProbe = "";
+	}
+
+	private static void abortForSuppressedSuggestions()
+	{
+		awaitingResponse = false;
+		awaitingRequestId = -1;
+		triggerProbePending = false;
+		commandProbeQueue.clear();
+		print(
+			"Suggestion probing unavailable; reading the synced server tree.");
+		runClientSideEnumerationScan();
+	}
+
+	public static void onSystemChat(Component message)
+	{
+		if(message != null)
+			onChatMessage(message.getString());
+	}
+
+	public static void refreshKnownCommandsFromServer()
+	{
+		var connection = Minecraft.getInstance().getConnection();
+		var dispatcher = connection == null ? null
+			: UiUtilsServerCommands.dispatcher(connection);
+		if(dispatcher != null)
+			for(var child : dispatcher.getRoot().getChildren())
+				knownCommands.add(child.getName());
+	}
+
+	public static boolean isClientVisibleCommand(String raw)
+	{
+		return !isCommandHiddenToUser(raw);
+	}
+
+	public static boolean hasTruncatedResults()
+	{
+		return hasTruncatedResponses();
+	}
+
+	public static boolean isLetterGroupTruncated(char letter)
+	{
+		return wasResponseTruncated(letter);
+	}
+
+	public static List<String> getKnownFoundCommandsSnapshot(
+		boolean showVanilla)
+	{
+		return filterVisibleCommands(getKnownCommandsSnapshot(), showVanilla);
+	}
+
+	public static List<String> getNewFoundCommandsSnapshot(boolean showVanilla)
+	{
+		return filterVisibleCommands(getNewCommandsSnapshot(), showVanilla);
+	}
+
+	public static List<String> getVisibleFoundCommandsSnapshot(String filter,
+		boolean showVanilla)
+	{
+		return "KNOWN".equalsIgnoreCase(filter)
+			? getKnownFoundCommandsSnapshot(showVanilla)
+			: "NEW".equalsIgnoreCase(filter)
+				? getNewFoundCommandsSnapshot(showVanilla)
+				: filterVisibleCommands(getFoundCommandsSnapshot(),
+					showVanilla);
 	}
 
 	public enum ScanMode {

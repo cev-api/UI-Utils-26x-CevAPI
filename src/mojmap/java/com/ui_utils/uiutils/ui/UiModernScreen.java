@@ -640,11 +640,11 @@ public abstract class UiModernScreen extends Screen {
 	}
 
 	private void drawPanel(GuiGraphicsExtractor graphics) {
-		graphics.fill(0, 0, cardWidth, cardHeight, UiTheme.WINDOW);
+		graphics.fill(0, 0, cardWidth, cardHeight, UiTheme.windowColor());
 		graphics.fill(0, 0, cardWidth, UiTheme.HEADER_HEIGHT,
-			UiTheme.SURFACE_HEADER);
+			UiTheme.headerColor());
 		graphics.fill(0, cardHeight - UiTheme.FOOTER_HEIGHT, cardWidth, cardHeight,
-			UiTheme.SURFACE_FOOTER);
+			UiTheme.footerColor());
 	}
 
 	private void drawChrome(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
@@ -652,15 +652,15 @@ public abstract class UiModernScreen extends Screen {
 		UiTheme.hLine(graphics, 0, UiTheme.HEADER_HEIGHT - 1, cardWidth,
 			UiTheme.withAlpha(accent, 0x99));
 		UiTheme.hLine(graphics, 0, cardHeight - UiTheme.FOOTER_HEIGHT, cardWidth,
-			UiTheme.BORDER);
-		UiTheme.border(graphics, 0, 0, cardWidth, cardHeight, UiTheme.BORDER);
+			UiTheme.borderColor());
+		UiTheme.border(graphics, 0, 0, cardWidth, cardHeight, UiTheme.borderColor());
 
 		int titleY = UiTheme.textY(this.font, 0, UiTheme.HEADER_HEIGHT);
 		int statusWidth = status.isEmpty() ? 0
 			: UiTheme.designTextWidth(this.font.width(status)) + 8;
 		String title = UiTheme.ellipsize(this.font, this.title.getString(),
 			cardWidth - CONTENT_X * 2 - 8 - statusWidth);
-		UiTheme.text(graphics, this.font, title, CONTENT_X, titleY, UiTheme.TEXT);
+		UiTheme.text(graphics, this.font, title, CONTENT_X, titleY, UiTheme.textColor());
 		if (!status.isEmpty())
 			UiTheme.textRight(graphics, this.font,
 				UiTheme.ellipsize(this.font, status, statusWidth),

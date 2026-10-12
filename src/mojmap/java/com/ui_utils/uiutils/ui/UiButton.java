@@ -137,7 +137,7 @@ public class UiButton extends AbstractButton implements UiScalable {
 		int text = textColor();
 		if (!active) {
 			fill = 0x30000000;
-			text = UiTheme.TEXT_MUTED;
+			text = UiTheme.mutedTextColor();
 		} else if (pressed) {
 			fill = UiTheme.mix(fill, 0xFF000000, 0.35F);
 		}
@@ -145,7 +145,7 @@ public class UiButton extends AbstractButton implements UiScalable {
 		graphics.fill(x, y, x + w, y + h, fill);
 		UiTheme.border(graphics, x, y, w, h,
 			selected ? accent : (isHoveredOrFocused() && active
-				? UiTheme.mix(UiTheme.BORDER, accent, 0.6F) : UiTheme.BORDER));
+				? UiTheme.mix(UiTheme.borderColor(), accent, 0.6F) : UiTheme.borderColor()));
 		if (selected)
 			graphics.fill(x, y, x + 2, y + h, accent);
 
@@ -176,7 +176,7 @@ public class UiButton extends AbstractButton implements UiScalable {
 	private int textColor() {
 		return switch (kind) {
 			case PRIMARY, DANGER -> UiTheme.accentText();
-			case SECONDARY, GHOST -> UiTheme.TEXT;
+			case SECONDARY, GHOST -> UiTheme.textColor();
 		};
 	}
 

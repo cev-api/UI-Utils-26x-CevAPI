@@ -82,7 +82,7 @@ public class UiToggle extends AbstractWidget implements UiScalable {
 			fill = on ? UiTheme.accentTint(0x44) : UiTheme.SURFACE_ROW_HOVER;
 		graphics.fill(x, y, x + w, y + h, fill);
 		UiTheme.border(graphics, x, y, w, h,
-			on ? UiTheme.withAlpha(accent, 0x80) : UiTheme.BORDER);
+			on ? UiTheme.withAlpha(accent, 0x80) : UiTheme.borderColor());
 		if (on)
 			graphics.fill(x, y, x + 2, y + h, accent);
 
@@ -90,19 +90,19 @@ public class UiToggle extends AbstractWidget implements UiScalable {
 		int switchY = y + (h - SWITCH_HEIGHT) / 2;
 		UiTheme.switchPill(graphics, switchX, switchY, SWITCH_WIDTH, SWITCH_HEIGHT,
 			on, accent, UiTheme.offTrack(), on ? UiTheme.accentText()
-				: UiTheme.TEXT_DIM);
+				: UiTheme.dimTextColor());
 		UiTheme.border(graphics, switchX, switchY, SWITCH_WIDTH, SWITCH_HEIGHT,
-			on ? UiTheme.scaleRgb(accent, 0.7F) : UiTheme.BORDER);
+			on ? UiTheme.scaleRgb(accent, 0.7F) : UiTheme.borderColor());
 
 		int textY = UiTheme.textY(font, y, h);
 		int detailWidth = detail.isEmpty() ? 0 : font.width(detail) + 6;
 		int labelSpace = w - 12 - SWITCH_WIDTH - 10 - detailWidth;
 		UiTheme.text(graphics, font,
 			UiTheme.ellipsize(font, label, Math.max(10, labelSpace)), x + 6, textY,
-			active ? UiTheme.TEXT : UiTheme.TEXT_MUTED);
+			active ? UiTheme.textColor() : UiTheme.mutedTextColor());
 		if (!detail.isEmpty())
 			UiTheme.textRight(graphics, font, detail, switchX - 4, textY,
-				on ? UiTheme.OK : UiTheme.TEXT_DIM);
+				on ? UiTheme.OK : UiTheme.dimTextColor());
 
 		UiTheme.popWidgetScale(graphics, scaled);
 	}

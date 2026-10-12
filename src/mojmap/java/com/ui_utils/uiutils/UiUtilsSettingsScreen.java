@@ -24,6 +24,7 @@ import net.minecraft.util.Mth;
 public final class UiUtilsSettingsScreen extends UiModernScreen {
 	private final Screen parent;
 	private boolean settingsDirty;
+	private UiButton dupeDbUpdateButton;
 
 	private UiInput selectedColorHexField;
 
@@ -195,7 +196,7 @@ public final class UiUtilsSettingsScreen extends UiModernScreen {
 		// Reset the flow before its category so the old column baseline cannot
 		// leave a large blank gap above the key field.
 		c.columns(1);
-		c.compactSection("DubeDB");
+		c.compactSection("DupeDB");
 		UiInput dupeDbKeyField = c.inputSlot(
 			UiUtilsSettings.get().dupeDbApiKey, value -> {
 				UiUtilsSettings.get().dupeDbApiKey = value;
@@ -208,9 +209,38 @@ public final class UiUtilsSettingsScreen extends UiModernScreen {
 				Style.EMPTY.withColor(UiTheme.TEXT)));
 		c.spanRow(UiContent.of(dupeDbKeyField));
 		c.space(3);
-		c.note("Refreshes the vulnerable plugin list once at launch when a key is set.");
+		c.toggle("Enable DupeDB updates",
+			() -> UiUtilsSettings.get().dupeDbEnabled, value -> {
+				UiUtilsSettings.get().dupeDbEnabled = value;
+				UiUtilsSettings.save();
+				UiUtilsVulnerablePlugins.reload();
+			});
+		c.toggle("Scan DupeDB on game launch",
+			() -> UiUtilsSettings.get().dupeDbScanOnLaunch, value -> {
+				UiUtilsSettings.get().dupeDbScanOnLaunch = value;
+				UiUtilsSettings.save();
+			});
+		dupeDbUpdateButton = c.button("", () -> {
+			UiUtilsDupeDbUpdater.toggleRefresh();
+			refreshDupeDbButton();
+		});
+		refreshDupeDbButton();
+		c.note("Launch scanning OFF means manual only. Results are reported in chat.");
+		setStatus(UiUtilsDupeDbUpdater.getStatus());
 
 		c.footerButton("Done", UiButton.Kind.PRIMARY, this::onClose);
+	}
+
+	@Override
+	public void tick() {
+		super.tick();
+		refreshDupeDbButton();
+		setStatus(UiUtilsDupeDbUpdater.getStatus());
+	}
+
+	private void refreshDupeDbButton() {
+		if(dupeDbUpdateButton != null) dupeDbUpdateButton.setMessage(Component.literal(
+			UiUtilsDupeDbUpdater.isActive() ? "STOP DupeDB update" : "Scan / update DupeDB now"));
 	}
 
 	private UiToggle toggle(String label, BooleanSupplier getter,

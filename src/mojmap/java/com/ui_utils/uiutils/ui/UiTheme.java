@@ -1,6 +1,7 @@
 package com.ui_utils.uiutils.ui;
 
 import com.ui_utils.uiutils.UiUtilsSettings;
+import com.ui_utils.uiutils.UiUtilsScannerTheme;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.util.FormattedCharSequence;
@@ -60,18 +61,28 @@ public final class UiTheme {
 
 	/** Accent colour, taken from the user's configured button colour. */
 	public static int accent() {
-		return 0xFF000000 | (UiUtilsSettings.get().uiButtonColor & 0xFFFFFF);
+		return UiUtilsScannerTheme.color("accent", 0xFF000000 | (UiUtilsSettings.get().uiButtonColor & 0xFFFFFF));
 	}
 
 	/** Text colour used on top of accent-filled surfaces. */
 	public static int accentText() {
-		return 0xFF000000 | (UiUtilsSettings.get().uiButtonTextColor & 0xFFFFFF);
+		return UiUtilsScannerTheme.color("text", 0xFF000000 | (UiUtilsSettings.get().uiButtonTextColor & 0xFFFFFF));
 	}
 
 	/**
 	 * Manual UI scale as a factor, or 0 when the screen should pick the largest
 	 * scale that still fits the window.
 	 */
+	public static int textColor() { return UiUtilsScannerTheme.color("text", TEXT); }
+	public static int dimTextColor() { return UiUtilsScannerTheme.color("text", TEXT_DIM) == TEXT_DIM ? TEXT_DIM : scaleRgb(textColor(), 0.67F); }
+	public static int mutedTextColor() { return UiUtilsScannerTheme.color("text", TEXT_MUTED) == TEXT_MUTED ? TEXT_MUTED : scaleRgb(textColor(), 0.45F); }
+	public static int windowColor() { return UiUtilsScannerTheme.color("window", WINDOW); }
+	public static int headerColor() { return UiUtilsScannerTheme.color("header", SURFACE_HEADER); }
+	public static int footerColor() { return UiUtilsScannerTheme.color("window", SURFACE_FOOTER); }
+	public static int inputColor() { return UiUtilsScannerTheme.color("input", SURFACE_SUNK); }
+	public static int borderColor() { return UiUtilsScannerTheme.color("border", BORDER); }
+	public static int softBorderColor() { return UiUtilsScannerTheme.color("border", BORDER_SOFT); }
+
 	public static float forcedScale() {
 		int percent = UiUtilsSettings.get().uiScalePercent;
 		return percent <= 0 ? 0F : percent / 100F;

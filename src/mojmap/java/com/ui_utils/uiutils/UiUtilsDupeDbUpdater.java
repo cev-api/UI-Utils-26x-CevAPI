@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2014-2026 Wurst-Imperium and contributors.
+ *
+ * This source code is subject to the terms of the GNU General Public
+ * License, version 3. If a copy of the GPL was not distributed with this
+ * file, You can obtain one at: https://www.gnu.org/licenses/gpl-3.0.txt
+ */
 package com.ui_utils.uiutils;
 
 import com.google.gson.Gson;
@@ -21,13 +28,20 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.fabricmc.loader.api.FabricLoader;
 
-/** Fetches DupeDB's dupe entries once at launch and refreshes the local plugin list. */
+/**
+ * Refreshes a separate DupeDB cache without replacing bundled or user plugin
+ * data.
+ */
 public final class UiUtilsDupeDbUpdater {
 	private static final String SEARCH_URL = "https://dupedb.net/api/exploits/search";
 	private static final int PAGE_SIZE = 100;
@@ -35,6 +49,14 @@ public final class UiUtilsDupeDbUpdater {
 	private static final int MAX_RATE_LIMIT_RETRIES = 4;
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 	private static final AtomicBoolean STARTED = new AtomicBoolean();
+	private static final AtomicBoolean RUNNING = new AtomicBoolean();
+	private static final AtomicBoolean CANCELLED = new AtomicBoolean();
+	private static final Object UPDATE_LOCK = new Object();
+	private static volatile Thread worker;
+	private static volatile boolean finished = true;
+	private static volatile String status = "Not refreshed";
+	private static final ConcurrentLinkedQueue<String> CHAT_MESSAGES =
+		new ConcurrentLinkedQueue<>();
 	private static final ExecutorService EXECUTOR = Executors
 		.newSingleThreadExecutor(task -> {
 			Thread thread = new Thread(task, "UI-Utils DupeDB refresh");
@@ -44,28 +66,174 @@ public final class UiUtilsDupeDbUpdater {
 
 	private UiUtilsDupeDbUpdater() {}
 
-	/** Starts at most one non-blocking refresh for this client launch. */
+	/** Starts one automatic refresh per launch once a key is configured. */
 	public static void startOnce(String apiKey) {
-		if (!STARTED.compareAndSet(false, true) || apiKey == null
-			|| apiKey.isBlank())
+		if (!UiUtilsSettings.get().dupeDbEnabled
+			|| !UiUtilsSettings.get().dupeDbScanOnLaunch || apiKey == null
+			|| apiKey.isBlank() || !STARTED.compareAndSet(false, true))
 			return;
-		String token = apiKey.trim();
+		refreshNow(apiKey);
+	}
+
+	public static String getStatus()
+	{
+		return status;
+	}
+
+	/**
+	 * Called on the client thread; launch results wait until a world is joined.
+	 */
+	public static void onClientTick(Minecraft mc)
+	{
+		if(mc == null || mc.player == null)
+			return;
+		String message;
+		while((message = CHAT_MESSAGES.poll()) != null)
+			mc.player
+				.sendSystemMessage(Component.literal("[DupeDB] " + message));
+	}
+
+	private static void announce(String message)
+	{
+		CHAT_MESSAGES.add(message);
+	}
+
+	public static boolean isActive()
+	{
+		return RUNNING.get() && !finished;
+	}
+
+	public static void toggleRefresh()
+	{
+		if(isActive()) stopScan();
+		else refreshNow(UiUtilsSettings.get().dupeDbApiKey);
+	}
+
+	public static void stopScan()
+	{
+		synchronized(UPDATE_LOCK)
+		{
+			if(!isActive()) return;
+			CANCELLED.set(true);
+			status = "Stopping DupeDB update...";
+			if(worker != null) worker.interrupt();
+		}
+	}
+
+	private static void checkCancelled() throws InterruptedException
+	{
+		if(CANCELLED.get() || Thread.currentThread().isInterrupted())
+			throw new InterruptedException("DupeDB update stopped");
+	}
+
+	/** Manual refresh also works after entering a key during this launch. */
+	public static void refreshNow(String apiKey)
+	{
+		synchronized(UPDATE_LOCK)
+		{
+			if(RUNNING.get()) return;
+			if(!UiUtilsSettings.get().dupeDbEnabled)
+			{
+				status = "DupeDB is disabled";
+				announce(status);
+				return;
+			}
+			String token = apiKey == null ? "" : apiKey.trim();
+			if(!token.matches("dupe_pat_[a-fA-F0-9]{64}"))
+			{
+				status = "Enter a valid DupeDB API key";
+				announce(status);
+				return;
+			}
+			CANCELLED.set(false);
+			finished = false;
+			RUNNING.set(true);
+			status = "Refreshing DupeDB...";
+			announce("Checking database for updates...");
 		EXECUTOR.execute(() -> refresh(token));
+	}
 	}
 
 	private static void refresh(String apiKey) {
+		worker = Thread.currentThread();
 		try {
+			checkCancelled();
 			List<PluginVersion> versions = fetchAll(apiKey);
 			if (versions.isEmpty())
 				throw new IOException("DupeDB returned no plugin/version pairs");
-			writeAndReload(versions);
+			synchronized(UPDATE_LOCK)
+			{
+				checkCancelled();
+				if(!UiUtilsSettings.get().dupeDbEnabled)
+				{
+					status = "DupeDB is disabled; update cancelled";
+					announce(status);
+					return;
+				}
+				String summary = updateSummary(versions);
+				writeAndReload(versions);
+				status = summary;
+				announce(summary);
+				finished = true;
+			}
 			UiUtils.LOGGER.info("Updated vulnerable plugin data from DupeDB ({} entries).",
 				versions.size());
 		} catch (Exception e) {
-			// Keep the bundled or last successfully downloaded list on any failure.
-			UiUtils.LOGGER.warn("DupeDB vulnerable plugin update failed; keeping the current list: {}",
-				e.getMessage());
+			if(CANCELLED.get() || e instanceof InterruptedException)
+				status = "DupeDB update stopped; database unchanged.";
+			else
+			{
+				String message = e.getMessage();
+				status = message != null && message.matches("DupeDB returned HTTP [0-9]{3}")
+					? message + "; keeping current database"
+					: "DupeDB refresh failed; keeping current database";
+				UiUtils.LOGGER.warn("{} ({})", status,
+				e.getClass().getSimpleName());
 		}
+			announce(status);
+		}finally
+		{
+			synchronized(UPDATE_LOCK)
+			{
+				worker = null;
+				finished = true;
+				Thread.interrupted();
+				RUNNING.set(false);
+			}
+		}
+	}
+
+	/**
+	 * Compare normalized names and versions against the currently usable
+	 * database.
+	 */
+	private static String updateSummary(List<PluginVersion> versions)
+	{
+		var existing = UiUtilsVulnerablePlugins.entriesByKey();
+		Set<String> knownPairs = new LinkedHashSet<>();
+		for(var entry : existing.entrySet())
+			for(String version : entry.getValue().versions())
+				knownPairs.add(entry.getKey() + "\u0000"
+					+ version.trim().toLowerCase(Locale.ROOT));
+		Set<String> addedPlugins = new LinkedHashSet<>();
+		int addedVersions = 0;
+		for(PluginVersion version : versions)
+		{
+			String key = UiUtilsVulnerablePlugins.normalizeKey(version.name());
+			if(knownPairs.add(key + "\u0000"
+				+ version.version().trim().toLowerCase(Locale.ROOT)))
+			{
+				addedVersions++;
+				if(!existing.containsKey(key))
+					addedPlugins.add(key);
+			}
+		}
+		if(addedVersions == 0)
+			return "Database checked: no new plugin/version entries ("
+				+ versions.size() + " checked).";
+		return "Database checked: added " + addedVersions
+			+ " new plugin/version entries (" + addedPlugins.size()
+			+ " new plugins; " + versions.size() + " checked).";
 	}
 
 	private static List<PluginVersion> fetchAll(String apiKey) throws Exception {
@@ -73,6 +241,7 @@ public final class UiUtilsDupeDbUpdater {
 			.connectTimeout(Duration.ofSeconds(15)).build();
 		Set<PluginVersion> found = new LinkedHashSet<>();
 		for (int page = 1; page <= MAX_PAGES; page++) {
+			checkCancelled();
 			String url = SEARCH_URL + "?q=&type=dupe&page=" + page
 				+ "&limit=" + PAGE_SIZE
 				+ "&sort=date_submitted&order=desc";
@@ -106,6 +275,7 @@ public final class UiUtilsDupeDbUpdater {
 	private static JsonObject requestJson(HttpClient client, URI uri, String apiKey)
 		throws Exception {
 		for (int retry = 0; ; retry++) {
+			checkCancelled();
 			HttpRequest request = HttpRequest.newBuilder(uri)
 				.timeout(Duration.ofSeconds(30))
 				.header("Authorization", "Bearer " + apiKey)
@@ -195,9 +365,10 @@ public final class UiUtilsDupeDbUpdater {
 	private static void writeAndReload(List<PluginVersion> versions)
 		throws IOException {
 		Path target = FabricLoader.getInstance().getConfigDir()
-			.resolve("ui-utils-vulnerable-plugins.json");
+			.resolve("ui-utils-dupedb-plugins.json");
 		Files.createDirectories(target.getParent());
-		Path temporary = target.resolveSibling(target.getFileName() + ".tmp");
+		Path temporary = Files.createTempFile(target.getParent(),
+			target.getFileName().toString(), ".tmp");
 		JsonArray json = new JsonArray();
 		for (PluginVersion version : versions) {
 			JsonObject entry = new JsonObject();

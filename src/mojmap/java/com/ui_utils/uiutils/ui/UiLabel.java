@@ -9,7 +9,7 @@ import net.minecraft.network.chat.Component;
 
 /** Static label used as a column next to a control inside a content row. */
 public class UiLabel extends AbstractWidget implements UiScalable {
-	private int color = UiTheme.TEXT;
+	private int color = UiTheme.textColor();
 	private boolean dim;
 	private boolean centered;
 	private float uiScale = 1F;
@@ -68,10 +68,10 @@ public class UiLabel extends AbstractWidget implements UiScalable {
 		int textY = UiTheme.textY(font, y, h);
 		if (centered)
 			UiTheme.textCentered(graphics, font, shown, x + w / 2, textY,
-				dim ? UiTheme.TEXT_DIM : color);
+				dim ? UiTheme.dimTextColor() : color);
 		else
 			UiTheme.text(graphics, font, shown, x, textY,
-				dim ? UiTheme.TEXT_DIM : color);
+				dim ? UiTheme.dimTextColor() : color);
 		UiTheme.popWidgetScale(graphics, scaled);
 	}
 

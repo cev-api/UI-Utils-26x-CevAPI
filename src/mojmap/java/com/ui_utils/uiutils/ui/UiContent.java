@@ -236,7 +236,7 @@ public final class UiContent {
 	public void label(String text) {
 		Font font = Minecraft.getInstance().font;
 		int height = font.lineHeight + 2;
-		underlays.add(new TextUnderlay(text, y, width, height, UiTheme.TEXT_DIM,
+		underlays.add(new TextUnderlay(text, y, width, height, UiTheme.dimTextColor(),
 			true));
 		advanceAll(height);
 	}
@@ -541,12 +541,12 @@ public final class UiContent {
 		public void draw(GuiGraphicsExtractor graphics, Font font, int cardWidth) {
 			int textY = y + 1;
 			String shown = UiTheme.ellipsize(font, title, width - 4);
-			UiTheme.text(graphics, font, shown, 0, textY, UiTheme.TEXT_DIM);
+			UiTheme.text(graphics, font, shown, 0, textY, UiTheme.dimTextColor());
 			int lineX = UiTheme.designTextWidth(font.width(shown)) + 5;
 			if (lineX < width)
 				graphics.fill(lineX, textY + UiTheme.lineHeight(font) / 2, width,
 					textY + UiTheme.lineHeight(font) / 2 + 1,
-					UiTheme.BORDER_SOFT);
+					UiTheme.softBorderColor());
 		}
 	}
 
@@ -596,7 +596,7 @@ public final class UiContent {
 			int lineY = y;
 			for(FormattedCharSequence line : font.split(text,
 				UiTheme.textWidth(width))) {
-				UiTheme.text(graphics, font, line, 0, lineY, UiTheme.TEXT_DIM);
+				UiTheme.text(graphics, font, line, 0, lineY, UiTheme.dimTextColor());
 				lineY += UiTheme.lineHeight(font);
 			}
 		}
@@ -613,7 +613,7 @@ public final class UiContent {
 
 		@Override
 		public void draw(GuiGraphicsExtractor graphics, Font font, int cardWidth) {
-			graphics.fill(0, y, width, y + 1, UiTheme.BORDER_SOFT);
+			graphics.fill(0, y, width, y + 1, UiTheme.softBorderColor());
 		}
 	}
 }

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2014-2026 Wurst-Imperium and contributors.
+ *
+ * This source code is subject to the terms of the GNU General Public
+ * License, version 3. If a copy of the GPL was not distributed with this
+ * file, You can obtain one at: https://www.gnu.org/licenses/gpl-3.0.txt
+ */
 package com.ui_utils.uiutils;
 
 import java.util.ArrayList;
@@ -15,13 +22,18 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
-/** Scrollable, bounded presentation of the passive server fingerprint snapshot. */
+/**
+ * Scrollable, bounded presentation of the passive server fingerprint snapshot.
+ */
 public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 	private final Screen parent;
 	private int renderedLineCount;
+	private boolean scansStarted;
+	private UiButton scanButton;
+	private List<ReportLine> renderedLines = List.of();
 
 	public UiUtilsVerboseServerScanScreen(Screen parent) {
-		super(Component.literal("Verbose Server Scan"));
+		super(Component.literal("Server Intel: Verbose Server Scan"));
 		this.parent = parent;
 	}
 
@@ -42,19 +54,36 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 
 	@Override
 	protected void buildContent(UiContent c) {
-		startMissingScans();
+		if(!scansStarted)
+		{
+			scansStarted = true;
+			startMissingScans();
+		}
 		int lineHeight = lineHeight();
-		List<String> lines = reportLines();
-		renderedLineCount = lines.size();
-		// Painted directly in the overlay, so its extent is declared for the same
+		renderedLines = wrappedReportLines(c.width());
+		renderedLineCount = renderedLines.size();
+		// Painted directly in the overlay, so its extent is declared for the
+		// same
 		// reason: text the screen draws is not covered by any widget.
-		int reportHeight = lines.size() * lineHeight + 4;
+		int reportHeight = renderedLines.size() * lineHeight + 4;
 		c.reportBottom(reportHeight);
 		c.space(reportHeight);
-		c.footerButton("Refresh", UiButton.Kind.SECONDARY, () -> {
-			startMissingScans();
-			Minecraft.getInstance().execute(this::rebuildWidgets);
+		scanButton = c.footerButton("", UiButton.Kind.SECONDARY, () -> {
+			if(scansActive())
+			{
+				UiUtilsCommandScanner.stopScan();
+				UiUtilsPluginScanner.stopScan();
+				UiUtilsLegacyPluginScanner.stopScan();
+			}
+			else
+			{
+				UiUtilsPluginScanner.startScan();
+				UiUtilsCommandScanner.startScan();
+			}
+			refreshScanButton();
+			Minecraft.getInstance().execute(this::rebuildWidgetsPreservingScroll);
 		});
+		refreshScanButton();
 		c.footerButton("Copy Report", UiButton.Kind.SECONDARY, () -> {
 			if (this.minecraft != null)
 				this.minecraft.keyboardHandler.setClipboard(buildReport());
@@ -65,8 +94,10 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 	@Override
 	public void tick() {
 		super.tick();
-		startMissingScans();
-		int lineCount = reportLines().size();
+		refreshScanButton();
+		List<ReportLine> fresh = wrappedReportLines(contentWidthUnits());
+		renderedLines = fresh;
+		int lineCount = fresh.size();
 		if (lineCount != renderedLineCount)
 			rebuildWidgetsPreservingScroll();
 	}
@@ -74,7 +105,7 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 	@Override
 	protected void drawContentOverlay(GuiGraphicsExtractor graphics, Font font,
 		int mouseX, int mouseY) {
-		List<String> lines = reportLines();
+		List<ReportLine> lines = renderedLines;
 		int lineHeight = lineHeight();
 		int top = (int)Math.round(scrollOffset());
 		int bottom = top + contentHeightUnits();
@@ -82,19 +113,32 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 			int y = i * lineHeight;
 			if (y + lineHeight < top || y > bottom)
 				continue;
-			String line = lines.get(i);
-			int color = line.startsWith("[") ? 0xFFFFDE7A
-				: line.startsWith("  ") ? 0xFFB8D8FF : 0xFFEAEAEA;
-			UiTheme.text(graphics, font,
-				UiTheme.ellipsize(font, line, contentWidthUnits()), 0, y + 1, color);
+			ReportLine line = lines.get(i);
+			UiTheme.text(graphics, font, line.text(), 0, y + 1, line.color());
 		}
 	}
 
-	private static int lineHeight() {
-		return Minecraft.getInstance().font.lineHeight + 2;
+	private static boolean scansActive()
+	{
+		return UiUtilsCommandScanner.isActive() || UiUtilsPluginScanner.isActive()
+			|| UiUtilsLegacyPluginScanner.isActive();
 	}
 
-	// Verbose Scan is a combined view; run missing active scans once for this server.
+	private void refreshScanButton()
+	{
+		if(scanButton != null) scanButton.setMessage(Component.literal(
+			scansActive() ? "STOP scans" : "Refresh"));
+	}
+
+	private int lineHeight() {
+		return Math.max(1,
+			(int)Math
+				.ceil(Minecraft.getInstance().font.lineHeight / currentScale()))
+			+ 2;
+	}
+
+	// Verbose Scan is a combined view; run missing active scans once for this
+	// server.
 	private static void startMissingScans() {
 		if (!UiUtilsPluginScanner.isActive() && !UiUtilsPluginScanner.hasResultsForCurrentServer())
 			UiUtilsPluginScanner.startScan();
@@ -109,7 +153,28 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 		McCompat.setScreen(this.minecraft, parent);
 	}
 
-	public static String buildReport() { return String.join("\n", reportLines()); }
+	public static String buildReport() { return String.join("\n", reportLines());
+	}
+
+	private List<ReportLine> wrappedReportLines(int contentWidth)
+	{
+		List<ReportLine> result = new ArrayList<>();
+		Font font = Minecraft.getInstance().font;
+		int width = Math.max(1, (int)Math.floor(contentWidth * currentScale()));
+		for(String line : reportLines())
+		{
+			int color = line.startsWith("[") ? 0xFFFFDE7A
+				: line.startsWith("  ") ? 0xFFB8D8FF : 0xFFEAEAEA;
+			for(net.minecraft.util.FormattedCharSequence part : font
+				.split(Component.literal(line), width))
+				result.add(new ReportLine(part, color));
+		}
+		return result;
+	}
+
+	private record ReportLine(net.minecraft.util.FormattedCharSequence text,
+		int color)
+	{}
 
 	private static List<String> reportLines() {
 		UiUtilsServerFingerprintCollector.Snapshot snapshot = UiUtilsServerFingerprintCollector.snapshot();
@@ -129,7 +194,8 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 			if (!friendly.equals(channel.namespace()) && !software.containsKey(friendly))
 				software.put(friendly, "Server custom payload " + channel.id());
 		}
-		// Do not duplicate a Known Pack with its same active-scan row (for example, MintUtils 1.0.0).
+		// Do not duplicate a Known Pack with its same active-scan row (for
+		// example, MintUtils 1.0.0).
 		for (UiUtilsPluginScanner.PluginResultRow row : UiUtilsPluginScanner.getResultsSnapshot()) {
 			boolean alreadyCovered = software.keySet().stream().anyMatch(name ->
 				row.plugin().equalsIgnoreCase(name) || row.plugin().regionMatches(true, 0,

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2014-2026 Wurst-Imperium and contributors.
+ *
+ * This source code is subject to the terms of the GNU General Public
+ * License, version 3. If a copy of the GPL was not distributed with this
+ * file, You can obtain one at: https://www.gnu.org/licenses/gpl-3.0.txt
+ */
 package com.ui_utils.uiutils;
 
 import java.util.ArrayList;
@@ -26,11 +33,14 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 	private UiInput searchField;
 	private UiInput packetCommandsField;
 	private UiButton scannerModeButton;
+	private UiButton commandScanButton, pluginScanButton, legacyScanButton, verboseScanButton;
 	private boolean commandOutputVisible;
 	private int commandCategory;
 	private int commandOutputTop;
 	private int resultsFlowTop;
-	/** Lines built for the last layout, shared by the measure and draw passes. */
+	/**
+	 * Lines built for the last layout, shared by the measure and draw passes.
+	 */
 	private List<Line> resultLines = List.of();
 	private final Set<String> expandedPlugins = new HashSet<>();
 	private final Set<String> expandedCommandLetters = new HashSet<>();
@@ -38,8 +48,15 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 	private boolean vulnerableListExpanded;
 
 	public UiUtilsCommandScannerScreen(Screen parent) {
-		super(Component.literal("UI-Utils Scanner Dashboard"));
+		super(Component.literal("UI-Utils Server Intel"));
 		this.parent = parent;
+		commandCategory =
+			"KNOWN".equalsIgnoreCase(
+				UiUtilsSettings.get().commandScannerResultFilter)
+					? 1
+					: "NEW".equalsIgnoreCase(
+						UiUtilsSettings.get().commandScannerResultFilter) ? 2
+							: 0;
 	}
 
 	@Override
@@ -54,6 +71,7 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 
 	@Override
 	protected void buildContent(UiContent c) {
+		c.section("Command scanning");
 		scannerModeButton = c.button("", () -> {
 			boolean packet = !"CLIENT_SIDE_ENUMERATION"
 				.equalsIgnoreCase(UiUtilsSettings.get().commandScannerMode);
@@ -64,22 +82,10 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		});
 		refreshScannerModeLabel();
 
-		c.row(UiContent.of(UiButton.of("Run command scan",
-				UiUtilsCommandScanner::startScan)),
-			UiContent.of(UiButton.of("Run plugin scan",
-				UiUtilsPluginScanner::startScan)));
-		c.slider("Scanner speed", UiUtilsSettings.Data.MIN_PROBES_PER_SECOND,
-			UiUtilsSettings.Data.MAX_PROBES_PER_SECOND,
-			UiUtilsSettings.getProbesPerSecond(), value -> {
-				UiUtilsSettings.get().scannerProbesPerSecond = value;
-				UiUtilsSettings.save();
-			}).suffix(" probes/s");
-		c.button("Verbose Server Scan", () -> {
-			UiUtilsScanHistory.recordVerboseFingerprint(
-				UiUtilsScanHistory.serverKey(this.minecraft),
-				UiUtilsServerFingerprintCollector.snapshot());
-			McCompat.setScreen(this.minecraft,
-				new UiUtilsVerboseServerScanScreen(this));
+		commandScanButton = c.button("", () -> {
+			if(UiUtilsCommandScanner.isActive()) UiUtilsCommandScanner.stopScan();
+			else UiUtilsCommandScanner.startScan();
+			refreshScanButtons();
 		});
 		c.row(UiContent.of(toggle("Command debug",
 				() -> UiUtilsSettings.get().commandScannerDebugProbe,
@@ -93,16 +99,78 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 					UiUtilsSettings.get().commandScannerRunFoundCommands = v;
 					UiUtilsSettings.save();
 				})));
-		c.button("Legacy Plugin Scan (Safer)",
-			UiUtilsLegacyPluginScanner::startScan);
+		c.section("Plugin scanning");
+		pluginScanButton = UiButton.of("", () -> {
+			if(UiUtilsPluginScanner.isActive()) UiUtilsPluginScanner.stopScan();
+			else UiUtilsPluginScanner.startScan();
+			refreshScanButtons();
+		});
+		legacyScanButton = UiButton.of("", () -> {
+			if(UiUtilsLegacyPluginScanner.isActive()) UiUtilsLegacyPluginScanner.stopScan();
+			else UiUtilsLegacyPluginScanner.startScan();
+			refreshScanButtons();
+		});
+		c.row(UiContent.of(pluginScanButton), UiContent.of(legacyScanButton));
+		c.toggle("Version oracle (/ver queries)",
+			() -> UiUtilsSettings.get().pluginScanVersionOracle, value -> {
+				UiUtilsSettings.get().pluginScanVersionOracle = value;
+				UiUtilsSettings.save();
+			})
+			.setTooltip(net.minecraft.client.gui.components.Tooltip
+				.create(Component.literal(
+					"OFF by default. Sends up to 12 /ver <plugin> command packets. Replies appear in your chat; queries are not public chat messages.")));
+		c.toggle("Oracle dictionary fallback",
+			() -> UiUtilsSettings.get().pluginScanOracleDictionary, value -> {
+				UiUtilsSettings.get().pluginScanOracleDictionary = value;
+				UiUtilsSettings.save();
+			})
+			.setTooltip(net.minecraft.client.gui.components.Tooltip
+				.create(Component.literal(
+					"Fill unused oracle queries with known plugin names after discovered names. Maximum 12 queries total.")));
+		c.section("Scan settings");
+		c.slider("Scanner speed", UiUtilsSettings.Data.MIN_PROBES_PER_SECOND,
+			UiUtilsSettings.Data.MAX_PROBES_PER_SECOND,
+			UiUtilsSettings.getProbesPerSecond(), value -> {
+				UiUtilsSettings.get().scannerProbesPerSecond = value;
+				UiUtilsSettings.save();
+			}).suffix(" probes/s");
+		verboseScanButton = c.button("", () -> {
+			if(scanning())
+			{
+				UiUtilsCommandScanner.stopScan();
+				UiUtilsPluginScanner.stopScan();
+				UiUtilsLegacyPluginScanner.stopScan();
+				refreshScanButtons();
+				return;
+			}
+			UiUtilsScanHistory.recordVerboseFingerprint(
+				UiUtilsScanHistory.serverKey(this.minecraft),
+				UiUtilsServerFingerprintCollector.snapshot());
+			McCompat.setScreen(this.minecraft,
+				new UiUtilsVerboseServerScanScreen(this));
+		});
+		refreshScanButtons();
 		c.section("Commands");
-		c.row(UiContent.of(toggle("Show vanilla commands", () -> UiUtilsSettings.get().commandScannerShowVanilla, value -> {
-			UiUtilsSettings.get().commandScannerShowVanilla = value;
+		c.row(UiContent.of(toggle("Ignore vanilla", () -> !UiUtilsSettings.get().commandScannerShowVanilla, value -> {
+			UiUtilsSettings.get().commandScannerShowVanilla = !value;
 			UiUtilsSettings.save();
 			rebuildWidgetsPreservingScroll();
 		})));
+		c.toggle("Exclude Essentials commands",
+			() -> UiUtilsSettings.get().commandScannerExcludeEssentials,
+			value -> {
+				UiUtilsSettings.get().commandScannerExcludeEssentials = value;
+				UiUtilsSettings.save();
+				rebuildWidgetsPreservingScroll();
+			})
+			.setTooltip(net.minecraft.client.gui.components.Tooltip
+				.create(Component.literal(
+					"Hide Essentials namespaces and common root aliases in command results. Root aliases may belong to other plugins.")));
 		c.button("Show: " + new String[] {"All discovered", "Already known", "Newly discovered"}[commandCategory], () -> {
 			commandCategory = (commandCategory + 1) % 3;
+				UiUtilsSettings.get().commandScannerResultFilter =
+					new String[]{"ALL", "KNOWN", "NEW"}[commandCategory];
+				UiUtilsSettings.save();
 			rebuildWidgetsPreservingScroll();
 		});
 		searchField = c.input(searchField == null ? "" : searchField.getValue(), value ->
@@ -126,10 +194,13 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		c.section("Results");
 		resultsFlowTop = c.cursor();
 		int lineHeight = lineHeight();
-		// The results and command output are painted directly, not as widgets, so
-		// their exact extent is declared here. Without this the scroll system would
-		// only see the widgets above and could never reach the bottom of the list.
-		resultLines = buildLines(true);
+		// The results and command output are painted directly, not as widgets,
+		// so
+		// their exact extent is declared here. Without this the scroll system
+		// would
+		// only see the widgets above and could never reach the bottom of the
+		// list.
+		resultLines = buildLines();
 		int drawnBottom = resultsFlowTop + 2 + resultLines.size() * lineHeight;
 		c.reportBottom(drawnBottom);
 		c.space(drawnBottom - c.cursor());
@@ -196,20 +267,37 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 	}
 
 	/**
-	 * Keeps the dashboard live while a scan runs. The result text is rebuilt every
-	 * tick, and the screen is re-laid out whenever the number of lines changes so
-	 * the space reserved for the list (and therefore the scroll range) matches what
+	 * Keeps the dashboard live while a scan runs. The result text is rebuilt
+	 * every
+	 * tick, and the screen is re-laid out whenever the number of lines changes
+	 * so
+	 * the space reserved for the list (and therefore the scroll range) matches
+	 * what
 	 * is actually drawn.
 	 */
 	@Override
 	public void tick() {
 		super.tick();
+		refreshScanButtons();
 		if (scanning()) {
 			refreshResults();
 			return;
 		}
-		// One final refresh after a scan finishes, so the last results are shown.
+		// One final refresh after a scan finishes, so the last results are
+		// shown.
 		refreshResults();
+	}
+
+	private void refreshScanButtons()
+	{
+		if(commandScanButton != null) commandScanButton.setMessage(Component.literal(
+			UiUtilsCommandScanner.isActive() ? "STOP command scan" : "Run command scan"));
+		if(pluginScanButton != null) pluginScanButton.setMessage(Component.literal(
+			UiUtilsPluginScanner.isActive() ? "STOP plugin scan" : "Run plugin scan"));
+		if(legacyScanButton != null) legacyScanButton.setMessage(Component.literal(
+			UiUtilsLegacyPluginScanner.isActive() ? "STOP legacy scan" : "Legacy Plugin Scan (Safer)"));
+		if(verboseScanButton != null) verboseScanButton.setMessage(Component.literal(
+			scanning() ? "STOP server scans" : "Verbose Server Scan"));
 	}
 
 	private boolean scanning() {
@@ -218,7 +306,7 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 	}
 
 	private void refreshResults() {
-		List<Line> fresh = buildLines(true);
+		List<Line> fresh = buildLines();
 		boolean sizeChanged = fresh.size() != resultLines.size();
 		resultLines = fresh;
 		// Growing results must not re-scale the screen, so the panel is only
@@ -288,24 +376,37 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 	}
 
 	private List<Line> buildLines() {
-		return buildLines(true);
-	}
-
-	private List<Line> buildLines(boolean applySearch) {		List<Line> lines = new ArrayList<>();
-		lines.add(new Line("Command Scanner", 0xFFFFB347));
+		List<Line> lines = new ArrayList<>();
+		lines.add(new Line("Command Scanner", 0xFF8CC8FF));
 		lines.add(new Line("Status: " + UiUtilsCommandScanner.getStatusLine(), 0xFFEAEAEA));
-		List<String> commands = commandCategory == 1 ? UiUtilsCommandScanner.getKnownCommandsSnapshot()
-			: commandCategory == 2 ? UiUtilsCommandScanner.getNewCommandsSnapshot() : UiUtilsCommandScanner.getFoundCommandsSnapshot();
-		commands = UiUtilsCommandScanner.filterVisibleCommands(commands, UiUtilsSettings.get().commandScannerShowVanilla);
-		boolean commandResultsTruncated = UiUtilsCommandScanner.hasTruncatedResponses();
-		lines.add(new Line("Found commands: " + commands.size()
-			+ (commandResultsTruncated ? "+" : ""), 0xFFB8B8B8));
-		lines.add(new Line("All: " + UiUtilsCommandScanner.filterVisibleCommands(UiUtilsCommandScanner.getFoundCommandsSnapshot(), UiUtilsSettings.get().commandScannerShowVanilla).size()
-			+ " | Known: " + UiUtilsCommandScanner.filterVisibleCommands(UiUtilsCommandScanner.getKnownCommandsSnapshot(), UiUtilsSettings.get().commandScannerShowVanilla).size()
-			+ " | New: " + UiUtilsCommandScanner.filterVisibleCommands(UiUtilsCommandScanner.getNewCommandsSnapshot(), UiUtilsSettings.get().commandScannerShowVanilla).size(), 0xFF909090));
-		if (commandResultsTruncated)
-			lines.add(new Line("! Some responses hit the server limit; counts are lower bounds.", 0xFFFFA8A8));
-		if (commands.size() > 50) {
+		lines.add(new Line(
+			"Suggestion probing: "
+				+ UiUtilsSuggestionCapability.getStatusLabel(),
+			UiUtilsSuggestionCapability.isSuppressed() ? 0xFFFFC857
+				: 0xFF909090));
+		lines.add(new Line(
+			(UiUtilsSettings.get().commandScannerExcludeEssentials
+				? "Essentials command aliases are hidden by the results filter."
+				: "Essentials commands are included in the results."),
+			0xFF909090));
+		UiUtilsCommandScanner.refreshKnownCommandsFromServer();
+		boolean showVanilla = UiUtilsSettings.get().commandScannerShowVanilla;
+		List<String> knownCommands =
+			UiUtilsCommandScanner.getKnownFoundCommandsSnapshot(showVanilla);
+		List<String> newCommands =
+			UiUtilsCommandScanner.getNewFoundCommandsSnapshot(showVanilla);
+		List<String> commands =
+			UiUtilsCommandScanner.getVisibleFoundCommandsSnapshot(
+				UiUtilsSettings.get().commandScannerResultFilter, showVanilla);
+		String commandCount = UiUtilsCommandScanner.hasTruncatedResults()
+			? commands.size()
+			+ "+" : String.valueOf(commands.size());
+		lines.add(new Line("Commands: " + commandCount + " shown ("
+			+ knownCommands.size() + " known, " + newCommands.size() + " new)", 0xFFB8B8B8));
+		if (UiUtilsCommandScanner.hasTruncatedResults())
+			lines.add(new Line(
+				"Some responses hit the server limit; counts are lower bounds.", 0xFFFFC857));
+		if (commands.size() > 50 || UiUtilsCommandScanner.hasTruncatedResults()) {
 			Map<Character, List<String>> byLetter = new LinkedHashMap<>();
 			for (char c = 'a'; c <= 'z'; c++)
 				byLetter.put(c, new ArrayList<>());
@@ -321,17 +422,19 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 					continue;
 				String key = "letter:" + entry.getKey();
 				boolean expanded = expandedCommandLetters.contains(key);
-				String count = String.valueOf(entry.getValue().size())
-					+ (UiUtilsCommandScanner.wasResponseTruncated(entry.getKey()) ? "+" : "");
+				String groupCount = String.valueOf(entry.getValue().size());
+				if(UiUtilsCommandScanner.isLetterGroupTruncated(entry.getKey()))
+					groupCount += "+";
 				lines.add(new Line((expanded ? "v " : "> ") + "[" + Character.toUpperCase(entry.getKey())
-					+ "] (" + count + ")", 0xFFFFFFFF, key));
+					+ "] (" + groupCount
+					+ ")", 0xFFFFFFFF, key));
 				if (expanded)
 					for (String cmd : entry.getValue())
-						lines.add(new Line("    /" + cmd + UiUtilsPluginScanner.commandAttribution(cmd), commandColor(cmd), "command:" + cmd));
+						addSelectableCommandLine(lines, "    ", cmd);
 			}
 		} else {
 			for (String cmd : commands)
-				lines.add(new Line("  /" + cmd + UiUtilsPluginScanner.commandAttribution(cmd), commandColor(cmd), "command:" + cmd));
+				addSelectableCommandLine(lines, "  ", cmd);
 		}
 
 		lines.add(new Line("", 0xFFFFFFFF));
@@ -349,13 +452,15 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 			}
 		}
 
-		String currentEvidence = "";
+		String currentConfidence = "";
 		for (UiUtilsPluginScanner.PluginResultRow row : plugins) {
-			if (!row.evidence().equalsIgnoreCase(currentEvidence)) {
-				currentEvidence = row.evidence();
-				lines.add(new Line("[" + (currentEvidence.equals("ROOT_HINT") ? "Heuristic: command alias/name" : currentEvidence) + "]", 0xFFF5F5F5));
+			if (!row.confidence().equalsIgnoreCase(currentConfidence)) {
+				currentConfidence = row.confidence();
+				lines.add(new Line("", 0xFFFFFFFF));
+				lines.add(new Line(confidenceHeading(row.confidenceLevel()),
+					confidenceHeadingColor(row.confidenceLevel())));
 			}
-			String pluginKey = "plugin:" + row.evidence().toLowerCase() + "|" + row.plugin().toLowerCase();
+			String pluginKey = "plugin:" + row.confidence().toLowerCase() + "|" + row.plugin().toLowerCase();
 			boolean expanded = expandedPlugins.contains(pluginKey);
 			String caret = expanded ? "v " : "> ";
 			String flag = row.anticheatFlagged() ? " ! " : " - ";
@@ -364,15 +469,24 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 			lines.add(new Line(caret + flag + row.plugin() + " (" + row.commandCount() + " cmds)",
 				vulnerable ? 0xFFFF7A7A : (row.anticheatFlagged() ? 0xFFFFA8A8 : 0xFF93F7A4), pluginKey));
 			if (expanded) {
+				lines.add(new Line("    evidence:", 0xFFD8D8D8));
+				for(String detail : row.evidence())
+					lines.add(new Line("      " + detail, 0xFFB8D8FF));
+				if(row.evidence().isEmpty())
+					lines.add(new Line("      (none recorded)", 0xFF909090));
+				if(row
+					.confidenceLevel() == UiUtilsPluginScanner.PluginConfidence.LOW)
+					lines.add(new Line(
+						"      ambiguous: these commands may be provided by another plugin",
+						0xFF909090));
+
 				List<String> details = UiUtilsServerFingerprintCollector.detailsForSoftware(row.plugin());
 				for (String detail : details)
-					lines.add(new Line("    " + detail, 0xFFB8D8FF));
-				if (row.commands().isEmpty()) {
-					if (details.isEmpty())
-						lines.add(new Line("    (no commands or cached details)", 0xFF909090));
-				} else {
+					lines.add(new Line("      " + detail, 0xFFB8B8B8));
+				if (!row.commands().isEmpty()) {
+					lines.add(new Line("    commands:", 0xFFD8D8D8));
 					for (String cmd : row.commands())
-						lines.add(new Line("    /" + cmd + UiUtilsPluginScanner.commandAttribution(cmd), commandColor(cmd), "command:" + cmd));
+						addSelectableCommandLine(lines, "      ", cmd);
 				}
 			}
 		}
@@ -402,7 +516,7 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		for (int i = Math.max(0, legacyEvents.size() - 8); i < legacyEvents.size(); i++)
 			lines.add(new Line("LGC: " + legacyEvents.get(i), 0xFFAAAAAA));
 
-		String query = !applySearch || searchField == null ? ""
+		String query = searchField == null ? ""
 			: searchField.getValue().trim().toLowerCase();
 		if (query.isEmpty())
 			return lines;
@@ -414,21 +528,49 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		return filtered;
 	}
 
-	private static int commandColor(String command) {
-		return UiUtilsCommandScanner.isCommandHiddenToUser(command) ? 0xFFFF5555 : 0xFFAEEBFF;
+	private void addSelectableCommandLine(List<Line> lines, String indent,
+		String command) {
+		if(command == null || command.isBlank())
+			return;
+		int color = UiUtilsCommandScanner.isClientVisibleCommand(command) ? 0xFFAEEBFF : 0xFFFF7A7A;
+		lines.add(new Line(
+			indent + "/" + command
+				+ UiUtilsPluginScanner.commandAttribution(command),
+			color, "command:" + command));
+	}
+
+	private static String confidenceHeading(
+		UiUtilsPluginScanner.PluginConfidence confidence)
+	{
+		return switch(confidence)
+		{
+			case HIGH -> "Detected plugins (high confidence)";
+			case MEDIUM -> "Likely plugins (medium confidence)";
+			case LOW -> "Possible plugins (weak evidence)";
+		};
+	}
+
+	private static int confidenceHeadingColor(
+		UiUtilsPluginScanner.PluginConfidence confidence)
+	{
+		return switch(confidence)
+		{
+			case HIGH -> 0xFF93F7A4;
+			case MEDIUM -> 0xFFFFD479;
+			case LOW -> 0xFFB8B8B8;
+		};
 	}
 
 	private void selectCommand(String command) {
-		if (packetCommandsField == null)
+		if (packetCommandsField == null || command == null || command.isBlank())
 			return;
-		String value = command;
+		String value = command.startsWith("/") ? command.substring(1) : command;
 		if (value.startsWith("trigger (") && value.endsWith(")"))
 			value = "trigger " + value.substring("trigger (".length(), value.length() - 1);
 		packetCommandsField.setValue("/" + value);
 		UiUtilsSettings.get().commandScannerPacketCommands = packetCommandsField.getValue();
 		UiUtilsSettings.save();
 		UiUtilsCommandScanner.clearManualCommandOutput();
-		commandOutputVisible = false;
 		rebuildWidgetsPreservingScroll();
 	}
 

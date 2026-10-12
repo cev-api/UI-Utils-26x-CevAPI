@@ -42,7 +42,16 @@ public final class UiUtilsVulnerablePlugins {
 	public static synchronized void reload() {
 		Path target = configPath();
 		ensureExternalJsonExists(target);
-		entriesByKey = Collections.unmodifiableMap(readEntries(target));
+		Map<String, VulnerableEntry> entries = readEntries(target);
+		Path cache = target.resolveSibling("ui-utils-dupedb-plugins.json");
+		if(UiUtilsSettings.get().dupeDbEnabled && Files.exists(cache))
+			for(Map.Entry<String, VulnerableEntry> cached : readEntries(cache).entrySet())
+			{
+				VulnerableEntry entry = entries.computeIfAbsent(cached.getKey(),
+					ignored -> new VulnerableEntry(cached.getValue().displayName()));
+				entry.versions().addAll(cached.getValue().versions());
+			}
+		entriesByKey = Collections.unmodifiableMap(entries);
 	}
 
 	public static Set<String> keys() {

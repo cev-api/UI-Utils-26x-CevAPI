@@ -23,8 +23,8 @@ public class UiInput extends EditBox implements UiScalable {
 	public UiInput(Font font, int width, String value, Component hint) {
 		super(font, 0, 0, width, UiTheme.ROW_HEIGHT, hint);
 		setBordered(false);
-		setTextColor(UiTheme.TEXT);
-		setTextColorUneditable(UiTheme.TEXT_MUTED);
+		setTextColor(UiTheme.textColor());
+		setTextColorUneditable(UiTheme.mutedTextColor());
 		setTextShadow(false);
 		// EditBox defaults to 32 characters. Callers often set their own limit only
 		// after construction; applying the initial value first silently truncated it.
@@ -87,6 +87,8 @@ public class UiInput extends EditBox implements UiScalable {
 	@Override
 	public void extractWidgetRenderState(GuiGraphicsExtractor graphics,
 		int mouseX, int mouseY, float partialTicks) {
+		setTextColor(UiTheme.textColor());
+		setTextColorUneditable(UiTheme.mutedTextColor());
 		int savedX = getX();
 		int savedY = getY();
 		int savedWidth = getWidth();
@@ -98,9 +100,9 @@ public class UiInput extends EditBox implements UiScalable {
 		int h = UiTheme.localSize(savedHeight, uiScale, scaled);
 		boolean hot = focusedFrame || isHoveredOrFocused();
 
-		graphics.fill(x, y, x + w, y + h, UiTheme.SURFACE_SUNK);
+		graphics.fill(x, y, x + w, y + h, UiTheme.inputColor());
 		UiTheme.border(graphics, x, y, w, h,
-			hot ? UiTheme.mix(UiTheme.BORDER, accent, 0.6F) : UiTheme.BORDER);
+			hot ? UiTheme.mix(UiTheme.borderColor(), accent, 0.6F) : UiTheme.borderColor());
 
 		// An unbordered EditBox draws its text at the widget origin, which would put
 		// it on top of the frame, so the field is temporarily inset while vanilla

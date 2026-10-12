@@ -83,7 +83,7 @@ public class UiSlider extends AbstractSliderButton implements UiScalable {
 		boolean hot = isHoveredOrFocused() && active;
 		graphics.fill(x, y, x + w, y + h,
 			hot ? UiTheme.SURFACE_ROW_HOVER : UiTheme.SURFACE_ROW);
-		UiTheme.border(graphics, x, y, w, h, UiTheme.BORDER);
+		UiTheme.border(graphics, x, y, w, h, UiTheme.borderColor());
 
 		int barLeft = x + 4;
 		int barRight = x + w - 4;
@@ -92,16 +92,16 @@ public class UiSlider extends AbstractSliderButton implements UiScalable {
 		int knob = barLeft + (int)Math.round((barRight - barLeft) * this.value);
 		graphics.fill(barLeft, barY, Math.max(barLeft + 1, knob), barY + 2,
 			UiTheme.accent());
-		graphics.fill(knob - 1, barY - 2, knob + 1, barY + 4, UiTheme.TEXT);
+		graphics.fill(knob - 1, barY - 2, knob + 1, barY + 4, UiTheme.textColor());
 
 		int textY = UiTheme.textY(font, y, h - 3);
 		String value = intValue() + valueSuffix;
 		int valueWidth = font.width(value);
 		UiTheme.text(graphics, font,
 			UiTheme.ellipsize(font, label, w - 12 - valueWidth), x + 4, textY,
-			UiTheme.TEXT);
+			UiTheme.textColor());
 		UiTheme.textRight(graphics, font, value, x + w - 4, textY,
-			UiTheme.TEXT_DIM);
+			UiTheme.dimTextColor());
 		UiTheme.popWidgetScale(graphics, scaled);
 	}
 

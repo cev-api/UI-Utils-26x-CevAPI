@@ -112,7 +112,8 @@ older macros containing only numeric bindings may need rebinding when moved betw
   - Plugin results merge packet evidence, known packs, custom payloads, command-tree roots, plugin-list evidence, and root hints. Expand plugin rows for associated commands and cached server evidence.
   - A Verbose Server Scan combines the current server fingerprint with plugin and command scans, starting missing scans for the current server when needed. Its report is scrollable and copyable.
   - Completed plugin, command, and verbose scans are stored as compact per-server JSON history under `<gameDir>/config/ui-utils-scan-history/`. Each scan overwrites its latest snapshot and records only added, removed, changed, or unchanged findings to avoid unbounded duplicate logs.
-  - Supports parsing plugins for vulnerabilities pursuant to the latest cache of [DupeDB](https://dupedb.net/).
+  - Plugin vulnerability checks use the bundled DupeDB data, which can be refreshed from [DupeDB](https://dupedb.net/) in Settings with an API key. Updates can run at game launch or on demand; the refreshed cache is kept separately from bundled and user plugin data.
+  - Packet command probes retry unanswered requests and report prefixes that remain unanswered or hit suggestion limits. Scans stop active probing when the server suppresses command-suggestion responses.
 ### AntiCheat Detector
   - Reads packets on server join to determine the current AntiCheat, if any.
   - Disable/Enable in settings.
@@ -284,7 +285,7 @@ Path behavior:
 - Advanced Packet Tool inspired by [HelixCraft's Packet Logger](https://github.com/HelixCraft/Fabric-Packet-Logger)
 - Extra UI-Utils options inspired by [FrannnnDev's fork](https://github.com/FrannnnDev/ui-utils-advanced/)
 - Published **with approval** from [MrBreakNFix](https://github.com/MrBreakNFix)
-- [DupeDB](https://dupedb.net) for their dupe list. Will eventually add API access for live updates.
+- [DupeDB](https://dupedb.net) for plugin vulnerability data and its update API.
 
 ## License
 

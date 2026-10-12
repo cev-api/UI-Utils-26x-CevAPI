@@ -19,7 +19,7 @@ public class UiListRow extends AbstractWidget implements UiScalable {
 	private Runnable action;
 	private Runnable doubleAction;
 	private boolean selected;
-	private int detailColor = UiTheme.TEXT_DIM;
+	private int detailColor = UiTheme.dimTextColor();
 	private int accent = -1;
 	private float uiScale = 1F;
 
@@ -109,7 +109,7 @@ public class UiListRow extends AbstractWidget implements UiScalable {
 
 		graphics.fill(x, y, x + w, y + h, fill);
 		UiTheme.border(graphics, x, y, w, h, selected
-			? UiTheme.mix(UiTheme.BORDER, accentColor, 0.7F) : UiTheme.BORDER);
+			? UiTheme.mix(UiTheme.borderColor(), accentColor, 0.7F) : UiTheme.borderColor());
 		if (selected)
 			graphics.fill(x, y, x + 2, y + h, accentColor);
 
@@ -118,11 +118,11 @@ public class UiListRow extends AbstractWidget implements UiScalable {
 		int labelSpace = w - 12 - detailWidth;
 		UiTheme.text(graphics, font,
 			UiTheme.ellipsize(font, label, Math.max(10, labelSpace)), x + 6, textY,
-			active ? UiTheme.TEXT : UiTheme.TEXT_MUTED);
+			active ? UiTheme.textColor() : UiTheme.mutedTextColor());
 		if (!detail.isEmpty())
 			UiTheme.textRight(graphics, font,
 				UiTheme.ellipsize(font, detail, Math.max(10, w / 2)), x + w - 5,
-				textY, active ? detailColor : UiTheme.TEXT_MUTED);
+				textY, active ? detailColor : UiTheme.mutedTextColor());
 		UiTheme.popWidgetScale(graphics, scaled);
 	}
 

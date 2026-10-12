@@ -77,6 +77,7 @@ public final class UiUtils {
 		refreshQueueCounterButtons();
 		refreshAutoduperButtons();
 		UiUtilsServerFingerprintCollector.onClientTick(mc);
+		UiUtilsDupeDbUpdater.onClientTick(mc);
 		UiUtilsPluginScanner.onTick();
 		UiUtilsLegacyPluginScanner.onTick();
 		UiUtilsCommandScanner.onTick();
@@ -127,6 +128,9 @@ public final class UiUtils {
         com.ui_utils.uiutils.macro.UiUtilsMacroActions.reset();
         UiUtilsGuiCache.onDisconnect();
         UiUtilsInventoryEvidence.clear();
+        UiUtilsCommandScanner.resetForServerChange();
+        UiUtilsCommandScanner.clearManualCommandOutput();
+        UiUtilsSuggestionCapability.clear();
         UiUtilsPluginScanner.resetForServerChange();
         UiUtilsLegacyPluginScanner.clearResultsForUi();
 		boolean wasDelayed = UiUtilsState.delayUiPackets;

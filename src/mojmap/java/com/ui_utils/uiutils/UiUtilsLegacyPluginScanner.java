@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2014-2026 Wurst-Imperium and contributors.
+ *
+ * This source code is subject to the terms of the GNU General Public
+ * License, version 3. If a copy of the GPL was not distributed with this
+ * file, You can obtain one at: https://www.gnu.org/licenses/gpl-3.0.txt
+ */
 package com.ui_utils.uiutils;
 
 import com.mojang.brigadier.suggestion.Suggestion;
@@ -17,12 +24,14 @@ public final class UiUtilsLegacyPluginScanner {
 	private static final Set<String> ANTICHEAT_WORDS = Set.of("nocheatplus",
 		"negativity", "vulcan", "spartan", "matrix", "grim", "themis", "kauri",
 		"godseye", "anticheat", "exploit", "illegal");
+	private static final int RESPONSE_TIMEOUT_TICKS = 20 * 3;
+	private static final String ACTIVE_PROBING_UNAVAILABLE =
+		"Active plugin probing unavailable. Using passive evidence.";
 	private static final Random RANDOM = new Random();
 
 	private static boolean scanning;
-	private static int elapsed;
-	private static net.minecraft.client.multiplayer.ClientPacketListener session;
 	private static int requestId = -1;
+	private static int ticksSinceStart;
 	private static final List<String> foundPlugins = new ArrayList<>();
 	private static final Set<String> dedupe = new HashSet<>();
 	private static String lastStatus = "Idle.";
@@ -36,15 +45,15 @@ public final class UiUtilsLegacyPluginScanner {
 	}
 
 	public static void onTick() {
-		Minecraft mc = Minecraft.getInstance();
-		if (session != null && (mc == null || mc.getConnection() != session)) {
-			clearResultsForUi();
-			session = null;
-			lastStatus = "Cleared due to connection change.";
-		} else if (scanning && ++elapsed >= 40) {
-			scanning = false;
-			requestId = -1;
-			lastStatus = "Legacy scan response timeout.";
+		if(!scanning)
+			return;
+		if (++ticksSinceStart >= RESPONSE_TIMEOUT_TICKS)
+		{
+			if(UiUtilsSuggestionCapability.recordUnansweredProbe()) {
+				lastStatus = ACTIVE_PROBING_UNAVAILABLE;
+				print(ACTIVE_PROBING_UNAVAILABLE);
+			}
+			finalizeUnanswered();
 		}
 	}
 
@@ -55,17 +64,38 @@ public final class UiUtilsLegacyPluginScanner {
 		if (scanning)
 			return "[UI-Utils] Legacy plugin scan already in progress.";
 
-		session = mc.getConnection();
-		elapsed = 0;
-		requestId = RANDOM.nextInt(100000);
-		mc.getConnection().send(new ServerboundCommandSuggestionPacket(requestId, "/ver "));
 		foundPlugins.clear();
 		dedupe.clear();
 		lastRows.clear();
+		ticksSinceStart = 0;
+		UiUtilsSuggestionCapability.bindTo(UiUtilsScanHistory.serverKey(mc));
+
+		if(UiUtilsSuggestionCapability.isSuppressed())
+		{
+			lastStatus = ACTIVE_PROBING_UNAVAILABLE;
+			print(ACTIVE_PROBING_UNAVAILABLE);
+			return "[UI-Utils] " + ACTIVE_PROBING_UNAVAILABLE;
+		}
+
+		requestId = RANDOM.nextInt(100000);
+		mc.getConnection().send(new ServerboundCommandSuggestionPacket(requestId, "ver "));
 		scanning = true;
 		lastStatus = "Legacy scanning plugins...";
 		print("Legacy plugin scan started.");
 		return "[UI-Utils] Legacy scanning plugins...";
+	}
+
+	private static void finalizeUnanswered()
+	{
+		scanning = false;
+		requestId = -1;
+		lastRows.clear();
+		UiUtilsScanHistory.recordPlugins(
+			UiUtilsScanHistory.serverKey(Minecraft.getInstance()),
+			"legacy_plugin", List.of());
+		lastStatus = UiUtilsSuggestionCapability.isSuppressed()
+			? ACTIVE_PROBING_UNAVAILABLE
+			: "Legacy: No plugins found or blocked.";
 	}
 
 	public static void onSuggestionsPacket(ClientboundCommandSuggestionsPacket packet) {
@@ -73,6 +103,8 @@ public final class UiUtilsLegacyPluginScanner {
 			return;
 		if (packet.id() != requestId)
 			return;
+
+		UiUtilsSuggestionCapability.recordResponse();
 
 		try {
 			Suggestions suggestions = packet.toSuggestions();
@@ -108,7 +140,7 @@ public final class UiUtilsLegacyPluginScanner {
 		requestId = -1;
 
 		Minecraft mc = Minecraft.getInstance();
-		if (mc == null || mc.player == null) {
+		if (mc.player == null) {
 			foundPlugins.clear();
 			dedupe.clear();
 			lastRows.clear();
@@ -142,8 +174,7 @@ public final class UiUtilsLegacyPluginScanner {
 			String text = (anticheat ? "!" : "") + plugin;
 			int color = vulnerable ? 0xFF6B6B : 0x93F7A4;
 			line = line.copy().append(Component.literal(text).withColor(color));
-			lastRows.add(new UiUtilsPluginScanner.PluginResultRow(
-				"LEGACY", plugin, 0, anticheat, List.of()));
+			lastRows.add(new UiUtilsPluginScanner.PluginResultRow("HIGH", plugin, 0, anticheat, List.of(), List.of("/ver output: " + plugin)));
 		}
 		mc.player.sendSystemMessage(line);
 		UiUtilsScanHistory.recordPlugins(UiUtilsScanHistory.serverKey(mc), "legacy_plugin", lastRows);
@@ -159,12 +190,23 @@ public final class UiUtilsLegacyPluginScanner {
 		if (UiUtilsSettings.get().commandScannerDebugProbe) {
 			Minecraft mc = Minecraft.getInstance();
 			if (mc.player != null)
-				UiUtils.postSystemMessage(Component.literal("[UI-Utils] " + msg));
+				mc.player
+					.sendSystemMessage(Component.literal("[UI-Utils] " + msg));
 		}
 	}
 
 	public static String getStatusLine() {
 		return lastStatus;
+	}
+
+	public static void stopScan()
+	{
+		if(!scanning) return;
+		scanning = false;
+		requestId = -1;
+		ticksSinceStart = 0;
+		lastStatus = "Legacy plugin scan stopped.";
+		print(lastStatus);
 	}
 
 	public static boolean isActive() {
@@ -182,6 +224,7 @@ public final class UiUtilsLegacyPluginScanner {
 	public static void clearResultsForUi() {
 		scanning = false;
 		requestId = -1;
+		ticksSinceStart = 0;
 		foundPlugins.clear();
 		dedupe.clear();
 		lastRows.clear();

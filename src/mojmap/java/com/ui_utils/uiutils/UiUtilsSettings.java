@@ -23,6 +23,10 @@ public final class UiUtilsSettings {
 
 	private UiUtilsSettings() {}
 
+	public static long getProbeIntervalNanos() {
+		return 1_000_000_000L / getProbesPerSecond();
+	}
+
 	public static Data get() {
 		return data;
 	}
@@ -146,6 +150,8 @@ public final class UiUtilsSettings {
 		// Draws the card, content and widget boxes so layout issues can be measured
 		public boolean uiDebugBounds = false;
 		public String dupeDbApiKey = "";
+		public boolean dupeDbEnabled = false;
+		public boolean dupeDbScanOnLaunch = true;
 
 		public int fabricateOverlayBgAlpha = 120;
 
@@ -161,11 +167,15 @@ public final class UiUtilsSettings {
 
 		// Wurst-style command scanner options
 		public String commandScannerMode = "PACKET_PROBING";
+		public boolean pluginScanVersionOracle = false;
+		public boolean pluginScanOracleDictionary = false;
 		public boolean commandScannerDebugProbe = false;
+		public String commandScannerResultFilter = "ALL";
 		public boolean commandScannerShowVanilla = false;
+		public boolean commandScannerExcludeEssentials = false;
 		public boolean commandScannerRunFoundCommands = false;
 		public String commandScannerDontSendFilter = "";
-		public String commandScannerPacketCommands = "I Love Cevapcici!";
+		public String commandScannerPacketCommands = "";
 		public int scannerProbesPerSecond = DEFAULT_PROBES_PER_SECOND;
 
 		// Autoduper private plugin-GUI test options
