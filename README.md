@@ -1,11 +1,6 @@
 # UI-Utils 26x CevAPI
 
 ![26.3](https://i.imgur.com/6GxdQDi.png)
-![Plugin](https://i.imgur.com/VOjDRrq.png)
-![Macro](https://i.imgur.com/kphmBFX.png)
-![PacketTool](https://i.imgur.com/ys5cHgI.png)
-![NBT](https://i.imgur.com/yduX4Y9.png)
-![Options](https://i.imgur.com/3s0XxZ9.png)
 
 ## Overview
 
@@ -101,6 +96,7 @@ older macros containing only numeric bindings may need rebinding when moved betw
   - **Timed Spam** mode: send a chosen slot click `N` times with a configurable millisecond interval for race / desync testing (for example `slot 5, 40 clicks, 50 ms apart`), with live progress
   - The overlay widgets are re-created on resize, so the fabricator no longer goes missing after a window resize
 ### Command, Plugin, and Server Scanner
+![Plugin](https://i.imgur.com/VOjDRrq.png)
   - The **Server Intel** screen has separate command, plugin, and legacy scan controls, a scanner-speed setting, and live status for scans and command-suggestion probing.
   - Passively caches joined-server packet evidence (configuration, known packs, payload channels, registries, dimensions, advancements, tab/scoreboard text, and chat-completion metadata) per connected server. Server-list/status traffic is excluded.
   - Command scans offer two modes:
@@ -119,16 +115,23 @@ older macros containing only numeric bindings may need rebinding when moved betw
   - Plugin vulnerability checks use bundled DupeDB exploit data, including affected plugin versions and finding details/links. In Settings, enter a DupeDB API key to enable database updates at launch or on demand.
   - **Check current server IP** optionally sends the joined server address to DupeDB to look up exploit reports, including submissions and verified sightings. Matching reports are cached locally and remain available offline. Server-IP checks require DupeDB updates to be enabled and can be started or stopped from Settings or Server Intel.
   - Packet command probes retry unanswered requests and report prefixes that remain unanswered or hit suggestion limits. Scans stop active probing when the server suppresses command-suggestion responses.
+### NBT Editor
+![NBT](https://i.imgur.com/yduX4Y9.png)
+  - Opens from the UI-Utils overlay, the container tools' **Open NBT** button, or `.uiutils nbt`.
+  - Syntax-highlighted SNBT editor with validation feedback and error locations; accepts item data as SNBT or JSON.
+  - Read targets: held item, looked-at block, looked-at entity, or open container. Container NBT is read-only and can be copied from the editor.
+  - **Apply / Give** writes edited item data to the selected hotbar slot in Creative mode. Applying block or entity data sends a `/data merge` command and requires enabling **OP World Edit** plus sufficient server permission.
+  - Create new item data, save named presets, and manage saved presets. Includes built-in presets.
 ### AntiCheat Detector
   - Reads packets on server join to determine the current AntiCheat, if any.
   - Disable/Enable in settings.
-### Extra Tools From [FrannnnDev's fork](https://github.com/FrannnnDev/ui-utils-advanced/) of UI-Utils
+### Ideas From [FrannnnDev's fork](https://github.com/FrannnnDev/ui-utils-advanced/) of UI-Utils
   - Leave & send, Disconnect & send, Save/Load GUI, Clear Queue, Queue, Resync Inv, Disconnect, Spam +/-, Send One, Pop Last
   - Queue helper and counter
   - ```.uiutils``` commands
   - Named GUI slot maps
-  - Plugin scanner
 ### Advanced Packet Tool (APT)
+![PacketTool](https://i.imgur.com/ys5cHgI.png)
   - Lets you manage packet behavior per packet type (S2C & C2S)
   - Supports 3 independent modes: Log, Deny and Delay
   - Modes can overlap (Log & Deny Packet A but also Log & Delay Packet B)
@@ -146,6 +149,7 @@ older macros containing only numeric bindings may need rebinding when moved betw
   - Inspired by [HelixCraft's Packet Logger](https://github.com/HelixCraft/Fabric-Packet-Logger)
   - Open from the UI‑Utils overlay, by keybind (configurable in Settings) or via `.uiutils apt`
 ### Macro System (Beta)
+![Macro](https://i.imgur.com/kphmBFX.png)
   - A macro is a named automation script made of ordered steps (actions and wait conditions).
   - The Macro Library provides Create New, Edit Selected, Delete Selected, Run Selected and Stop, plus import/export fields.
   - Macros can be saved, edited, duplicated, reordered, deleted, exported and imported.
@@ -188,6 +192,8 @@ older macros containing only numeric bindings may need rebinding when moved betw
   - Success messages report the exact attempt number for easy replay
   - Verbose mode toggle to find niche dupes even when similar attempts failed
 ### Expanded Settings Screen
+![Options](https://i.imgur.com/3s0XxZ9.png)
+
   - Tri‑state Slot Overlay: OFF / HOVER / ALWAYS
   - Unified HSV color picker with target selector:
     - Button background color
