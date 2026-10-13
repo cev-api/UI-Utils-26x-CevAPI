@@ -42,6 +42,8 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 	 * Lines built for the last layout, shared by the measure and draw passes.
 	 */
 	private List<Line> resultLines = List.of();
+	private int refreshTicks;
+	private boolean previouslyScanning;
 	private final Set<String> expandedPlugins = new HashSet<>();
 	private final Set<String> expandedCommandLetters = new HashSet<>();
 	private final List<ClickTargetRow> clickableRows = new ArrayList<>();
@@ -140,6 +142,8 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 				UiUtilsCommandScanner.stopScan();
 				UiUtilsPluginScanner.stopScan();
 				UiUtilsLegacyPluginScanner.stopScan();
+				if(UiUtilsDupeDbUpdater.isServerLookupActive())
+					UiUtilsDupeDbUpdater.stopScan();
 				refreshScanButtons();
 				return;
 			}
@@ -218,10 +222,19 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		clickableRows.clear();
 		if (commandOutputVisible)
 			drawCommandOutput(graphics, font, commandOutputTop + 2);
-		int y = resultsFlowTop + 2;
-		for (Line line : lines) {
+		int startY = resultsFlowTop + 2;
+		int top = (int)Math.floor(scrollOffset());
+		int bottom = top + contentHeightUnits();
+		int first = Math.max(0, Math.min(lines.size(), (top - startY) / lineHeight));
+		int end = Math.max(first, Math.min(lines.size(), (bottom - startY) / lineHeight + 1));
+		int y = startY + first * lineHeight;
+		for(int i = first; i < end; i++)
+		{
+			Line line = lines.get(i);
 			UiTheme.text(graphics, font,
-				UiTheme.ellipsize(font, line.text, contentWidthUnits()), 0, y,
+				UiTheme.ellipsize(font, line.bold
+					? Component.literal(line.text).withStyle(net.minecraft.ChatFormatting.BOLD)
+					: Component.literal(line.text), contentWidthUnits()), 0, y,
 				line.color);
 			if (line.clickKey != null)
 				clickableRows.add(new ClickTargetRow(line.clickKey, 0, y - 1,
@@ -235,7 +248,21 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		for (ClickTargetRow row : clickableRows) {
 			if (!row.contains(x, y))
 				continue;
-			if (row.clickKey.startsWith("plugin:")) {
+			if (row.clickKey.startsWith("dupedb:url:"))
+			{
+				String url = UiUtilsDupeDbDatabase
+					.safeUrl(row.clickKey.substring("dupedb:url:".length()));
+				if(url != null)
+					net.minecraft.client.gui.screens.ConfirmLinkScreen
+						.confirmLinkNow(this, java.net.URI.create(url), false);
+				return true;
+			}
+			if(row.clickKey.equals("dupedb:lookup"))
+			{
+				UiUtilsDupeDbUpdater.toggleServerLookup();
+				return true;
+			}
+			if(row.clickKey.startsWith("plugin:")) {
 				if (expandedPlugins.contains(row.clickKey))
 					expandedPlugins.remove(row.clickKey);
 				else
@@ -266,26 +293,19 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		Minecraft.getInstance().execute(this::rebuildWidgetsPreservingScroll);
 	}
 
-	/**
-	 * Keeps the dashboard live while a scan runs. The result text is rebuilt
-	 * every
-	 * tick, and the screen is re-laid out whenever the number of lines changes
-	 * so
-	 * the space reserved for the list (and therefore the scroll range) matches
-	 * what
-	 * is actually drawn.
-	 */
+	/** Keeps scan results live without rebuilding long reports every tick. */
 	@Override
 	public void tick() {
 		super.tick();
 		refreshScanButtons();
-		if (scanning()) {
+		boolean active = scanning();
+		// Update live results four times per second, with an immediate final refresh.
+		if(++refreshTicks >= 5 || active != previouslyScanning)
+		{
+			refreshTicks = 0;
 			refreshResults();
-			return;
 		}
-		// One final refresh after a scan finishes, so the last results are
-		// shown.
-		refreshResults();
+		previouslyScanning = active;
 	}
 
 	private void refreshScanButtons()
@@ -302,7 +322,8 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 
 	private boolean scanning() {
 		return UiUtilsCommandScanner.isActive() || UiUtilsPluginScanner.isActive()
-			|| UiUtilsLegacyPluginScanner.isActive();
+			|| UiUtilsLegacyPluginScanner.isActive()
+			|| UiUtilsDupeDbUpdater.isServerLookupActive();
 	}
 
 	private void refreshResults() {
@@ -377,6 +398,31 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 
 	private List<Line> buildLines() {
 		List<Line> lines = new ArrayList<>();
+		String serverAddress = UiUtilsDupeDbUpdater.currentServer();
+		List<UiUtilsVulnerablePlugins.Finding> serverFindings =
+			UiUtilsVulnerablePlugins.serverFindings(serverAddress);
+		if(!serverAddress.isEmpty() && (!serverFindings.isEmpty()
+			|| UiUtilsSettings.get().dupeDbCheckServerIp))
+		{
+			lines.add(new Line("DupeDB server reports: " + serverAddress,
+				0xFFFFDE7A));
+			lines.add(
+				new Line(UiUtilsDupeDbUpdater.serverLookupStatus(serverAddress),
+					0xFFB8D8FF));
+			if(UiUtilsSettings.get().dupeDbCheckServerIp)
+				lines.add(new Line(
+					UiUtilsDupeDbUpdater.isServerLookupActive()
+						? "STOP DupeDB server lookup"
+						: "Check / refresh server in DupeDB",
+					0xFF8CC8FF, "dupedb:lookup"));
+			if(serverFindings.isEmpty())
+				lines.add(new Line(
+					"No cached exploit or sighting matches for this address.",
+					0xFF909090));
+			for(var finding : serverFindings)
+				addDupeDbFinding(lines, finding, "  ");
+			lines.add(new Line("", 0xFFFFFFFF));
+		}
 		lines.add(new Line("Command Scanner", 0xFF8CC8FF));
 		lines.add(new Line("Status: " + UiUtilsCommandScanner.getStatusLine(), 0xFFEAEAEA));
 		lines.add(new Line(
@@ -443,12 +489,15 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		List<UiUtilsPluginScanner.PluginResultRow> plugins = UiUtilsPluginScanner.getResultsSnapshot();
 		lines.add(new Line("Detected plugins: " + plugins.size(), 0xFFB8B8B8));
 		Map<String, VulnerableHit> vulnerableHits = collectVulnerableHits(plugins);
-		lines.add(new Line((vulnerableListExpanded ? "v " : "> ") + "Vulnerable Plugins (" + vulnerableHits.size() + ")",
+		lines.add(new Line((vulnerableListExpanded ? "v " : "> ") + "Plugin vulnerability reports (" + vulnerableHits.size() + ")",
 			vulnerableHits.isEmpty() ? 0xFFB8B8B8 : 0xFFFF7A7A, "vuln:list"));
 		if (vulnerableListExpanded) {
 			for (VulnerableHit hit : vulnerableHits.values()) {
 				String versionText = hit.versions.isEmpty() ? "" : " (" + String.join(", ", hit.versions) + ")";
-				lines.add(new Line("  - " + hit.displayName + versionText, 0xFFFFA8A8));
+				lines.add(new Line("  - " + hit.displayName + " listed versions" + versionText, 0xFFFFA8A8));
+				for(var finding : UiUtilsVulnerablePlugins
+					.pluginFindings(hit.displayName))
+					addDupeDbFinding(lines, finding, "    ");
 			}
 		}
 
@@ -528,6 +577,18 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		return filtered;
 	}
 
+	private void addDupeDbFinding(List<Line> lines,
+		UiUtilsVulnerablePlugins.Finding finding, String indent)
+	{
+		String url = UiUtilsDupeDbDatabase.safeUrl(finding.url());
+		lines.add(new Line(
+			indent + finding.title() + (url == null ? "" : " [open]"),
+			UiUtilsVulnerablePlugins.patchColor(finding.patched()),
+			url == null ? null : "dupedb:url:" + url, true));
+		for(String detail : finding.details())
+			lines.add(new Line(indent + "  " + detail, UiUtilsVulnerablePlugins.patchDetailColor(detail, 0xFFD8D8D8)));
+	}
+
 	private void addSelectableCommandLine(List<Line> lines, String indent,
 		String command) {
 		if(command == null || command.isBlank())
@@ -588,7 +649,12 @@ public final class UiUtilsCommandScannerScreen extends UiModernScreen {
 		return hits;
 	}
 
-	private record Line(String text, int color, String clickKey) {
+	private record Line(String text, int color, String clickKey, boolean bold) {
+		private Line(String text, int color, String clickKey)
+		{
+			this(text, color, clickKey, false);
+		}
+
 		private Line(String text, int color) {
 			this(text, color, null);
 		}

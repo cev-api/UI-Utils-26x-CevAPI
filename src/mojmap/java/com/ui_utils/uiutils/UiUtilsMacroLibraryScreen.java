@@ -94,6 +94,8 @@ public final class UiUtilsMacroLibraryScreen extends UiModernScreen {
         importField = new UiInput(this.font, 1, importPath,
             Component.literal("Import path (NBT)"));
         importField.setMaxLength(1024);
+        importField.setCursorPosition(0);
+        importField.setHighlightPos(0);
         c.row(UiContent.of(importField, 6F),
             UiContent.fixed(UiButton.of("...", () -> openFilePicker(importField, true)), 26),
             UiContent.of(UiButton.of("Import", this::importMacro), 1.5F));
@@ -101,6 +103,8 @@ public final class UiUtilsMacroLibraryScreen extends UiModernScreen {
         exportField = new UiInput(this.font, 1, exportPath,
             Component.literal("Export folder"));
         exportField.setMaxLength(1024);
+        exportField.setCursorPosition(0);
+        exportField.setHighlightPos(0);
         c.row(UiContent.of(exportField, 6F),
             UiContent.fixed(UiButton.of("...", () -> openFilePicker(exportField, false)), 26),
             UiContent.of(UiButton.of("Export", this::exportMacro), 1.5F));
@@ -234,7 +238,10 @@ public final class UiUtilsMacroLibraryScreen extends UiModernScreen {
             Path start = pickerStartPath(target, importFile);
             McCompat.setScreen(minecraft, new UiUtilsFilePickerScreen(this, start, importFile, picked -> {
                 // The parent was reinitialised on return, so use its current field.
-                (importFile ? importField : exportField).setValue(picked.toString());
+                UiInput field = importFile ? importField : exportField;
+                field.setValue(picked.toString());
+                field.setCursorPosition(0);
+                field.setHighlightPos(0);
                 status = "Path selected.";
             }));
         } catch (IllegalArgumentException e) {

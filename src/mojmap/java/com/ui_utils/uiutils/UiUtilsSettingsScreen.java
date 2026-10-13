@@ -25,6 +25,7 @@ public final class UiUtilsSettingsScreen extends UiModernScreen {
 	private final Screen parent;
 	private boolean settingsDirty;
 	private UiButton dupeDbUpdateButton;
+	private UiButton dupeDbServerButton;
 
 	private UiInput selectedColorHexField;
 
@@ -220,12 +221,23 @@ public final class UiUtilsSettingsScreen extends UiModernScreen {
 				UiUtilsSettings.get().dupeDbScanOnLaunch = value;
 				UiUtilsSettings.save();
 			});
+		c.toggle("Check current server IP",
+			() -> UiUtilsSettings.get().dupeDbCheckServerIp, value -> {
+				UiUtilsSettings.get().dupeDbCheckServerIp = value;
+				UiUtilsSettings.save();
+				if(!value && UiUtilsDupeDbUpdater.isServerLookupActive()) UiUtilsDupeDbUpdater.stopScan();
+			}).setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal(
+				"When enabled, send the joined server address to DupeDB to check submissions and verified sightings. Cached reports remain available offline.")));
+		dupeDbServerButton = c.button("", () -> {
+			UiUtilsDupeDbUpdater.toggleServerLookup();
+			refreshDupeDbButton();
+		});
 		dupeDbUpdateButton = c.button("", () -> {
 			UiUtilsDupeDbUpdater.toggleRefresh();
 			refreshDupeDbButton();
 		});
 		refreshDupeDbButton();
-		c.note("Launch scanning OFF means manual only. Results are reported in chat.");
+		c.note("The launch toggle controls automatic update checks. Results are reported in chat.");
 		setStatus(UiUtilsDupeDbUpdater.getStatus());
 
 		c.footerButton("Done", UiButton.Kind.PRIMARY, this::onClose);
@@ -239,6 +251,8 @@ public final class UiUtilsSettingsScreen extends UiModernScreen {
 	}
 
 	private void refreshDupeDbButton() {
+		if(dupeDbServerButton != null) dupeDbServerButton.setMessage(Component.literal(
+			UiUtilsDupeDbUpdater.isServerLookupActive() ? "STOP server lookup" : "Check server in DupeDB"));
 		if(dupeDbUpdateButton != null) dupeDbUpdateButton.setMessage(Component.literal(
 			UiUtilsDupeDbUpdater.isActive() ? "STOP DupeDB update" : "Scan / update DupeDB now"));
 	}

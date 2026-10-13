@@ -1,4 +1,13 @@
+/*
+ * Copyright (c) 2014-2026 Wurst-Imperium and contributors.
+ *
+ * This source code is subject to the terms of the GNU General Public
+ * License, version 3. If a copy of the GPL was not distributed with this
+ * file, You can obtain one at: https://www.gnu.org/licenses/gpl-3.0.txt
+ */
 package com.ui_utils.uiutils.ui;
+
+import com.ui_utils.uiutils.McCompat;
 
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -9,13 +18,13 @@ import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
-import com.ui_utils.uiutils.McCompat;
 
 /**
  * Setting row: a label on the left and a small switch on the right. Clicking
  * anywhere on the row flips it, matching the Wurst7 modern style.
  */
 public class UiToggle extends AbstractWidget implements UiScalable {
+	private final UiWidgetTooltip tooltips = new UiWidgetTooltip();
 	private static final int SWITCH_WIDTH = 22;
 	private static final int SWITCH_HEIGHT = 10;
 
@@ -67,6 +76,7 @@ public class UiToggle extends AbstractWidget implements UiScalable {
 	@Override
 	protected void extractWidgetRenderState(GuiGraphicsExtractor graphics,
 		int mouseX, int mouseY, float partialTicks) {
+		isHovered = tooltips.render(this, graphics, mouseX, mouseY);
 		Font font = Minecraft.getInstance().font;
 		boolean scaled = UiTheme.pushWidgetScale(graphics, getX(), getY(), uiScale);
 		int x = scaled ? 0 : getX();
@@ -114,6 +124,21 @@ public class UiToggle extends AbstractWidget implements UiScalable {
 
 	@Override
 	protected void updateWidgetNarration(NarrationElementOutput narration) {
+		tooltips.narrate(narration);
 		defaultButtonNarrationText(narration);
 	}
+	@Override
+	public void setTooltip(net.minecraft.client.gui.components.Tooltip tooltip)
+	{
+		tooltips.set(tooltip);
+		// Defer only the screen-coordinate tooltip; native widget hover still uses design units.
+		super.setTooltip(null);
+	}
+
+	@Override
+	public void setTooltipDelay(java.time.Duration delay)
+	{
+		tooltips.setDelay(delay);
+	}
+
 }

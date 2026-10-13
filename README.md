@@ -1,9 +1,11 @@
 # UI-Utils 26x CevAPI
 
-![26.3](https://i.imgur.com/puyrNT6.png)
-![Plugin](https://i.imgur.com/KnOh7Mo.png)
-![Macro](https://i.imgur.com/fKw7tKc.png)
-![PacketTool](https://i.imgur.com/4EkC5X0.png)
+![26.3](https://i.imgur.com/6GxdQDi.png)
+![Plugin](https://i.imgur.com/VOjDRrq.png)
+![Macro](https://i.imgur.com/kphmBFX.png)
+![PacketTool](https://i.imgur.com/ys5cHgI.png)
+![NBT](https://i.imgur.com/yduX4Y9.png)
+![Options](https://i.imgur.com/3s0XxZ9.png)
 
 ## Overview
 
@@ -99,12 +101,14 @@ older macros containing only numeric bindings may need rebinding when moved betw
   - **Timed Spam** mode: send a chosen slot click `N` times with a configurable millisecond interval for race / desync testing (for example `slot 5, 40 clicks, 50 ms apart`), with live progress
   - The overlay widgets are re-created on resize, so the fabricator no longer goes missing after a window resize
 ### Command, Plugin, and Server Scanner
+  - The **Server Intel** screen has separate command, plugin, and legacy scan controls, a scanner-speed setting, and live status for scans and command-suggestion probing.
   - Passively caches joined-server packet evidence (configuration, known packs, payload channels, registries, dimensions, advancements, tab/scoreboard text, and chat-completion metadata) per connected server. Server-list/status traffic is excluded.
   - Command scans offer two modes:
     - **Packet** probes command suggestions and can discover roots beyond the immediately visible command list.
     - **Client** recursively enumerates paths from a separate copy of the server-supplied Brigadier tree, including literal subcommands, argument paths, and redirect/alias branches, without sending probe packets. It excludes client-only commands registered by local mods, even though those appear in Minecraft's combined command completion list.
   - Vanilla/default commands are hidden from results by default. Use **Show vanilla commands** to include them; this does not add client-only commands.
-  - Plugin scans request command suggestions only. They do not run the discovered commands or issue `/help` commands. Command roots remain in the command list; plugin names are shown only when there is supporting evidence. Known command aliases and product names are heuristic hints, not a filter, so unfamiliar roots remain discoverable and unattributed when ownership is unknown.
+  - Plugin identification uses command suggestions and does not run discovered commands or issue `/help` commands. Command roots remain in the command list; plugin names are shown only when there is supporting evidence. Known command aliases and product names are heuristic hints, not a filter, so unfamiliar roots remain discoverable and unattributed when ownership is unknown.
+  - Optional `/ver` version queries can check discovered plugin names; an optional dictionary fallback fills unused queries, with up to 12 queries total. These queries are sent as command packets and replies appear in chat.
   - Packet-discovered roots that are absent from the current player's synced command tree are highlighted red: they are permission-hidden for that player and should not be assumed executable.
   - Discovered command rows are clickable. Selecting one fills the packet-command field; execution still requires the explicit **Send packet cmds** button.
   - After a manual packet-command send, a temporary output panel records the sent command and system command responses. It does not capture player chat.
@@ -112,7 +116,8 @@ older macros containing only numeric bindings may need rebinding when moved betw
   - Plugin results merge packet evidence, known packs, custom payloads, command-tree roots, plugin-list evidence, and root hints. Expand plugin rows for associated commands and cached server evidence.
   - A Verbose Server Scan combines the current server fingerprint with plugin and command scans, starting missing scans for the current server when needed. Its report is scrollable and copyable.
   - Completed plugin, command, and verbose scans are stored as compact per-server JSON history under `<gameDir>/config/ui-utils-scan-history/`. Each scan overwrites its latest snapshot and records only added, removed, changed, or unchanged findings to avoid unbounded duplicate logs.
-  - Plugin vulnerability checks use the bundled DupeDB data, which can be refreshed from [DupeDB](https://dupedb.net/) in Settings with an API key. Updates can run at game launch or on demand; the refreshed cache is kept separately from bundled and user plugin data.
+  - Plugin vulnerability checks use bundled DupeDB exploit data, including affected plugin versions and finding details/links. In Settings, enter a DupeDB API key to enable database updates at launch or on demand.
+  - **Check current server IP** optionally sends the joined server address to DupeDB to look up exploit reports, including submissions and verified sightings. Matching reports are cached locally and remain available offline. Server-IP checks require DupeDB updates to be enabled and can be started or stopped from Settings or Server Intel.
   - Packet command probes retry unanswered requests and report prefixes that remain unanswered or hit suggestion limits. Scans stop active probing when the server suppresses command-suggestion responses.
 ### AntiCheat Detector
   - Reads packets on server join to determine the current AntiCheat, if any.

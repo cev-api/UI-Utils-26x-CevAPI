@@ -12,6 +12,7 @@ import com.ui_utils.uiutils.McCompat;
 
 /** Minimal hamburger-style pin toggle shared by floating UI panels. */
 public final class UiPinToggle extends AbstractButton implements UiScalable {
+	private final UiWidgetTooltip tooltips = new UiWidgetTooltip();
 	private final BooleanSupplier pinned;
 	private final Runnable toggle;
 	private float uiScale = 1F;
@@ -52,6 +53,7 @@ public final class UiPinToggle extends AbstractButton implements UiScalable {
 	@Override
 	protected void extractContents(GuiGraphicsExtractor graphics, int mouseX,
 		int mouseY, float partialTicks) {
+		isHovered = tooltips.render(this, graphics, mouseX, mouseY);
 		boolean scaled = UiTheme.pushWidgetScale(graphics, getX(), getY(), uiScale);
 		int x = scaled ? 0 : getX();
 		int y = scaled ? 0 : getY();
@@ -71,6 +73,21 @@ public final class UiPinToggle extends AbstractButton implements UiScalable {
 
 	@Override
 	protected void updateWidgetNarration(NarrationElementOutput narration) {
+		tooltips.narrate(narration);
 		defaultButtonNarrationText(narration);
 	}
+	@Override
+	public void setTooltip(net.minecraft.client.gui.components.Tooltip tooltip)
+	{
+		tooltips.set(tooltip);
+		// Defer only the screen-coordinate tooltip; native widget hover still uses design units.
+		super.setTooltip(null);
+	}
+
+	@Override
+	public void setTooltipDelay(java.time.Duration delay)
+	{
+		tooltips.setDelay(delay);
+	}
+
 }

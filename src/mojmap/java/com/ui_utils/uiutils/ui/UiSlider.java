@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2014-2026 Wurst-Imperium and contributors.
+ *
+ * This source code is subject to the terms of the GNU General Public
+ * License, version 3. If a copy of the GPL was not distributed with this
+ * file, You can obtain one at: https://www.gnu.org/licenses/gpl-3.0.txt
+ */
 package com.ui_utils.uiutils.ui;
 
 import net.minecraft.client.Minecraft;
@@ -12,6 +19,7 @@ import net.minecraft.util.Mth;
  * value on the right and the bar runs underneath.
  */
 public class UiSlider extends AbstractSliderButton implements UiScalable {
+	private final UiWidgetTooltip tooltips = new UiWidgetTooltip();
 	private final String label;
 	private final int min;
 	private final int max;
@@ -73,6 +81,7 @@ public class UiSlider extends AbstractSliderButton implements UiScalable {
 	@Override
 	public void extractWidgetRenderState(GuiGraphicsExtractor graphics,
 		int mouseX, int mouseY, float partialTicks) {
+		isHovered = tooltips.render(this, graphics, mouseX, mouseY);
 		Font font = Minecraft.getInstance().font;
 		boolean scaled = UiTheme.pushWidgetScale(graphics, getX(), getY(), uiScale);
 		int x = scaled ? 0 : getX();
@@ -110,4 +119,25 @@ public class UiSlider extends AbstractSliderButton implements UiScalable {
 			return 0.0D;
 		return Mth.clamp((value - min) / (double)(max - min), 0.0D, 1.0D);
 	}
+	@Override
+	public void updateWidgetNarration(net.minecraft.client.gui.narration.NarrationElementOutput narration)
+	{
+		super.updateWidgetNarration(narration);
+		tooltips.narrate(narration);
+	}
+
+	@Override
+	public void setTooltip(net.minecraft.client.gui.components.Tooltip tooltip)
+	{
+		tooltips.set(tooltip);
+		// Defer only the screen-coordinate tooltip; native widget hover still uses design units.
+		super.setTooltip(null);
+	}
+
+	@Override
+	public void setTooltipDelay(java.time.Duration delay)
+	{
+		tooltips.setDelay(delay);
+	}
+
 }

@@ -30,7 +30,15 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 	private int renderedLineCount;
 	private boolean scansStarted;
 	private UiButton scanButton;
+	private final java.util.Map<Integer, String> reportUrls =
+		new java.util.HashMap<>();
 	private List<ReportLine> renderedLines = List.of();
+	private List<String> cachedReport = List.of();
+	private Map<Integer, Integer> cachedFindingColors = Map.of();
+	private List<ReportLine> cachedWrappedLines = List.of();
+	private int cachedWrapWidth = -1;
+	private int refreshTicks;
+	private boolean previouslyScanning;
 
 	public UiUtilsVerboseServerScanScreen(Screen parent) {
 		super(Component.literal("Server Intel: Verbose Server Scan"));
@@ -74,6 +82,8 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 				UiUtilsCommandScanner.stopScan();
 				UiUtilsPluginScanner.stopScan();
 				UiUtilsLegacyPluginScanner.stopScan();
+				if(UiUtilsDupeDbUpdater.isServerLookupActive())
+					UiUtilsDupeDbUpdater.stopScan();
 			}
 			else
 			{
@@ -95,6 +105,11 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 	public void tick() {
 		super.tick();
 		refreshScanButton();
+		boolean active = scansActive();
+		if(++refreshTicks < 5 && active == previouslyScanning)
+			return;
+		refreshTicks = 0;
+		previouslyScanning = active;
 		List<ReportLine> fresh = wrappedReportLines(contentWidthUnits());
 		renderedLines = fresh;
 		int lineCount = fresh.size();
@@ -109,7 +124,8 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 		int lineHeight = lineHeight();
 		int top = (int)Math.round(scrollOffset());
 		int bottom = top + contentHeightUnits();
-		for (int i = 0; i < lines.size(); i++) {
+		for(int i = Math.max(0, top / lineHeight);
+			i < Math.min(lines.size(), bottom / lineHeight + 1); i++) {
 			int y = i * lineHeight;
 			if (y + lineHeight < top || y > bottom)
 				continue;
@@ -121,7 +137,8 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 	private static boolean scansActive()
 	{
 		return UiUtilsCommandScanner.isActive() || UiUtilsPluginScanner.isActive()
-			|| UiUtilsLegacyPluginScanner.isActive();
+			|| UiUtilsLegacyPluginScanner.isActive()
+			|| UiUtilsDupeDbUpdater.isServerLookupActive();
 	}
 
 	private void refreshScanButton()
@@ -161,15 +178,48 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 		List<ReportLine> result = new ArrayList<>();
 		Font font = Minecraft.getInstance().font;
 		int width = Math.max(1, (int)Math.floor(contentWidth * currentScale()));
-		for(String line : reportLines())
+
+		Map<Integer, Integer> findingColors = new java.util.HashMap<>();
+		List<String> report = reportLines(findingColors);
+		if(width == cachedWrapWidth && report.equals(cachedReport)
+			&& findingColors.equals(cachedFindingColors))
+			return cachedWrappedLines;
+		reportUrls.clear();
+		for(int lineIndex = 0; lineIndex < report.size(); lineIndex++)
 		{
+			String line = report.get(lineIndex);
 			int color = line.startsWith("[") ? 0xFFFFDE7A
 				: line.startsWith("  ") ? 0xFFB8D8FF : 0xFFEAEAEA;
+			color = UiUtilsVulnerablePlugins.patchDetailColor(line, findingColors.getOrDefault(lineIndex, color));
+			Component text = findingColors.containsKey(lineIndex)
+				? Component.literal(line).withStyle(net.minecraft.ChatFormatting.BOLD)
+				: Component.literal(line);
 			for(net.minecraft.util.FormattedCharSequence part : font
-				.split(Component.literal(line), width))
+				.split(text, width))
+			{
+				if(line.startsWith("    URL: "))
+					reportUrls.put(result.size(),
+						line.substring("    URL: ".length()));
 				result.add(new ReportLine(part, color));
 		}
+		}
+		cachedReport = List.copyOf(report);
+		cachedFindingColors = Map.copyOf(findingColors);
+		cachedWrapWidth = width;
+		cachedWrappedLines = List.copyOf(result);
 		return result;
+	}
+
+	@Override
+	protected boolean onContentClick(int x, int y, boolean doubleClick)
+	{
+		String url =
+			UiUtilsDupeDbDatabase.safeUrl(reportUrls.get(y / lineHeight()));
+		if(url == null)
+			return false;
+		net.minecraft.client.gui.screens.ConfirmLinkScreen.confirmLinkNow(this,
+			java.net.URI.create(url), false);
+		return true;
 	}
 
 	private record ReportLine(net.minecraft.util.FormattedCharSequence text,
@@ -177,8 +227,51 @@ public final class UiUtilsVerboseServerScanScreen extends UiModernScreen {
 	{}
 
 	private static List<String> reportLines() {
+		return reportLines(new java.util.HashMap<>());
+	}
+
+	private static List<String> reportLines(Map<Integer, Integer> findingColors)
+	{
 		UiUtilsServerFingerprintCollector.Snapshot snapshot = UiUtilsServerFingerprintCollector.snapshot();
 		List<String> lines = new ArrayList<>();
+		String serverAddress = UiUtilsDupeDbUpdater.currentServer();
+		var serverFindings =
+			UiUtilsVulnerablePlugins.serverFindings(serverAddress);
+		if(!serverAddress.isEmpty() && (!serverFindings.isEmpty()
+			|| UiUtilsSettings.get().dupeDbCheckServerIp))
+		{
+			lines.add("[DupeDB server reports: " + serverAddress + "]");
+			lines.add(UiUtilsDupeDbUpdater.serverLookupStatus(serverAddress));
+			for(var finding : serverFindings)
+			{
+				findingColors.put(lines.size(), UiUtilsVulnerablePlugins.patchColor(finding.patched()));
+				lines.add("  " + finding.title());
+				for(String detail : finding.details())
+					lines.add("    " + detail);
+				if(finding.url() != null)
+					lines.add("    URL: " + finding.url());
+			}
+		}
+		java.util.Set<String> seenPlugins = new java.util.HashSet<>();
+		for(var plugin : UiUtilsPluginScanner.getResultsSnapshot())
+			if(seenPlugins
+				.add(UiUtilsVulnerablePlugins.normalizeKey(plugin.plugin())))
+			{
+				var findings =
+					UiUtilsVulnerablePlugins.pluginFindings(plugin.plugin());
+				if(!findings.isEmpty())
+					lines.add(
+						"[DupeDB plugin reports: " + plugin.plugin() + "]");
+				for(var finding : findings)
+				{
+					findingColors.put(lines.size(), UiUtilsVulnerablePlugins.patchColor(finding.patched()));
+				lines.add("  " + finding.title());
+					for(String detail : finding.details())
+						lines.add("    " + detail);
+					if(finding.url() != null)
+						lines.add("    URL: " + finding.url());
+				}
+			}
 		lines.add("[Summary]");
 		lines.add("Connected snapshot: " + snapshot.connected());
 		if (!snapshot.configurationCaptured())

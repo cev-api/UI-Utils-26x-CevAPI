@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2014-2026 Wurst-Imperium and contributors.
+ *
+ * This source code is subject to the terms of the GNU General Public
+ * License, version 3. If a copy of the GPL was not distributed with this
+ * file, You can obtain one at: https://www.gnu.org/licenses/gpl-3.0.txt
+ */
 package com.ui_utils.uiutils.ui;
 
 import net.minecraft.client.Minecraft;
@@ -9,6 +16,7 @@ import net.minecraft.network.chat.Component;
 
 /** Static label used as a column next to a control inside a content row. */
 public class UiLabel extends AbstractWidget implements UiScalable {
+	private final UiWidgetTooltip tooltips = new UiWidgetTooltip();
 	private int color = UiTheme.textColor();
 	private boolean dim;
 	private boolean centered;
@@ -58,6 +66,7 @@ public class UiLabel extends AbstractWidget implements UiScalable {
 	@Override
 	protected void extractWidgetRenderState(GuiGraphicsExtractor graphics,
 		int mouseX, int mouseY, float partialTicks) {
+		isHovered = tooltips.render(this, graphics, mouseX, mouseY);
 		Font font = Minecraft.getInstance().font;
 		boolean scaled = UiTheme.pushWidgetScale(graphics, getX(), getY(), uiScale);
 		int x = scaled ? 0 : getX();
@@ -77,5 +86,18 @@ public class UiLabel extends AbstractWidget implements UiScalable {
 
 	@Override
 	protected void updateWidgetNarration(NarrationElementOutput narration) {
+		tooltips.narrate(narration);}
+	@Override
+	public void setTooltip(net.minecraft.client.gui.components.Tooltip tooltip)
+	{
+		tooltips.set(tooltip);
+		// Defer only the screen-coordinate tooltip; native widget hover still uses design units.
+		super.setTooltip(null);
+	}
+
+	@Override
+	public void setTooltipDelay(java.time.Duration delay)
+	{
+		tooltips.setDelay(delay);
 	}
 }

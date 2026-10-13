@@ -1,4 +1,13 @@
+/*
+ * Copyright (c) 2014-2026 Wurst-Imperium and contributors.
+ *
+ * This source code is subject to the terms of the GNU General Public
+ * License, version 3. If a copy of the GPL was not distributed with this
+ * file, You can obtain one at: https://www.gnu.org/licenses/gpl-3.0.txt
+ */
 package com.ui_utils.uiutils.ui;
+
+import com.ui_utils.uiutils.McCompat;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -7,7 +16,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 import org.joml.Matrix3x2fStack;
-import com.ui_utils.uiutils.McCompat;
 import com.ui_utils.uiutils.UiUtilsSettings;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -20,20 +28,25 @@ import net.minecraft.util.Mth;
 /**
  * Base for every modern UI-Utils screen.
  * <p>
- * Content is described in design units by {@link UiContent}. The screen picks one
- * scale for the whole panel, applies that scale to rendering and to mouse input,
- * and scrolls the content when it is taller than the window. One transform covers
+ * Content is described in design units by {@link UiContent}. The screen picks
+ * one
+ * scale for the whole panel, applies that scale to rendering and to mouse
+ * input,
+ * and scrolls the content when it is taller than the window. One transform
+ * covers
  * everything, so text never ends up at different sizes and no control can be
  * pushed off screen.
  * <p>
  * Scaling rules: the panel only shrinks below 1x when the window is too narrow
- * for it (horizontal overflow cannot be scrolled), it grows into spare room up to
+ * for it (horizontal overflow cannot be scrolled), it grows into spare room up
+ * to
  * 1.5x, and vertical overflow scrolls instead of shrinking the text.
  */
 public abstract class UiModernScreen extends Screen {
 	private static final double WHEEL_UNITS = 14D;
 	private static final int MARGIN = 4;
-	// Symmetric inset for the card's content and header. The scrollbar sits in the
+	// Symmetric inset for the card's content and header. The scrollbar sits in
+	// the
 	// remaining right-side gutter, outside this inset.
 	private static final int CONTENT_X = UiTheme.PAD + 3;
 	private static final int CONTENT_Y = UiTheme.HEADER_HEIGHT;
@@ -47,6 +60,7 @@ public abstract class UiModernScreen extends Screen {
 		.newSetFromMap(new IdentityHashMap<>());
 
 	private float scale = 1F;
+	private int tooltipMouseX, tooltipMouseY;
 	private int originX;
 	private int originY;
 	private int cardWidth;
@@ -54,8 +68,10 @@ public abstract class UiModernScreen extends Screen {
 	private int viewportHeight;
 	/**
 	 * Raw content extents, in content units. These are NEVER clamped to the
-	 * viewport: the scroll range has to be derived from what the content actually
-	 * needs, otherwise maxScroll is forced to zero and content past the viewport can
+	 * viewport: the scroll range has to be derived from what the content
+	 * actually
+	 * needs, otherwise maxScroll is forced to zero and content past the
+	 * viewport can
 	 * never be reached.
 	 */
 	private int cursorBottom;
@@ -68,6 +84,7 @@ public abstract class UiModernScreen extends Screen {
 	private double scroll;
 	private double maxScroll;
 	private String status = "";
+	private long statusStartedNanos = System.nanoTime();
 	private int barLeft;
 	private int barTop;
 	private int barBottom;
@@ -85,7 +102,9 @@ public abstract class UiModernScreen extends Screen {
 		return 240;
 	}
 
-	/** Grow the panel into spare horizontal room instead of leaving it narrow. */
+	/**
+	 * Grow the panel into spare horizontal room instead of leaving it narrow.
+	 */
 	protected boolean expandWidth() {
 		return false;
 	}
@@ -95,7 +114,9 @@ public abstract class UiModernScreen extends Screen {
 		return 460;
 	}
 
-	/** Let the panel use the full window height instead of hugging its content. */
+	/**
+	 * Let the panel use the full window height instead of hugging its content.
+	 */
 	protected boolean expandHeight() {
 		return false;
 	}
@@ -103,22 +124,31 @@ public abstract class UiModernScreen extends Screen {
 	/** Fill in the screen content. Called again on every resize. */
 	protected abstract void buildContent(UiContent content);
 
-	/** Extra drawing inside the clipped, scrolled content area. Content units. */
+	/**
+	 * Extra drawing inside the clipped, scrolled content area. Content units.
+	 */
 	protected void drawContentOverlay(GuiGraphicsExtractor graphics, Font font,
 		int mouseX, int mouseY) {
 	}
 
 	/**
-	 * Click inside the clipped, scrolled content area, in content units. Screens
+	 * Click inside the clipped, scrolled content area, in content units.
+	 * Screens
 	 * that draw their own text blocks use this instead of raw hit testing.
 	 */
 	protected boolean onContentClick(int x, int y, boolean doubleClick) {
 		return false;
 	}
 
-	/** Short text shown at the right of the header, such as a pending prompt. */
+	/**
+	 * Short text shown at the right of the header, such as a pending prompt.
+	 */
 	public void setStatus(String value) {
-		this.status = value == null ? "" : value;
+		String next = value == null ? "" : value;
+		if (!status.equals(next)) {
+			status = next;
+			statusStartedNanos = System.nanoTime();
+		}
 	}
 
 	protected final int contentHeightUnits() {
@@ -150,7 +180,10 @@ public abstract class UiModernScreen extends Screen {
 		return scale;
 	}
 
-	/** Rebuilds dynamic content without throwing away the user's scroll position. */
+	/**
+	 * Rebuilds dynamic content without throwing away the user's scroll
+	 * position.
+	 */
 	protected final void rebuildWidgetsPreservingScroll() {
 		double previousScroll = scroll;
         java.util.List<net.minecraft.client.gui.components.EditBox> oldFields = children().stream()
@@ -204,9 +237,12 @@ public abstract class UiModernScreen extends Screen {
 			+ buildAndCollect(designContentWidth(naturalWidth()))
 			+ UiTheme.FOOTER_HEIGHT;
 		computeScaleAndWidth();
-		// Pass 2: rebuild using the FINAL card width. Card width and scale are then
-		// locked before the content is measured, so the width the content was laid
-		// out for is always the width it is drawn into. Recomputing the card width
+		// Pass 2: rebuild using the FINAL card width. Card width and scale are
+		// then
+		// locked before the content is measured, so the width the content was
+		// laid
+		// out for is always the width it is drawn into. Recomputing the card
+		// width
 		// after building was what clipped the right hand side of screens whose
 		// content height changed the scale.
 		clearWidgets();
@@ -219,8 +255,10 @@ public abstract class UiModernScreen extends Screen {
 		cursorBottom = measuredContentHeight;
 		maxWidgetBottom = 0;
 		computeHeight(settled);
-		// Place the children, then settle the scroll extent against their REAL bounds
-		// plus anything the screen reported drawing itself. The layout cursor alone is
+		// Place the children, then settle the scroll extent against their REAL
+		// bounds
+		// plus anything the screen reported drawing itself. The layout cursor
+		// alone is
 		// an estimate and misses manually rendered content.
 		placeItems();
 		settleExtent();
@@ -228,7 +266,8 @@ public abstract class UiModernScreen extends Screen {
 
 	/**
 	 * Width the content column actually has inside a card of the given width.
-	 * The content inset is symmetric; the scrollbar has its own gutter beyond it.
+	 * The content inset is symmetric; the scrollbar has its own gutter beyond
+	 * it.
 	 */
 	protected static int designContentWidth(int cardWidth) {
 		return Math.max(40, cardWidth - CONTENT_X * 2);
@@ -241,8 +280,10 @@ public abstract class UiModernScreen extends Screen {
 		contentWidgets.clear();
 		footerWidgets.clear();
 		owned.clear();
-		// Extents are per-generation: a rebuild after the content shrank must not
-		// keep reporting the old, taller extent or the scroll range would be stale.
+		// Extents are per-generation: a rebuild after the content shrank must
+		// not
+		// keep reporting the old, taller extent or the scroll range would be
+		// stale.
 		maxManualBottom = 0;
 		scroll = 0;
 	}
@@ -260,15 +301,18 @@ public abstract class UiModernScreen extends Screen {
 				case CONTENT -> contentWidgets.add(item.widget());
 			}
 		}
-		// Content the screen declares that it will draw itself (text blocks, result
+		// Content the screen declares that it will draw itself (text blocks,
+		// result
 		// lists) has to contribute to the extent too - those are not widgets.
 		maxManualBottom = Math.max(maxManualBottom, content.reportedBottom());
 		return content.height();
 	}
 
 	/**
-	 * Declares the bottom of content this screen draws itself, in content units.
-	 * Screens that paint their own text or lists must call this for the same span
+	 * Declares the bottom of content this screen draws itself, in content
+	 * units.
+	 * Screens that paint their own text or lists must call this for the same
+	 * span
 	 * they will draw, or that content cannot be scrolled to and may be cut off.
 	 */
 	protected final void reportContentBottom(int units) {
@@ -289,9 +333,12 @@ public abstract class UiModernScreen extends Screen {
 	/**
 	 * Fixes the scale and the card width.
 	 * <p>
-	 * Only the WIDTH constrains the scale: horizontal overflow cannot be scrolled,
-	 * so the panel has to fit across. Height is deliberately left alone - growing
-	 * content (scan results, long lists) makes the panel scroll, it does not shrink
+	 * Only the WIDTH constrains the scale: horizontal overflow cannot be
+	 * scrolled,
+	 * so the panel has to fit across. Height is deliberately left alone -
+	 * growing
+	 * content (scan results, long lists) makes the panel scroll, it does not
+	 * shrink
 	 * the whole UI.
 	 */
 	private void computeScaleAndWidth() {
@@ -302,13 +349,17 @@ public abstract class UiModernScreen extends Screen {
 		// Grow into spare width, but never above what fits and never above the
 		// user's target. snapScaleDown cannot round up past the fit.
 		// Small scales keep the box geometry and native-size glyphs too close
-		// together. Preserve a practical layout floor while still honoring smaller
+		// together. Preserve a practical layout floor while still honoring
+		// smaller
 		// scales when the card must fit horizontally.
 		scale = Math.min(Math.max(preferred, 0.875F), fitWidth);
 
-		// The viewport height MUST be known before the content is built: screens use
-		// availableContentHeight() to size their own lists while building. Setting it
-		// only after the build left it at zero during layout, so every list was sized
+		// The viewport height MUST be known before the content is built:
+		// screens use
+		// availableContentHeight() to size their own lists while building.
+		// Setting it
+		// only after the build left it at zero during layout, so every list was
+		// sized
 		// from a viewport of nothing.
 		viewportHeight = Math.max(60, (int)Math.floor(availH / scale));
 
@@ -328,12 +379,16 @@ public abstract class UiModernScreen extends Screen {
 		originY = Math.round((this.height - cardHeight * scale) / 2F);
 	}
 
-	/** Places every item and records how far down the placed children actually reach. */
+	/**
+	 * Places every item and records how far down the placed children actually
+	 * reach.
+	 */
 	private void placeItems() {
 		int offset = (int)Math.round(scroll);
 		int contentBottom = cardHeight - UiTheme.FOOTER_HEIGHT;
 		int contentRight = cardWidth - CONTENT_X;
-		// Raw: no viewport clamp, so a short child list does not mask a long one.
+		// Raw: no viewport clamp, so a short child list does not mask a long
+		// one.
 		maxWidgetBottom = 0;
 		for (UiContent.Item item : items) {
 			AbstractWidget widget = item.widget();
@@ -354,7 +409,8 @@ public abstract class UiModernScreen extends Screen {
 					y = CONTENT_Y + item.y() - offset;
 				}
 			}
-			// Keep at least the widget's minimum width inside both panel insets,
+			// Keep at least the widget's minimum width inside both panel
+			// insets,
 			// whatever a screen's own row arithmetic does.
 			x = Math.max(CONTENT_X, Math.min(x, contentRight - 8));
 			int width = Math.min(item.width(), contentRight - x);
@@ -372,7 +428,8 @@ public abstract class UiModernScreen extends Screen {
 				input.refreshVisibleText();
 			if (item.pin() == UiContent.Pin.CONTENT) {
 				widget.visible = y + height > CONTENT_Y && y < contentBottom;
-				// Content units, so it can be compared with the layout cursor directly.
+				// Content units, so it can be compared with the layout cursor
+				// directly.
 				maxWidgetBottom = Math.max(maxWidgetBottom,
 					(y - CONTENT_Y + offset) + height);
 			}
@@ -385,12 +442,15 @@ public abstract class UiModernScreen extends Screen {
 	 * Sizes the card (or the scroll range) from the REAL bottom of the placed
 	 * children rather than from the layout cursor alone.
 	 * <p>
-	 * Invariant: the card holds every child when the window has room for it, and
-	 * otherwise maxScroll is large enough to scroll the final child fully into the
+	 * Invariant: the card holds every child when the window has room for it,
+	 * and
+	 * otherwise maxScroll is large enough to scroll the final child fully into
+	 * the
 	 * viewport. The final widget is never left chopped with no way to reach it.
 	 */
 	private void settleExtent() {
-		// The natural extent is the RAW bottom of everything drawn, plus padding. It
+		// The natural extent is the RAW bottom of everything drawn, plus
+		// padding. It
 		// is deliberately not floored at the viewport height.
 		int naturalExtent = naturalContentHeight() + CONTENT_BOTTOM_PADDING;
 		measuredContentHeight = naturalExtent;
@@ -398,8 +458,10 @@ public abstract class UiModernScreen extends Screen {
 			+ UiTheme.FOOTER_HEIGHT;
 		if (required <= viewportHeight) {
 			if (expandHeight()) {
-				// Full-height screens, such as the scanner dashboard, deliberately keep
-				// the taller viewport even when the current result set is short.
+				// Full-height screens, such as the scanner dashboard,
+				// deliberately keep
+				// the taller viewport even when the current result set is
+				// short.
 				cardHeight = viewportHeight;
 				maxScroll = 0;
 				scroll = 0;
@@ -412,13 +474,15 @@ public abstract class UiModernScreen extends Screen {
 			if (cardHeight != required) {
 				cardHeight = required;
 				originY = Math.round((this.height - cardHeight * scale) / 2F);
-				// A taller card changes the room a filling item gets, so re-place once.
+				// A taller card changes the room a filling item gets, so
+				// re-place once.
 				placeItems();
 			}
 			updateScrollbar();
 			return;
 		}
-		// Not enough room: scroll. maxScroll is derived from the natural extent, so the
+		// Not enough room: scroll. maxScroll is derived from the natural
+		// extent, so the
 		// whole of the final row can be scrolled into the viewport.
 		maxScroll = Math.max(0, required - cardHeight);
 		scroll = Mth.clamp(scroll, 0, maxScroll);
@@ -426,9 +490,12 @@ public abstract class UiModernScreen extends Screen {
 	}
 
 	/**
-	 * Room for content in content units, based on the WINDOW rather than the card.
-	 * Derived from the viewport, which is fixed for a given window and scale, so a
-	 * screen that fills the window lands on the same answer on every layout pass and
+	 * Room for content in content units, based on the WINDOW rather than the
+	 * card.
+	 * Derived from the viewport, which is fixed for a given window and scale,
+	 * so a
+	 * screen that fills the window lands on the same answer on every layout
+	 * pass and
 	 * cannot feed its own height back into the measurement.
 	 */
 	protected final int availableContentHeight() {
@@ -436,7 +503,9 @@ public abstract class UiModernScreen extends Screen {
 			viewportHeight - CONTENT_Y - UiTheme.FOOTER_HEIGHT);
 	}
 
-	/** Viewport height in content units, same basis as acceptContentHeight(). */
+	/**
+	 * Viewport height in content units, same basis as acceptContentHeight().
+	 */
 	protected final int viewportHeightUnits() {
 		return Math.max(40, viewportHeight - CONTENT_Y - UiTheme.FOOTER_HEIGHT);
 	}
@@ -476,6 +545,8 @@ public abstract class UiModernScreen extends Screen {
 	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX,
 		int mouseY, float partialTicks) {
 		graphics.fill(0, 0, this.width, this.height, UiTheme.SCRIM);
+		tooltipMouseX = mouseX;
+		tooltipMouseY = mouseY;
 
 		int designMouseX = designX(mouseX);
 		int designMouseY = designY(mouseY);
@@ -493,8 +564,10 @@ public abstract class UiModernScreen extends Screen {
 
 			drawPanel(graphics);
 
-			// Clip only scrollable content. A scissor left enabled when scrolling is off
-			// also clips the pinned header, footer, chrome, and later GUI rendering.
+			// Clip only scrollable content. A scissor left enabled when
+			// scrolling is off
+			// also clips the pinned header, footer, chrome, and later GUI
+			// rendering.
 			boolean clipped = maxScroll > 0;
 			if (clipped)
 				graphics.enableScissor(0, CONTENT_Y - 1, cardWidth,
@@ -532,7 +605,8 @@ public abstract class UiModernScreen extends Screen {
 
 	/**
 	 * Optional layout overlay: outlines the card, the content region and every
-	 * content widget box, so a cut-off control can be measured on screen instead of
+	 * content widget box, so a cut-off control can be measured on screen
+	 * instead of
 	 * guessed at. Toggled by the "Debug layout boxes" setting.
 	 */
 	private void drawDebugBounds(GuiGraphicsExtractor graphics, int offset) {
@@ -555,7 +629,8 @@ public abstract class UiModernScreen extends Screen {
 			int y = widget.getY();
 			if (y + widget.getHeight() < CONTENT_Y || y > contentBottom)
 				continue;
-			// Cyan fits inside the viewport, red does not (and so cannot be reached).
+			// Cyan fits inside the viewport, red does not (and so cannot be
+			// reached).
 			boolean reachable = y >= CONTENT_Y
 				&& y + widget.getHeight() <= contentBottom;
 			UiTheme.border(graphics, x, y, Math.max(1, widget.getWidth()),
@@ -565,7 +640,8 @@ public abstract class UiModernScreen extends Screen {
 			if (index > 200)
 				break;
 		}
-		// RAW values only: none of these are clamped to the viewport, so a short
+		// RAW values only: none of these are clamped to the viewport, so a
+		// short
 		// child list cannot mask a taller manual one.
 		Font font = this.font;
 		int textX = CONTENT_X + 2;
@@ -613,17 +689,22 @@ public abstract class UiModernScreen extends Screen {
 		float previousTextScale = UiTheme.pushTextScale(1F);
 		Matrix3x2fStack pose = graphics.pose();
 		pose.pushMatrix();
-		// Fractional screen scaling otherwise places widgets between GUI pixels.
-		// Snap the frame and native text together, including vanilla EditBox text.
+		// Fractional screen scaling otherwise places widgets between GUI
+		// pixels.
+		// Snap the frame and native text together, including vanilla EditBox
+		// text.
 		float screenX = originX + widget.getX() * scale;
 		float screenY = originY + widget.getY() * scale;
 		pose.translate((Math.round(screenX) - screenX) / scale,
 			(Math.round(screenY) - screenY) / scale);
+		UiWidgetTooltip.Context previousTooltip = UiWidgetTooltip.push(widget,
+			tooltipMouseX, tooltipMouseY, widget.getRectangle().transformAxisAligned(pose));
 		try {
 			if (widget instanceof UiScalable scalable)
 				scalable.applyUiScale(1F / scale);
 			widget.extractRenderState(graphics, mouseX, mouseY, partialTicks);
 		} finally {
+			UiWidgetTooltip.pop(previousTooltip);
 			pose.popMatrix();
 			UiTheme.popTextScale(previousTextScale);
 		}
@@ -656,15 +737,18 @@ public abstract class UiModernScreen extends Screen {
 		UiTheme.border(graphics, 0, 0, cardWidth, cardHeight, UiTheme.borderColor());
 
 		int titleY = UiTheme.textY(this.font, 0, UiTheme.HEADER_HEIGHT);
-		int statusWidth = status.isEmpty() ? 0
-			: UiTheme.designTextWidth(this.font.width(status)) + 8;
-		String title = UiTheme.ellipsize(this.font, this.title.getString(),
-			cardWidth - CONTENT_X * 2 - 8 - statusWidth);
+		int headerRight = cardWidth - CONTENT_X;
+		for(AbstractWidget widget : headerWidgets)
+			if(widget.visible)
+				headerRight = Math.min(headerRight, widget.getX() - 6);
+		int headerWidth = Math.max(0, headerRight - CONTENT_X);
+		int titleWidth = status.isEmpty() ? headerWidth
+			: Math.min(UiTheme.designTextWidth(this.font.width(this.title)),
+				Math.max(0, headerWidth / 2 - 4));
+		String title = UiTheme.ellipsize(this.font, this.title.getString(), titleWidth);
 		UiTheme.text(graphics, this.font, title, CONTENT_X, titleY, UiTheme.textColor());
-		if (!status.isEmpty())
-			UiTheme.textRight(graphics, this.font,
-				UiTheme.ellipsize(this.font, status, statusWidth),
-				cardWidth - CONTENT_X, titleY, UiTheme.WARN);
+		if(!status.isEmpty())
+			drawHeaderStatus(graphics, CONTENT_X + titleWidth + 8, headerRight, titleY);
 
 		if (maxScroll > 0) {
 			graphics.fill(barLeft, barTop, barLeft + UiTheme.SCROLLBAR_WIDTH,
@@ -674,6 +758,40 @@ public abstract class UiModernScreen extends Screen {
 				&& mouseY >= barThumbY && mouseY <= barThumbY + barThumbHeight);
 			graphics.fill(barLeft, barThumbY, barLeft + UiTheme.SCROLLBAR_WIDTH,
 				barThumbY + barThumbHeight, hot ? accent : 0x80FFFFFF);
+		}
+	}
+
+	/** Long status messages scroll within their own clipped header region. */
+	private void drawHeaderStatus(GuiGraphicsExtractor graphics, int left, int right,
+		int y)
+	{
+		int available = right - left;
+		if(available <= 0)
+			return;
+		int textWidth = UiTheme.designTextWidth(this.font.width(status));
+		if(textWidth <= available)
+		{
+			UiTheme.textRight(graphics, this.font, status, right, y, UiTheme.WARN);
+			return;
+		}
+		// Pause at each end, then move at a steady speed so the full message is readable.
+		double overflow = textWidth - available;
+		double travelSeconds = overflow / 28D;
+		double pauseSeconds = 1.25D;
+		double elapsed = (System.nanoTime() - statusStartedNanos) / 1_000_000_000D;
+		double phase = elapsed % (2D * (travelSeconds + pauseSeconds));
+		double offset = phase < pauseSeconds ? 0D
+			: phase < pauseSeconds + travelSeconds ? (phase - pauseSeconds) * 28D
+			: phase < 2D * pauseSeconds + travelSeconds ? overflow
+			: overflow - (phase - 2D * pauseSeconds - travelSeconds) * 28D;
+		graphics.enableScissor(left, 1, right, UiTheme.HEADER_HEIGHT - 1);
+		try
+		{
+			UiTheme.text(graphics, this.font, status, left - (int)Math.round(offset), y,
+				UiTheme.WARN);
+		}finally
+		{
+			graphics.disableScissor();
 		}
 	}
 
@@ -723,8 +841,10 @@ public abstract class UiModernScreen extends Screen {
 
 	private boolean dispatchWithoutContent(MouseButtonEvent design,
 		boolean doubleClick) {
-		// A footer action can rebuild the screen during dispatch. Restore the old
-		// generation rather than indexing into the new, potentially longer list.
+		// A footer action can rebuild the screen during dispatch. Restore the
+		// old
+		// generation rather than indexing into the new, potentially longer
+		// list.
 		List<AbstractWidget> dispatched = new ArrayList<>(contentWidgets);
 		boolean[] restore = new boolean[dispatched.size()];
 		for (int i = 0; i < dispatched.size(); i++) {

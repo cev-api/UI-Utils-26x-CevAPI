@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2014-2026 Wurst-Imperium and contributors.
+ *
+ * This source code is subject to the terms of the GNU General Public
+ * License, version 3. If a copy of the GPL was not distributed with this
+ * file, You can obtain one at: https://www.gnu.org/licenses/gpl-3.0.txt
+ */
 package com.ui_utils.uiutils.ui;
 
 import net.minecraft.client.gui.Font;
@@ -7,11 +14,13 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.client.input.MouseButtonEvent;
 
 /**
- * Text field with the modern frame. It keeps every vanilla editing behaviour and
+ * Text field with the modern frame. It keeps every vanilla editing behaviour
+ * and
  * only replaces the background, so scaled canvases render its text like any
  * other label.
  */
 public class UiInput extends EditBox implements UiScalable {
+	private final UiWidgetTooltip tooltips = new UiWidgetTooltip();
 	/** Horizontal and vertical inset vanilla uses for a bordered field. */
 	private static final int INNER_X = 4;
 
@@ -26,8 +35,10 @@ public class UiInput extends EditBox implements UiScalable {
 		setTextColor(UiTheme.textColor());
 		setTextColorUneditable(UiTheme.mutedTextColor());
 		setTextShadow(false);
-		// EditBox defaults to 32 characters. Callers often set their own limit only
-		// after construction; applying the initial value first silently truncated it.
+		// EditBox defaults to 32 characters. Callers often set their own limit
+		// only
+		// after construction; applying the initial value first silently
+		// truncated it.
 		setMaxLength(32767);
 		setValue(value == null ? "" : value);
 	}
@@ -72,7 +83,10 @@ public class UiInput extends EditBox implements UiScalable {
 		super.onDrag(textEvent(event), dx / uiScale, dy / uiScale);
 	}
 
-	/** Recompute the visible text window after the layout assigns its real width. */
+	/**
+	 * Recompute the visible text window after the layout assigns its real
+	 * width.
+	 */
 	public void refreshVisibleText() {
 		int cursor = getCursorPosition();
 		setCursorPosition(cursor);
@@ -87,6 +101,7 @@ public class UiInput extends EditBox implements UiScalable {
 	@Override
 	public void extractWidgetRenderState(GuiGraphicsExtractor graphics,
 		int mouseX, int mouseY, float partialTicks) {
+		isHovered = tooltips.render(this, graphics, mouseX, mouseY);
 		setTextColor(UiTheme.textColor());
 		setTextColorUneditable(UiTheme.mutedTextColor());
 		int savedX = getX();
@@ -104,8 +119,10 @@ public class UiInput extends EditBox implements UiScalable {
 		UiTheme.border(graphics, x, y, w, h,
 			hot ? UiTheme.mix(UiTheme.borderColor(), accent, 0.6F) : UiTheme.borderColor());
 
-		// An unbordered EditBox draws its text at the widget origin, which would put
-		// it on top of the frame, so the field is temporarily inset while vanilla
+		// An unbordered EditBox draws its text at the widget origin, which
+		// would put
+		// it on top of the frame, so the field is temporarily inset while
+		// vanilla
 		// draws the text, the hint and the caret.
 		int insetY = Math.max(0, (h - 8) / 2);
 		setX(x + INNER_X);
@@ -124,4 +141,25 @@ public class UiInput extends EditBox implements UiScalable {
 			UiTheme.popWidgetScale(graphics, scaled);
 		}
 	}
+	@Override
+	public void updateWidgetNarration(net.minecraft.client.gui.narration.NarrationElementOutput narration)
+	{
+		super.updateWidgetNarration(narration);
+		tooltips.narrate(narration);
+	}
+
+	@Override
+	public void setTooltip(net.minecraft.client.gui.components.Tooltip tooltip)
+	{
+		tooltips.set(tooltip);
+		// Defer only the screen-coordinate tooltip; native widget hover still uses design units.
+		super.setTooltip(null);
+	}
+
+	@Override
+	public void setTooltipDelay(java.time.Duration delay)
+	{
+		tooltips.setDelay(delay);
+	}
+
 }

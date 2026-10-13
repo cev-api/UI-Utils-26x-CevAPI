@@ -1,4 +1,13 @@
+/*
+ * Copyright (c) 2014-2026 Wurst-Imperium and contributors.
+ *
+ * This source code is subject to the terms of the GNU General Public
+ * License, version 3. If a copy of the GPL was not distributed with this
+ * file, You can obtain one at: https://www.gnu.org/licenses/gpl-3.0.txt
+ */
 package com.ui_utils.uiutils.ui;
+
+import com.ui_utils.uiutils.McCompat;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -8,13 +17,14 @@ import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.InputWithModifiers;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
-import com.ui_utils.uiutils.McCompat;
 
 /**
- * Themed button. It never rescales its own label: the owning canvas keeps text at
+ * Themed button. It never rescales its own label: the owning canvas keeps text
+ * at
  * one size for the whole screen and long labels are ellipsized instead.
  */
 public class UiButton extends AbstractButton implements UiScalable {
+	private final UiWidgetTooltip tooltips = new UiWidgetTooltip();
 	public enum Kind {
 		PRIMARY,
 		SECONDARY,
@@ -83,7 +93,9 @@ public class UiButton extends AbstractButton implements UiScalable {
 		return this;
 	}
 
-	/** Design-unit scale applied when the button is not inside a scaled panel. */
+	/**
+	 * Design-unit scale applied when the button is not inside a scaled panel.
+	 */
 	public UiButton uiScale(float value) {
 		this.uiScale = value <= 0F ? 1F : value;
 		return this;
@@ -125,6 +137,7 @@ public class UiButton extends AbstractButton implements UiScalable {
 	@Override
 	protected void extractContents(GuiGraphicsExtractor graphics, int mouseX,
 		int mouseY, float partialTicks) {
+		isHovered = tooltips.render(this, graphics, mouseX, mouseY);
 		Font font = Minecraft.getInstance().font;
 		boolean scaled = UiTheme.pushWidgetScale(graphics, getX(), getY(), uiScale);
 		int x = scaled ? 0 : getX();
@@ -182,6 +195,21 @@ public class UiButton extends AbstractButton implements UiScalable {
 
 	@Override
 	protected void updateWidgetNarration(NarrationElementOutput narration) {
+		tooltips.narrate(narration);
 		defaultButtonNarrationText(narration);
 	}
+	@Override
+	public void setTooltip(net.minecraft.client.gui.components.Tooltip tooltip)
+	{
+		tooltips.set(tooltip);
+		// Defer only the screen-coordinate tooltip; native widget hover still uses design units.
+		super.setTooltip(null);
+	}
+
+	@Override
+	public void setTooltipDelay(java.time.Duration delay)
+	{
+		tooltips.setDelay(delay);
+	}
+
 }

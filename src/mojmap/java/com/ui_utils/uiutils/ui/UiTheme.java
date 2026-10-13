@@ -5,6 +5,7 @@ import com.ui_utils.uiutils.UiUtilsScannerTheme;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.network.chat.Component;
 import org.joml.Matrix3x2fStack;
 
 /**
@@ -322,6 +323,20 @@ public final class UiTheme {
 	/** Baseline y that vertically centres one line of text inside a row. */
 	public static int textY(Font font, int rowY, int rowHeight) {
 		return rowY + (rowHeight - lineHeight(font) + 1) / 2;
+	}
+
+	/** Clips styled text without losing bold or other component formatting. */
+	public static FormattedCharSequence ellipsize(Font font, Component value,
+		int maxWidth)
+	{
+		int width = maxWidth <= 0 ? 0 : textWidth(maxWidth);
+		if(font.width(value) <= width)
+			return value.getVisualOrderText();
+		Component suffix = Component.literal(font.width("...") <= width ? "..." : "")
+			.setStyle(value.getStyle());
+		var clipped = font.substrByWidth(value, Math.max(0, width - font.width(suffix)));
+		return net.minecraft.locale.Language.getInstance().getVisualOrder(
+			net.minecraft.network.chat.FormattedText.composite(clipped, suffix));
 	}
 
 	public static String ellipsize(Font font, String value, int maxWidth) {

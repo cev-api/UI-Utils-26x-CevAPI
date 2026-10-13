@@ -12,6 +12,7 @@ import net.minecraft.network.chat.Component;
  * {@link UiModernScreen}, such as the in-game UI-Utils button panel.
  */
 public class UiPanel extends AbstractWidget implements UiScalable {
+	private final UiWidgetTooltip tooltips = new UiWidgetTooltip();
 	private final boolean header;
 	private boolean centered;
 	private float uiScale = 1F;
@@ -45,6 +46,7 @@ public class UiPanel extends AbstractWidget implements UiScalable {
 	@Override
 	protected void extractWidgetRenderState(GuiGraphicsExtractor graphics,
 		int mouseX, int mouseY, float partialTicks) {
+		isHovered = tooltips.render(this, graphics, mouseX, mouseY);
 		boolean scaled = UiTheme.pushWidgetScale(graphics, getX(), getY(), uiScale);
 		int x = scaled ? 0 : getX();
 		int y = scaled ? 0 : getY();
@@ -75,5 +77,19 @@ public class UiPanel extends AbstractWidget implements UiScalable {
 
 	@Override
 	protected void updateWidgetNarration(NarrationElementOutput narration) {
+		tooltips.narrate(narration);
+	}
+	@Override
+	public void setTooltip(net.minecraft.client.gui.components.Tooltip tooltip)
+	{
+		tooltips.set(tooltip);
+		// Defer only the screen-coordinate tooltip; native widget hover still uses design units.
+		super.setTooltip(null);
+	}
+
+	@Override
+	public void setTooltipDelay(java.time.Duration delay)
+	{
+		tooltips.setDelay(delay);
 	}
 }

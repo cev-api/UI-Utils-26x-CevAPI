@@ -152,6 +152,7 @@ public final class UiUtilsSettings {
 		public String dupeDbApiKey = "";
 		public boolean dupeDbEnabled = false;
 		public boolean dupeDbScanOnLaunch = true;
+		public boolean dupeDbCheckServerIp = true;
 
 		public int fabricateOverlayBgAlpha = 120;
 
