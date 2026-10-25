@@ -13,7 +13,6 @@ public final class UiUtilsCommandSystem {
 	private static final String PREFIX = "[UI-Utils] ";
 	private static final String NL = String.valueOf((char)10);
 	public static final String ROOT_COMMAND = ".uiutils";
-	public static final String ALT_ROOT_COMMAND = "uiutils";
 	public static final String[] SUBCOMMANDS = {"help", "enable", "disable",
 		"close", "desync", "apt", "advancedpacketscanner",
 		"advancedpackettool", "chat", "screen", "plugins", "legacyplugins",
@@ -70,22 +69,17 @@ public final class UiUtilsCommandSystem {
 		if (text == null)
 			return false;
 		String lower = text.toLowerCase(Locale.ROOT);
-		return lower.equals(ROOT_COMMAND) || lower.startsWith(ROOT_COMMAND + " ")
-			|| lower.equals(ALT_ROOT_COMMAND)
-			|| lower.startsWith(ALT_ROOT_COMMAND + " ");
+		return lower.equals(ROOT_COMMAND) || lower.startsWith(ROOT_COMMAND + " ");
 	}
 
 	public static String extractCommandBody(String text) {
 		if (text == null || text.isBlank())
 			return "";
-		if (text.equalsIgnoreCase(ROOT_COMMAND)
-			|| text.equalsIgnoreCase(ALT_ROOT_COMMAND))
+		if (text.equalsIgnoreCase(ROOT_COMMAND))
 			return "help";
 		String lower = text.toLowerCase(Locale.ROOT);
 		if (lower.startsWith(ROOT_COMMAND + " "))
 			return text.substring(ROOT_COMMAND.length()).trim();
-		if (lower.startsWith(ALT_ROOT_COMMAND + " "))
-			return text.substring(ALT_ROOT_COMMAND.length()).trim();
 		return "";
 	}
 	
@@ -100,7 +94,7 @@ public final class UiUtilsCommandSystem {
 	}
 	
 	private static String help() {
-		return PREFIX + "Usage: .uiutils <command> (or uiutils <command>)" + NL
+		return PREFIX + "Usage: .uiutils <command>" + NL
 			+ PREFIX
 			+ "Commands: help, enable, disable, close, desync, apt, chat, screen, plugins, commands, queue, packethud, delay, closedelay, commanddelay, sendpackets, autoduper, disconnectmethod, timeout, lagmethod, settings, macro, nbt"
 			+ NL + PREFIX

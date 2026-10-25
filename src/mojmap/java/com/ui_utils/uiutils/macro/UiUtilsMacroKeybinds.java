@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-/** Rising-edge tracking shared by all saved macro bindings. */
+/** Rising-edge tracking shared by all saved macro bindings, which toggle on press. */
 public final class UiUtilsMacroKeybinds {
     private final Map<String, Boolean> keyDown = new HashMap<>();
 

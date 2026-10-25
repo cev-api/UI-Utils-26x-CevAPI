@@ -869,7 +869,9 @@ public final class UiUtilsAutoduper {
 
 	private static void tickAbortKey(Minecraft mc) {
 		if(!UiUtilsSettings.get().autoduperAbortHoldEnabled
-			|| mc.getWindow() == null) {
+			|| mc.getWindow() == null
+			// Typing must never count as an abort hold, e.g. holding space in chat.
+			|| UiUtils.isTypingIntoTextField(mc)) {
 			abortHoldTicks = 0;
 			return;
 		}

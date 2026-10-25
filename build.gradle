@@ -70,3 +70,11 @@ publishing {
 	repositories {
 	}
 }
+
+tasks.register("verboseCaptureRegressionTest",JavaExec){
+ dependsOn tasks.named("testClasses")
+ classpath=sourceSets.test.runtimeClasspath
+ mainClass="com.ui_utils.packettools.VerboseCaptureRegressionTest"
+}
+tasks.named("test"){exclude "com/ui_utils/packettools/VerboseCaptureRegressionTest*"}
+tasks.named("check"){dependsOn tasks.named("verboseCaptureRegressionTest")}

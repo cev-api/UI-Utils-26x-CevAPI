@@ -91,11 +91,9 @@ public final class UiUtils {
 		if (mc == null || mc.getWindow() == null)
 			return;
 
-		// Don't fire hotkeys while typing in chat/text fields, or while rebinding keys.
-		if (isTypingIntoTextField(mc)
-			|| McCompat.getScreen(mc) instanceof UiUtilsKeybindsScreen
-			|| McCompat.getScreen(mc) instanceof UiUtilsMacrosScreen
-			|| McCompat.getScreen(mc) instanceof UiUtilsStepEditScreen) {
+		// Don't fire hotkeys while typing in chat/text fields, while any UI-Utils
+		// screen (rebinders, editors, pickers) is open, or while binding a macro key.
+		if (isTypingIntoTextField(mc) || isUiUtilsScreen(mc)) {
 			updateKeybindEdges(mc, false);
 			UiUtilsMacroManager.get().updateKeybinds(mc, false);
 			return;
@@ -166,7 +164,12 @@ public final class UiUtils {
 		}
 	}
 
-	private static boolean isTypingIntoTextField(Minecraft mc) {
+	/**
+	 * True while a text field owns the keyboard: chat, sign/book editors, or any
+	 * focused input widget (including the UI-Utils chat box injected into
+	 * container and book screens). Every keybind path gates on this.
+	 */
+	public static boolean isTypingIntoTextField(Minecraft mc) {
 		Screen screen = McCompat.getScreen(mc);
 		if (screen == null)
 			return false;
@@ -190,10 +193,20 @@ public final class UiUtils {
 		return false;
 	}
 
+	/**
+	 * Every UI-Utils screen captures its own keys (rebinding, macro bind capture,
+	 * editors, pickers), so global hotkeys stay inert while one is open.
+	 */
+	private static boolean isUiUtilsScreen(Minecraft mc) {
+		Screen screen = McCompat.getScreen(mc);
+		return screen != null && screen.getClass().getName().startsWith("com.ui_utils.");
+	}
+
 	private static boolean isLikelyTextInputWidget(Object widget) {
 		String simple = widget.getClass().getSimpleName().toLowerCase(java.util.Locale.ROOT);
 		return simple.contains("editbox") || simple.contains("textfield")
-			|| simple.contains("textinput");
+			|| simple.contains("textinput") || simple.contains("textarea")
+			|| simple.contains("editor");
 	}
 
 	private static InputConstants.Key parseKey(String raw) {

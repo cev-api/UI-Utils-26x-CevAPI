@@ -11,6 +11,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -23,6 +24,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -75,6 +81,9 @@ public final class PacketDumper
 	private final PacketDecodeCoverage coverage;
 	private final PacketFilter filter;
 	private final EntityLifecycleTracker lifecycleTracker;
+	// ### ADDED ### Monotonic ordering is scoped to this logger/session instance.
+	private final long sessionStartNanos = System.nanoTime();
+	private final AtomicLong eventSequence = new AtomicLong();
 	
 	public PacketDumper(PacketDecodeCoverage coverage, PacketFilter filter,
 		EntityLifecycleTracker lifecycleTracker)
@@ -86,11 +95,21 @@ public final class PacketDumper
 	
 	public String dump(Packet<?> packet, String direction, String bundlePath)
 	{
+		long observedNanos = System.nanoTime();
+		OffsetDateTime observedAt = OffsetDateTime.now();
 		if(!filter.matches(packet))
 			return null;
 		
 		Map<String, Object> root = new LinkedHashMap<>();
 		root.put("timestamp", LocalDateTime.now().format(ISO_FORMAT));
+		// ### ADDED ### Preserve legacy timestamp and add precise local observation timing.
+		root.put("observedAt", observedAt.toString());
+		root.put("timestampEpochMillis", observedAt.toInstant().toEpochMilli());
+		root.put("monotonicNanos", observedNanos);
+		root.put("sessionElapsedNanos", observedNanos - sessionStartNanos);
+		root.put("eventSequence", eventSequence.incrementAndGet());
+		root.put("threadName", Thread.currentThread().getName());
+		root.put("captureStage", "LOGGER_OBSERVATION");
 		root.put("direction", direction);
 		root.put("class", packet.getClass().getName());
 		root.put("simpleName", packet.getClass().getSimpleName());
@@ -175,6 +194,7 @@ public final class PacketDumper
 	{
 		Map<String, Object> f = new LinkedHashMap<>();
 		dumpViaReflection(packet, f);
+		augmentBookContent(packet, f);
 		
 		boolean hasSpecial = false;
 		
@@ -237,6 +257,70 @@ public final class PacketDumper
 			coverage.record(packet, DecodeLevel.FALLBACK_ONLY);
 		
 		return f;
+	}
+
+	// ### ADDED ### Summarize book payloads without copying full page text into logs.
+	private void augmentBookContent(Packet<?> packet, Map<String, Object> fields)
+	{
+		String packetName = packet.getClass().getSimpleName();
+		if(!packetName.contains("EditBook") && !packetName.contains("SignBook")
+			&& !packetName.contains("BookUpdate"))
+			return;
+		List<?> pages = null;
+		Object title = null;
+		Object slot = null;
+		for(FieldAccessor accessor : getCachedAccessors(packet.getClass()))
+		{
+			String name = accessor.name().toLowerCase(java.util.Locale.ROOT);
+			Object value = accessor.get(packet);
+			if(name.contains("page") && value instanceof List<?> list)
+				pages = list;
+			else if(name.contains("title"))
+			{
+				Object unwrapped = value instanceof Optional<?> optional
+					? optional.orElse(null) : value;
+				if(unwrapped instanceof String)
+					title = unwrapped;
+			}
+			else if((name.contains("slot") || name.contains("hand"))
+				&& value != null)
+				slot = value;
+		}
+		if(pages == null)
+			return;
+		List<String> pageStrings = new ArrayList<>();
+		for(Object pageValue : pages)
+			pageStrings.add(pageValue instanceof String text ? text : String.valueOf(pageValue));
+		String signedState = title != null || packetName.contains("SignBook")
+			? "SIGNED_PACKET_TYPE" : "UNSIGNED_PACKET_TYPE";
+		Map<String, Object> summary = BookContentSummaries.fromStrings(pageStrings,
+			title instanceof String text ? text : null, null, signedState, true);
+		summary.put("signedStatus", signedState);
+		if(slot != null)
+			summary.put("referencedSlot", String.valueOf(slot));
+		summary.put("actualEncodedPacketSizeAvailable", false);
+		summary.put("estimatedContentAndFramingBytes",
+				((Number)summary.get("totalUtf8ByteCount")).longValue() + (long)pages.size() * 5
+				+ (title instanceof String text ? text.getBytes(StandardCharsets.UTF_8).length : 0));
+		fields.keySet().removeIf(key -> key.toLowerCase(java.util.Locale.ROOT)
+			.contains("page"));
+		fields.put("_bookContentSummary", summary);
+	}
+
+	private static MessageDigest newSha256()
+	{
+		try
+		{
+			return MessageDigest.getInstance("SHA-256");
+		}catch(NoSuchAlgorithmException e)
+		{
+			throw new IllegalStateException("SHA-256 is unavailable", e);
+		}
+	}
+
+	private static String sha256(byte[] bytes)
+	{
+		return HexFormat.of().formatHex(newSha256().digest(bytes));
 	}
 	
 	// === Reflection cache ===
@@ -511,10 +595,10 @@ public final class PacketDumper
 			int count = 0;
 			for(ItemStack stack : stacks)
 			{
-				if(count++ >= 128)
+				if(count++ >= 4096)
 				{
-					items.add(Map.of("_truncated", true, "_remainingCount",
-						stacks.size() - 128));
+					items.add(Map.of("_truncation", truncationMetadata(
+						stacks.size(), count - 1, 4096, "MAX_CONTAINER_SLOTS")));
 					break;
 				}
 				items.add(decodeItemStack(stack, 0,
@@ -745,6 +829,11 @@ public final class PacketDumper
 			return opt.map(v -> decodeValue(v, nextDepth, visited))
 				.orElse(null);
 		
+		// Book components bypass the generic 64-entry collection preview.
+		Map<String, Object> bookSummary = BookContentSummaries.fromComponent(value);
+		if(bookSummary != null)
+			return bookSummary;
+
 		// Registry types
 		if(value instanceof Holder<?> holder)
 			return decodeHolder(holder, nextDepth, visited);
@@ -893,7 +982,8 @@ public final class PacketDumper
 			{
 				if(count++ >= MAX_MAP_ENTRIES)
 				{
-					m.put("_truncated", true);
+					m.put("_truncation", truncationMetadata(map.size(), count - 1,
+						MAX_MAP_ENTRIES, "MAX_MAP_ENTRIES"));
 					break;
 				}
 				DataComponentType<?> type = entry.type();
@@ -917,8 +1007,8 @@ public final class PacketDumper
 			{
 				if(count++ >= MAX_COLLECTION_ITEMS)
 				{
-					list.add(Map.of("_truncated", true, "_remainingCount",
-						col.size() - MAX_COLLECTION_ITEMS));
+					list.add(Map.of("_truncation", truncationMetadata(col.size(),
+						count - 1, MAX_COLLECTION_ITEMS, "MAX_COLLECTION_ITEMS")));
 					break;
 				}
 				list.add(decodeValue(item, nextDepth, visited));
@@ -935,8 +1025,8 @@ public final class PacketDumper
 			{
 				if(count++ >= MAX_MAP_ENTRIES)
 				{
-					out.put("_truncated", true);
-					out.put("_remainingCount", map.size() - MAX_MAP_ENTRIES);
+					out.put("_truncation", truncationMetadata(map.size(), count - 1,
+						MAX_MAP_ENTRIES, "MAX_MAP_ENTRIES"));
 					break;
 				}
 				out.put(String.valueOf(e.getKey()),
@@ -1460,6 +1550,22 @@ public final class PacketDumper
 		decoded.put("base64",
 			bytes != null ? Base64.getEncoder().encodeToString(bytes) : null);
 		return decoded;
+	}
+
+	// ### ADDED ### Stable completeness metadata for bounded collections.
+	private static Map<String, Object> truncationMetadata(int originalSize,
+		int inspected, int limit, String reason)
+	{
+		Map<String, Object> metadata = new LinkedHashMap<>();
+		metadata.put("originalSize", originalSize);
+		metadata.put("inspectedCount", inspected);
+		metadata.put("representedCount", inspected);
+		metadata.put("omittedCount", Math.max(0, originalSize - inspected));
+		metadata.put("appliedLimit", limit);
+		metadata.put("reason", reason);
+		metadata.put("fullMetadataPreserved", false);
+		metadata.put("completeContentsExportedSeparately", false);
+		return metadata;
 	}
 	
 	// ---- Entry point ----

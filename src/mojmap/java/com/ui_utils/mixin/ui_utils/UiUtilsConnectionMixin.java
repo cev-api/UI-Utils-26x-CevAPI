@@ -35,6 +35,7 @@ public class UiUtilsConnectionMixin {
 	private void onSend(Packet<?> packet,
 		@Nullable ChannelFutureListener callback, CallbackInfo ci) {
 		if (((Connection)(Object)this).getSending() != net.minecraft.network.protocol.PacketFlow.SERVERBOUND) return;
+        AdvancedPacketTool.timing(packet,"C2S","SEND_REQUESTED");
         com.ui_utils.uiutils.macro.UiUtilsMacroRuntimeState.observeOutgoing(packet);
         if (UiUtilsState.xCarry && packet instanceof net.minecraft.network.protocol.game.ServerboundContainerClosePacket close && close.getContainerId() == 0) {
             ci.cancel(); return;
@@ -121,4 +122,32 @@ public class UiUtilsConnectionMixin {
 			ci.cancel();
 		}
 	}
+ @com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation(method="doSendPacket", at=@At(value="INVOKE", target="Lio/netty/channel/Channel;writeAndFlush(Ljava/lang/Object;)Lio/netty/channel/ChannelFuture;"))
+ private io.netty.channel.ChannelFuture wurst$writeFlush(io.netty.channel.Channel channel, Object message, com.llamalad7.mixinextras.injector.wrapoperation.Operation<io.netty.channel.ChannelFuture> original) {
+  var callback = AdvancedPacketTool.transportSubmitted((Packet<?>)message, true);
+  var future = original.call(channel,message);
+  future.addListener(done -> callback.accept(done.isSuccess(), done.cause() == null ? null : done.cause().toString()));
+  return future;
+ }
+ @com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation(method="doSendPacket", at=@At(value="INVOKE", target="Lio/netty/channel/Channel;write(Ljava/lang/Object;)Lio/netty/channel/ChannelFuture;"))
+ private io.netty.channel.ChannelFuture wurst$write(io.netty.channel.Channel channel, Object message, com.llamalad7.mixinextras.injector.wrapoperation.Operation<io.netty.channel.ChannelFuture> original) {
+  var callback = AdvancedPacketTool.transportSubmitted((Packet<?>)message, true);
+  var future = original.call(channel,message);
+  future.addListener(done -> callback.accept(done.isSuccess(), done.cause() == null ? null : done.cause().toString()));
+  return future;
+ }
+ @com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation(method="doSendPacket", at=@At(value="INVOKE", target="Lio/netty/channel/Channel;writeAndFlush(Ljava/lang/Object;Lio/netty/channel/ChannelPromise;)Lio/netty/channel/ChannelFuture;"))
+ private io.netty.channel.ChannelFuture wurst$voidWriteFlush(io.netty.channel.Channel channel, Object message, io.netty.channel.ChannelPromise promise, com.llamalad7.mixinextras.injector.wrapoperation.Operation<io.netty.channel.ChannelFuture> original) {
+  var callback = AdvancedPacketTool.transportSubmitted((Packet<?>)message, !promise.isVoid());
+  var future = original.call(channel,message,promise);
+  if(!promise.isVoid()) future.addListener(done -> callback.accept(done.isSuccess(), done.cause() == null ? null : done.cause().toString()));
+  return future;
+ }
+ @com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation(method="doSendPacket", at=@At(value="INVOKE", target="Lio/netty/channel/Channel;write(Ljava/lang/Object;Lio/netty/channel/ChannelPromise;)Lio/netty/channel/ChannelFuture;"))
+ private io.netty.channel.ChannelFuture wurst$voidWrite(io.netty.channel.Channel channel, Object message, io.netty.channel.ChannelPromise promise, com.llamalad7.mixinextras.injector.wrapoperation.Operation<io.netty.channel.ChannelFuture> original) {
+  var callback = AdvancedPacketTool.transportSubmitted((Packet<?>)message, !promise.isVoid());
+  var future = original.call(channel,message,promise);
+  if(!promise.isVoid()) future.addListener(done -> callback.accept(done.isSuccess(), done.cause() == null ? null : done.cause().toString()));
+  return future;
+ }
 }

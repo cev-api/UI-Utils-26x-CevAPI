@@ -160,7 +160,7 @@ older macros containing only numeric bindings may need rebinding when moved betw
     - Scrollable step list with draggable scrollbar
     - Undo/redo for editor changes
     - Loop toggle, plus Once (temporary) and Run (saved macro)
-    - Optional keybind assignment per macro
+    - Optional keybind assignment per macro (press to start, press again to stop)
   - The step options screen supports:
     - Context-aware fields per action type
     - Compact layout for simple actions
@@ -231,9 +231,7 @@ older macros containing only numeric bindings may need rebinding when moved betw
 
 ## UI‑Utils Commands
 
-Supported roots:
-- `.uiutils`
-- `uiutils`
+Root command: `.uiutils`
 
 Main commands:
 - `help`

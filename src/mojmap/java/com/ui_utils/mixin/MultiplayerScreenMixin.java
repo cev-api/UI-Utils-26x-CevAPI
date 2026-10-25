@@ -1,11 +1,13 @@
 package com.ui_utils.mixin;
 
+import java.util.List;
 import java.util.Locale;
 import com.ui_utils.uiutils.UiUtilsMultiplayerCompat;
 import com.ui_utils.uiutils.UiUtilsSettings;
 import com.ui_utils.uiutils.UiUtilsState;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Checkbox;
+import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.network.chat.CommonComponents;
@@ -78,6 +80,24 @@ public abstract class MultiplayerScreenMixin extends Screen {
 			removeWidget(backButton);
 		}
 		uiutils$layoutProtectionOptions();
+		uiutils$raiseProtectionOptionsForInput();
+	}
+
+	/**
+	 * Rendering order comes from {@code renderables}, but 26.x hit-tests
+	 * {@code children()} front-to-back and takes the first match, so a box that is
+	 * painted last would still lose its clicks to the server list underneath it.
+	 * Moving the boxes to the front makes the visible one win.
+	 */
+	@Unique
+	@SuppressWarnings("unchecked")
+	private void uiutils$raiseProtectionOptionsForInput() {
+		List<GuiEventListener> targets = (List<GuiEventListener>)children();
+		int front = 0;
+		for (Checkbox box : new Checkbox[] { uiUtils$bypassResourcePackBox,
+			uiUtils$forceDenyResourcePackBox, uiUtils$ignoreRegistrySyncBox })
+			if (box != null && targets.remove(box))
+				targets.add(front++, box);
 	}
 
 	@Unique

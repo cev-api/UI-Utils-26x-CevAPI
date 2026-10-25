@@ -38,7 +38,10 @@ public final class AdvancedPacketTool {
 	private static final Path LOG_DIR = FabricLoader.getInstance().getConfigDir().resolve("packet-logger");
 
 	private static boolean initialized;
-	private static boolean loggingEnabled;
+	private static volatile boolean loggingEnabled;
+ private static volatile VerboseCapture capture;
+ private static final java.util.concurrent.ConcurrentLinkedQueue<VerboseCapture> endingCaptures=new java.util.concurrent.ConcurrentLinkedQueue<>();
+ private static volatile long timingTick;
 	private static boolean denyEnabled;
 	private static boolean delayEnabled;
 	private static boolean fileOutput;
@@ -83,6 +86,9 @@ public final class AdvancedPacketTool {
 
 	private static final List<String> verboseJsonlBuffer = new ArrayList<>(512);
 	private static final List<String> verboseHumanBuffer = new ArrayList<>(512);
+	// ### ADDED ### Bound memory retained during prolonged output failures.
+	private static final int MAX_VERBOSE_BUFFER_LINES = 10_000;
+	private static long verboseDroppedRecords;
 	private static int verboseFlushTickCounter;
 
 	/**
@@ -110,6 +116,8 @@ public final class AdvancedPacketTool {
 	}
 
 	public static synchronized void onTick() {
+ timingTick++;
+ endingCaptures.removeIf(session->!session.worker.isAlive());
 		if (!initialized)
 			init();
 
@@ -121,12 +129,13 @@ public final class AdvancedPacketTool {
 		lastDelayEnabledState = delayEnabled;
 
 		if (lastLoggingState != loggingEnabled) {
+			// ### MODIFIED ### Flush the old session before switching output files.
+			if (lastLoggingState && !loggingEnabled)
+				flushVerboseBuffers();
 			currentLogFile = null;
-			// Start a fresh verbose log next time logging is switched on, and drop
-			// anything buffered when it is switched off.
+			// Start a fresh verbose log next time logging is switched on.
 			currentVerboseJsonlFile = null;
 			currentVerboseHumanFile = null;
-			discardVerboseBuffers();
 		}
 		lastLoggingState = loggingEnabled;
 
@@ -143,13 +152,14 @@ public final class AdvancedPacketTool {
 		}
 	}
 
-	private static synchronized void discardVerboseBuffers() {
-		synchronized (verboseJsonlBuffer) {
-			verboseJsonlBuffer.clear();
-		}
-		synchronized (verboseHumanBuffer) {
-			verboseHumanBuffer.clear();
-		}
+	// ### ADDED ### Called at connection teardown to drain the active capture.
+	public static synchronized void onDisconnected() {
+ endCapture();
+		flushVerboseBuffers();
+		// ### MODIFIED ### Delayed packets are not sent during disconnect cleanup.
+		delayedIncoming.clear();
+		delayedOutgoing.clear();
+		bypassOutput.clear();
 	}
 
 	public static synchronized boolean onOutgoing(net.minecraft.network.Connection source, Packet<?> packet) {
@@ -261,6 +271,7 @@ public final class AdvancedPacketTool {
 
 	public static synchronized void setLoggingEnabled(boolean value) {
 		loggingEnabled = value;
+ if(!value)endCapture();
 		saveSelectionConfig();
 		if (value) {
 			// Surfaces the two common reasons a verbose log looks empty: nothing
@@ -276,9 +287,11 @@ public final class AdvancedPacketTool {
 	}
 
 	public static synchronized void setVerboseEnabled(boolean value) {
-		if (!value)
-			discardVerboseBuffers();
+		// ### MODIFIED ### Do not discard observations when verbose mode stops.
+		if (verboseEnabled && !value)
+			flushVerboseBuffers();
 		verboseEnabled = value;
+ if(!value)endCapture();
 		saveSelectionConfig();
 	}
 
@@ -294,6 +307,7 @@ public final class AdvancedPacketTool {
 
 	public static synchronized void setFileOutput(boolean value) {
 		fileOutput = value;
+ endCapture();
 		saveSelectionConfig();
 	}
 
@@ -522,34 +536,73 @@ public final class AdvancedPacketTool {
 		return mc.level == null || mc.player == null;
 	}
 
-	private static synchronized void verboseDump(String direction, Packet<?> packet) {
-        Minecraft mc = Minecraft.getInstance();
-        if (!mc.isSameThread()) {
-            var session = mc.getConnection();
-            mc.execute(() -> { if (session == mc.getConnection()) verboseDump(direction, packet); }); return;
-        }
-		try {
-			if (packetDumper == null)
-				packetDumper = new PacketDumper(decodeCoverage, packetFilter, lifecycleTracker);
-			List<String> lines = packetDumper.dumpRecursive(packet, direction, null);
-			if (lines == null || lines.isEmpty())
-				return;
-			synchronized (verboseJsonlBuffer) {
-				verboseJsonlBuffer.addAll(lines);
-			}
-			if (verboseHumanReadable)
-				synchronized (verboseHumanBuffer) {
-					for (String line : lines)
-						verboseHumanBuffer.add(toHumanReadable(line));
-				}
-		} catch (Throwable t) {
-			UiUtils.LOGGER.warn("Verbose packet dump failed for {}",
-				packet.getClass().getSimpleName(), t);
+ private static synchronized VerboseCapture capture() {
+  if(!loggingEnabled || !verboseEnabled)return null;
+  if(capture==null)capture=new VerboseCapture(LOG_DIR,decodeCoverage,packetFilter,fileOutput);
+  return capture;
+ }
+ private static void endCapture(){VerboseCapture old=capture;capture=null;if(old!=null){old.close();endingCaptures.add(old);}}
+ private static synchronized boolean selectedTiming(Packet<?> packet,String direction){
+  if(!loggingEnabled || !verboseEnabled)return false;
+  String name=PacketCatalog.formatPacketName(packet);
+  return (direction.equals("S2C")?logS2C:logC2S).contains(name)||(verboseOutsideGame&&isOutsideGame());
+ }
+ public static void timing(Packet<?> packet,String direction,String stage){
+  if(!selectedTiming(packet,direction))return;
+  VerboseCapture owner=capture();if(owner==null)return;
+  var fields=owner.timing.observe(packet,direction,stage,System.nanoTime(),timingTick,java.util.Map.of());
+  owner.submit(()->owner.event(fields));
+ }
+ public static java.util.function.BiConsumer<Boolean,String> transportSubmitted(Packet<?> packet,boolean observable){
+  if(!selectedTiming(packet,"C2S"))return (ok,error)->{};
+  VerboseCapture owner=capture();if(owner==null)return (ok,error)->{};
+  var event=owner.timing.observe(packet,"C2S","TRANSPORT_SUBMITTED",System.nanoTime(),timingTick,java.util.Map.of("writeCompletionObservable",observable));
+  owner.submit(()->owner.event(event));
+  return (ok,error)->{var done=owner.timing.transportCompleted(event,System.nanoTime(),timingTick,ok,error);owner.submit(()->owner.event(done));};
+ }
+ public static void shutdown(){VerboseCapture old; synchronized(AdvancedPacketTool.class){old=capture;capture=null;if(old!=null)old.close();}if(old!=null)old.await();for(var previous:endingCaptures)previous.await();endingCaptures.clear();}
+ private static synchronized void verboseDump(String direction, Packet<?> packet) {
+  VerboseCapture owner=capture();if(owner==null)return;
+  var observed=owner.timing.observe(packet,direction,"PACKETTOOLS_OBSERVED",System.nanoTime(),timingTick,java.util.Map.of());
+  Packet<?> frozen=freezePacket(packet);
+  boolean readable=verboseHumanReadable,disk=fileOutput;
+  owner.submit(()->{
+   PacketDumper dumper=owner.dumper;
+   for(String line:dumper.dumpRecursive(frozen,direction,null)){
+    JsonObject record=JsonParser.parseString(line).getAsJsonObject();
+    record.add("timing",new com.google.gson.Gson().toJsonTree(observed));
+    record.add("loggerEncodedAt",record.get("timestamp"));
+    record.addProperty("timestamp",String.valueOf(observed.get("timestamp")));
+    record.addProperty("captureStage","PACKETTOOLS_OBSERVED");
+    record.addProperty("monotonicNanos",((Number)observed.get("monotonicNs")).longValue());
+    record.addProperty("threadName",String.valueOf(observed.get("thread")));
+    owner.line(record.toString(),readable,disk);
+   }
+  });
+ }
+ private static Packet<?> freezePacket(Packet<?> packet){
+  if(packet instanceof net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket p)
+   return new net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket(p.getContainerId(),p.getStateId(),p.getSlot(),p.getItem().copy());
+  if(packet instanceof net.minecraft.network.protocol.game.ClientboundContainerSetContentPacket p)
+   return new net.minecraft.network.protocol.game.ClientboundContainerSetContentPacket(p.containerId(),p.stateId(),p.items().stream().map(net.minecraft.world.item.ItemStack::copy).toList(),p.carriedItem().copy());
+  return packet;
+ }
+
+	// ### ADDED ### Keep JSON and human-readable queues bounded and report loss.
+	private static void appendVerboseLine(String line, boolean humanReadable) {
+		if (verboseJsonlBuffer.size() >= MAX_VERBOSE_BUFFER_LINES) {
+			verboseJsonlBuffer.remove(0);
+			if (!verboseHumanBuffer.isEmpty())
+				verboseHumanBuffer.remove(0);
+			verboseDroppedRecords++;
 		}
+		verboseJsonlBuffer.add(line);
+		if (humanReadable)
+			verboseHumanBuffer.add(toHumanReadable(line));
 	}
 
 	/** Flattens a dumped JSON line into a readable "Time DIR Class key=value ..." line. */
-	private static synchronized String toHumanReadable(String jsonLine) {
+	static String toHumanReadable(String jsonLine) {
 		try {
 			JsonObject obj = JsonParser.parseString(jsonLine).getAsJsonObject();
 			StringBuilder sb = new StringBuilder();
@@ -574,11 +627,7 @@ public final class AdvancedPacketTool {
 	}
 
 	private static synchronized void flushVerboseBuffers() {
-		// Defensive: never write verbose output while logging is switched off.
-		if (!loggingEnabled) {
-			discardVerboseBuffers();
-			return;
-		}
+		// ### MODIFIED ### Buffered records belong to the session that captured them.
 		if (!fileOutput) {
 			List<String> lines;
 			synchronized (verboseJsonlBuffer) {
@@ -593,11 +642,24 @@ public final class AdvancedPacketTool {
 			}
 			return;
 		}
+		List<String> jsonl = null;
+		List<String> human = null;
+		boolean jsonWritten = false;
 		try {
-			List<String> jsonl;
+			long dropped;
 			synchronized (verboseJsonlBuffer) {
 				jsonl = new ArrayList<>(verboseJsonlBuffer);
 				verboseJsonlBuffer.clear();
+				dropped = verboseDroppedRecords;
+				verboseDroppedRecords = 0;
+			}
+			if (dropped > 0) {
+				JsonObject loss = new JsonObject();
+				loss.addProperty("recordType", "CAPTURE_LOSS");
+				loss.addProperty("droppedRecordCount", dropped);
+				loss.addProperty("buffer", "verbose");
+				loss.addProperty("reason", "BUFFER_CAPACITY");
+				jsonl.add(0, loss.toString());
 			}
 			if (!jsonl.isEmpty()) {
 				if (currentVerboseJsonlFile == null)
@@ -606,13 +668,13 @@ public final class AdvancedPacketTool {
 				Files.createDirectories(LOG_DIR);
 				writeLines(currentVerboseJsonlFile, jsonl);
 			}
+			jsonWritten = true;
 
+			synchronized (verboseHumanBuffer) {
+				human = new ArrayList<>(verboseHumanBuffer);
+				verboseHumanBuffer.clear();
+			}
 			if (verboseHumanReadable) {
-				List<String> human;
-				synchronized (verboseHumanBuffer) {
-					human = new ArrayList<>(verboseHumanBuffer);
-					verboseHumanBuffer.clear();
-				}
 				if (!human.isEmpty()) {
 					if (currentVerboseHumanFile == null)
 						currentVerboseHumanFile = LOG_DIR.resolve("verbose-"
@@ -622,7 +684,47 @@ public final class AdvancedPacketTool {
 				}
 			}
 		} catch (IOException e) {
-			UiUtils.LOGGER.warn("Failed to flush verbose packet log", e);
+			if (!jsonWritten && jsonl != null)
+				requeueVerbose(jsonl, null);
+			if (human != null)
+				requeueVerbose(null, human);
+			UiUtils.LOGGER.warn("Failed to flush verbose packet log; records retained", e);
+		}
+	}
+
+	// ### ADDED ### Restore failed batches at the head while respecting queue bounds.
+	private static void requeueVerbose(List<String> jsonl, List<String> human) {
+		synchronized (verboseJsonlBuffer) {
+			if (jsonl != null) {
+				int overflow = Math.max(0, verboseJsonlBuffer.size() + jsonl.size()
+					- MAX_VERBOSE_BUFFER_LINES);
+				while (overflow > 0 && !verboseJsonlBuffer.isEmpty()) {
+					verboseJsonlBuffer.remove(verboseJsonlBuffer.size() - 1);
+					verboseDroppedRecords++;
+					overflow--;
+				}
+				if (overflow > 0) {
+					jsonl = new ArrayList<>(jsonl.subList(0,
+						Math.max(0, jsonl.size() - overflow)));
+					verboseDroppedRecords += overflow;
+				}
+				verboseJsonlBuffer.addAll(0, jsonl);
+			}
+			if (human != null) {
+				int overflow = Math.max(0, verboseHumanBuffer.size() + human.size()
+					- MAX_VERBOSE_BUFFER_LINES);
+				while (overflow > 0 && !verboseHumanBuffer.isEmpty()) {
+					verboseHumanBuffer.remove(verboseHumanBuffer.size() - 1);
+					verboseDroppedRecords++;
+					overflow--;
+				}
+				if (overflow > 0) {
+					human = new ArrayList<>(human.subList(0,
+						Math.max(0, human.size() - overflow)));
+					verboseDroppedRecords += overflow;
+				}
+				verboseHumanBuffer.addAll(0, human);
+			}
 		}
 	}
 

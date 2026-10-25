@@ -76,7 +76,16 @@ public final class UiUtilsMacroManager {
     /** Track edges even while input is suppressed so typing cannot queue a run. */
     public synchronized void updateKeybinds(Minecraft mc, boolean allowExecution) {
         keybinds.update(macros, macro -> McCompat.isKeyDown(mc, bindingKey(macro)),
-            allowExecution, this::execute);
+            allowExecution, this::toggle);
+    }
+
+    /** A bound key starts its macro, and stops it again while that macro is running. */
+    public synchronized boolean toggle(String name) {
+        if (UiUtilsMacroExecutor.isRunning(name)) {
+            UiUtilsMacroExecutor.stop();
+            return true;
+        }
+        return execute(name);
     }
 
     public static InputConstants.Key bindingKey(UiUtilsMacro macro) {

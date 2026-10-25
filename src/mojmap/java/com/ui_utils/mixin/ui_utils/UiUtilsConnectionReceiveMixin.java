@@ -23,6 +23,7 @@ public class UiUtilsConnectionReceiveMixin {
 		Packet<?> packet, CallbackInfo ci) {
 		if (((Connection)(Object)this).getReceiving() != net.minecraft.network.protocol.PacketFlow.CLIENTBOUND) return;
 
+		AdvancedPacketTool.timing(packet,"S2C","INBOUND_CONNECTION");
 		// Capture server evidence before packet tools can cancel the packet.
 		UiUtilsServerFingerprintCollector.onIncomingPacket((Connection)(Object)this, packet);
 		UiUtilsAntiCheatDetector.onIncomingPacket(packet);

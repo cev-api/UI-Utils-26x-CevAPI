@@ -64,6 +64,8 @@ public abstract class ClientCommonNetworkHandlerMixin
 	@Inject(at = @At("HEAD"), method = "onDisconnect")
 	private void uiutils$onDisconnect(DisconnectionDetails details, CallbackInfo ci)
 	{
+		// ### ADDED ### Preserve packet records before the connection is replaced.
+		com.ui_utils.packettools.AdvancedPacketTool.onDisconnected();
 		UiUtils.onServerDisconnect(connection);
 	}
 }

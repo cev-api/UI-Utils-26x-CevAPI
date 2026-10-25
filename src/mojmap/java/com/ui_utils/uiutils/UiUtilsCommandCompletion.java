@@ -20,11 +20,11 @@ public final class UiUtilsCommandCompletion {
         int rootEnd = first;
         while (rootEnd < before.length() && !Character.isWhitespace(before.charAt(rootEnd))) rootEnd++;
         String root = before.substring(first, rootEnd).toLowerCase(Locale.ROOT);
-        boolean rooted = root.equals(UiUtilsCommandSystem.ROOT_COMMAND) || root.equals(UiUtilsCommandSystem.ALT_ROOT_COMMAND);
+        boolean rooted = root.equals(UiUtilsCommandSystem.ROOT_COMMAND);
         if (!rooted) {
             if (rootEnd == before.length() && !root.isEmpty()
-                && (UiUtilsCommandSystem.ROOT_COMMAND.startsWith(root) || UiUtilsCommandSystem.ALT_ROOT_COMMAND.startsWith(root)))
-                return build(before, first, List.of(UiUtilsCommandSystem.ROOT_COMMAND, UiUtilsCommandSystem.ALT_ROOT_COMMAND));
+                && UiUtilsCommandSystem.ROOT_COMMAND.startsWith(root))
+                return build(before, first, List.of(UiUtilsCommandSystem.ROOT_COMMAND));
             if (!bareCommands || root.isEmpty() || !Arrays.stream(UiUtilsCommandSystem.SUBCOMMANDS).anyMatch(c -> c.startsWith(root))) return null;
         } else if (rootEnd == before.length()) {
             // Append the separator so the next Tab offers commands, not the root again.
